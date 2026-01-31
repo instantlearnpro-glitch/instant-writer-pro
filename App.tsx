@@ -59,6 +59,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
+  const [showFrameTools, setShowFrameTools] = useState(false);
   
   const editorContainerRef = useRef<HTMLDivElement>(null);
 
@@ -697,7 +698,15 @@ ${markerEnd}
   const onSelectionChange = (state: SelectionState, block: HTMLElement | null) => {
       setSelectionState(state);
       // Only update if not null, to avoid clearing selection when clicking toolbar
-      if (block) setActiveBlock(block);
+      if (block) {
+          setActiveBlock(block);
+          
+          // Automatically show frame tools if it's a shape
+          const isShape = block.matches('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud');
+          if (isShape || state.shape !== 'none') {
+              setShowFrameTools(true);
+          }
+      }
   };
 
   return (
@@ -716,6 +725,8 @@ ${markerEnd}
         onToggleCrop={handleToggleCrop}
         onPageBreak={handlePageBreak}
         onBlockStyleUpdate={handleBlockStyleUpdate}
+        showFrameTools={showFrameTools}
+        onToggleFrameTools={() => setShowFrameTools(!showFrameTools)}
         selectionState={selectionState}
         fileName={docState.fileName}
         selectedImage={selectedImage}

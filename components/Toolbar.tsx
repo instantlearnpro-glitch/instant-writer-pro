@@ -22,6 +22,8 @@ interface ToolbarProps {
   onToggleCrop: () => void;
   onPageBreak: () => void;
   onBlockStyleUpdate: (style: Record<string, string>) => void;
+  showFrameTools: boolean;
+  onToggleFrameTools: () => void;
   selectionState: SelectionState;
   fileName: string;
   selectedImage: HTMLImageElement | null;
@@ -46,6 +48,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onToggleCrop,
   onPageBreak,
   onBlockStyleUpdate,
+  showFrameTools,
+  onToggleFrameTools,
   selectionState,
   fileName,
   selectedImage,
@@ -55,8 +59,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onImagePropertyChange,
   onHRPropertyChange
 }) => {
-  const [showFrameTools, setShowFrameTools] = useState(false);
-
   const ButtonClass = (isActive: boolean) => 
     `p-2 rounded hover:bg-gray-100 transition-colors ${isActive ? 'bg-blue-100 text-blue-600' : 'text-gray-700'}`;
 
@@ -277,7 +279,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         <Minus size={18} />
                     </button>
                     <button 
-                        onClick={() => setShowFrameTools(!showFrameTools)} 
+                        onClick={onToggleFrameTools} 
                         className={ButtonClass(showFrameTools)} 
                         title="Frame / Borders (Toggle Controls)"
                     >
