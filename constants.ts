@@ -139,9 +139,9 @@ p {
 }
 
 .shape-cloud {
-    background-color: transparent; /* Ensure the div is see-through */
-    border: none; /* We use the SVG stroke for the border */
-    box-shadow: none; /* We can add this back later if needed, but for now, let's keep it simple */
+    background-color: transparent !important; /* Ensure the div is see-through */
+    border: none !important; /* We use the SVG stroke for the border */
+    box-shadow: none !important; /* We can add this back later if needed, but for now, let's keep it simple */
     position: relative;
     width: fit-content;
     text-align: center;
