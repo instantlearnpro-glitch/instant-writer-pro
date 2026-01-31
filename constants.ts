@@ -140,9 +140,6 @@ p {
 
 .shape-cloud {
     clip-path: url(#cloud-shape);
-    background-color: #e0f2f7; /* Light blue for cloud */
-    border: 1px solid #a7d9ed; /* Lighter border */
-    box-shadow: 2px 2px 5px rgba(0,0,0,0.1); /* Softer shadow */
     position: relative;
     width: fit-content;
     text-align: center;
