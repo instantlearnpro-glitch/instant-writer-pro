@@ -139,9 +139,9 @@ p {
 }
 
 .shape-cloud {
-    background-color: transparent !important; /* Ensure the div is see-through */
-    border: none !important; /* We use the SVG stroke for the border */
-    box-shadow: none !important; /* We can add this back later if needed, but for now, let's keep it simple */
+    clip-path: url(#cloud-shape);
+    background-color: #e0f2f7; /* Light blue for cloud shape */
+    border: none; /* Border doesn't follow clip-path well, handled by drop-shadow in App logic or box-shadow */
     position: relative;
     width: fit-content;
     text-align: center;
