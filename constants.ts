@@ -139,15 +139,12 @@ p {
 }
 
 .shape-cloud {
-    clip-path: polygon(25% 65%, 15% 50%, 20% 30%, 30% 15%, 45% 10%, 60% 12%, 75% 25%, 85% 40%, 80% 60%, 70% 75%, 60% 85%, 45% 88%, 35% 80%);
+    position: relative;
     width: fit-content;
     text-align: center;
     margin: 20px auto;
-    background-color: #e0f2f7; /* Light blue for cloud */
-    border: 1px solid #a7d9ed; /* Lighter border */
-    box-shadow: 2px 2px 5px rgba(0,0,0,0.1); /* Softer shadow */
-    position: relative;
     padding: 50px 60px; /* Adjust padding for the new shape */
+    /* The cloud shape is now provided by the Cloud SVG component */
 }
 /* Making it bumpy is hard with just CSS on the element itself without breaking text flow. 
    We stick to a rounded box with a "cartoon" thick border and shadow for reliability. */

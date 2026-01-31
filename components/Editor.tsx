@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import ImageOverlay from './ImageOverlay';
+import Cloud from './Cloud';
 
 interface EditorProps {
   htmlContent: string;
@@ -46,6 +47,15 @@ const Editor: React.FC<EditorProps> = ({
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [isReady, setIsReady] = useState(false);
+  const [cloudBlocks, setCloudBlocks] = useState<HTMLElement[]>([]);
+
+  // Find cloud blocks
+  useEffect(() => {
+    if (contentRef.current) {
+      const clouds = Array.from(contentRef.current.querySelectorAll('.shape-cloud')) as HTMLElement[];
+      setCloudBlocks(clouds);
+    }
+  }, [htmlContent]);
 
   // Initialize content
   useEffect(() => {
@@ -266,7 +276,28 @@ const Editor: React.FC<EditorProps> = ({
             contentEditable={!imageProperties.isCropping}
             onKeyDown={handleKeyDown}
             suppressContentEditableWarning={true}
-        />
+        >
+          {cloudBlocks.map((block, index) => {
+            const rect = block.getBoundingClientRect();
+            const containerRect = containerRef.current?.getBoundingClientRect();
+            if (!containerRect) return null;
+            return (
+              <div
+                key={index}
+                style={{
+                  position: 'absolute',
+                  top: rect.top - containerRect.top + containerRef.current.scrollTop,
+                  left: rect.left - containerRect.left,
+                  width: rect.width,
+                  height: rect.height,
+                  pointerEvents: 'none'
+                }}
+              >
+                <Cloud />
+              </div>
+            );
+          })}
+        </div>
         
         {selectedImage && (
             <ImageOverlay 
