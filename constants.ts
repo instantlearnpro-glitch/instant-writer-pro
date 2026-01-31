@@ -139,15 +139,15 @@ p {
 }
 
 .shape-cloud {
-    /* Cartoon Cloud approximation using borders */
-    border-radius: 20px !important;
+    border-radius: 50% 40% 60% 50% / 60% 50% 50% 40%;
     width: fit-content;
     text-align: center;
     margin: 20px auto;
-    background-color: #fff;
-    border: 3px solid #000; /* Cartoon outline */
-    box-shadow: 4px 4px 0px rgba(0,0,0,0.2); /* Cartoon drop shadow */
+    background-color: #e0f2f7; /* Light blue for cloud */
+    border: 1px solid #a7d9ed; /* Lighter border */
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.1); /* Softer shadow */
     position: relative;
+    padding: 15px 25px; /* Add some padding for content */
 }
 /* Making it bumpy is hard with just CSS on the element itself without breaking text flow. 
    We stick to a rounded box with a "cartoon" thick border and shadow for reliability. */
