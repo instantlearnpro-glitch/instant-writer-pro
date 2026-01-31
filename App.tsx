@@ -187,6 +187,14 @@ ${tagName} {
               if (value !== 'none') {
                   activeBlock.style.borderRadius = ''; 
                   activeBlock.classList.add(`shape-${value}`);
+
+                  // Set default styles for cloud
+                  if (value === 'cloud') {
+                      (activeBlock.style as any).backgroundColor = '#e0f2f7';
+                      (activeBlock.style as any).borderColor = '#a7d9ed';
+                      (activeBlock.style as any).borderWidth = '1px';
+                  }
+
               } else {
                   // If resetting to rectangle (none), ensure we don't keep shape behavior
                   // (inline borderRadius might still exist from manual slider, which is fine)
