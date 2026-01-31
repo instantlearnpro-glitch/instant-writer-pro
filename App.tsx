@@ -182,20 +182,30 @@ ${tagName} {
               // Remove existing shape classes
               activeBlock.classList.remove('shape-circle', 'shape-pill', 'shape-speech', 'shape-cloud');
               
-              // Remove inline border-radius if setting a specific shape class,
-              // because the class should take precedence unless manually overridden later
+              // Remove inline styles when changing shape
+              activeBlock.style.filter = '';
+              activeBlock.style.border = '';
+              
               if (value !== 'none') {
-                  activeBlock.style.borderRadius = ''; 
                   activeBlock.classList.add(`shape-${value}`);
-              } else {
-                  // If resetting to rectangle (none), ensure we don't keep shape behavior
-                  // (inline borderRadius might still exist from manual slider, which is fine)
               }
           } 
-          // Special case for pudding (padding)
           else if (key === 'padding') {
               (activeBlock.style as any).padding = value;
-          } else {
+          } else if (activeBlock.classList.contains('shape-cloud') && (key === 'borderWidth' || key === 'borderColor')) {
+              const newStyles = { ...selectionState, ...styles };
+              const width = parseInt(newStyles.borderWidth || '0');
+              const color = newStyles.borderColor || '#000000';
+              if (width > 0) {
+                  const shadow = `drop-shadow(0 0 ${width}px ${color})`;
+                  activeBlock.style.filter = shadow;
+                  // Clear border since we are using filter
+                  activeBlock.style.border = 'none';
+              } else {
+                  activeBlock.style.filter = 'none';
+              }
+          }
+          else {
               (activeBlock.style as any)[key] = value;
           }
       });
