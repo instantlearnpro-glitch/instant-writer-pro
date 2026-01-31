@@ -139,7 +139,7 @@ p {
 }
 
 .shape-cloud {
-    clip-path: polygon(4% 59%, 1% 47%, 2% 35%, 5% 26%, 11% 16%, 19% 8%, 28% 4%, 38% 2%, 48% 3%, 58% 6%, 68% 12%, 77% 20%, 84% 31%, 88% 41%, 91% 52%, 92% 62%, 91% 72%, 88% 82%, 83% 89%, 76% 94%, 68% 97%, 58% 98%, 48% 98%, 38% 96%, 28% 92%, 19% 86%, 11% 77%, 6% 68%);
+    clip-path: polygon(25% 65%, 15% 50%, 20% 30%, 30% 15%, 45% 10%, 60% 12%, 75% 25%, 85% 40%, 80% 60%, 70% 75%, 60% 85%, 45% 88%, 35% 80%);
     width: fit-content;
     text-align: center;
     margin: 20px auto;
@@ -147,7 +147,7 @@ p {
     border: 1px solid #a7d9ed; /* Lighter border */
     box-shadow: 2px 2px 5px rgba(0,0,0,0.1); /* Softer shadow */
     position: relative;
-    padding: 40px 50px; /* Adjust padding for the new shape */
+    padding: 50px 60px; /* Adjust padding for the new shape */
 }
 /* Making it bumpy is hard with just CSS on the element itself without breaking text flow. 
    We stick to a rounded box with a "cartoon" thick border and shadow for reliability. */
