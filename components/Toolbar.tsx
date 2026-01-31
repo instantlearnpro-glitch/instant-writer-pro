@@ -9,6 +9,8 @@ import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
 
 interface ToolbarProps {
+  isSidebarOpen: boolean;
+  onToggleSidebar: () => void;
   onFormat: (command: string, value?: string) => void;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onInsertImage: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -30,8 +32,10 @@ interface ToolbarProps {
   onHRPropertyChange: (prop: keyof HRProperties, value: any) => void;
 }
 
-const Toolbar: React.FC<ToolbarProps> = ({ 
-  onFormat, 
+const Toolbar: React.FC<ToolbarProps> = ({
+  isSidebarOpen,
+  onToggleSidebar,
+  onFormat,
   onFileUpload, 
   onInsertImage,
   onSave, 
@@ -242,6 +246,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 <h1 className="font-bold text-lg text-gray-800 tracking-tight flex items-center gap-2">
                     <span className="bg-blue-600 text-white p-1 rounded">SW</span>
                 </h1>
+                <button onClick={onToggleSidebar} className={ButtonClass(false)} title="Toggle Sidebar">
+                    {isSidebarOpen ? <PanelLeft size={18} /> : <PanelRight size={18} />}
+                </button>
                 </div>
 
                 <div className="flex items-center space-x-1 border-r border-gray-200 pr-2">

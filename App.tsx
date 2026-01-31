@@ -56,6 +56,8 @@ const App: React.FC = () => {
 
   const [pageCount, setPageCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
   const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
   
   const editorContainerRef = useRef<HTMLDivElement>(null);
@@ -652,7 +654,9 @@ ${markerEnd}
 
   return (
     <div className="flex flex-col h-screen bg-white">
-      <Toolbar 
+      <Toolbar
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         onFormat={handleFormat} 
         onFileUpload={handleFileUpload}
         onInsertImage={handleInsertImage}
@@ -675,7 +679,8 @@ ${markerEnd}
       />
       
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar 
+        <Sidebar
+          isSidebarOpen={isSidebarOpen}
           pageCount={pageCount} 
           currentPage={currentPage}
           onPageSelect={scrollToPage}
