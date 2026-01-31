@@ -141,7 +141,7 @@ p {
 .shape-cloud {
     clip-path: url(#cloud-shape);
     background-color: #e0f2f7; /* Light blue for cloud shape */
-    border: none; /* Border doesn't follow clip-path well, handled by drop-shadow in App logic or box-shadow */
+    border: none;
     position: relative;
     width: fit-content;
     text-align: center;

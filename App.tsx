@@ -182,30 +182,14 @@ ${tagName} {
               // Remove existing shape classes
               activeBlock.classList.remove('shape-circle', 'shape-pill', 'shape-speech', 'shape-cloud');
               
-              // Remove inline styles when changing shape
-              activeBlock.style.filter = '';
-              activeBlock.style.border = '';
-              
               if (value !== 'none') {
+                  activeBlock.style.borderRadius = ''; 
                   activeBlock.classList.add(`shape-${value}`);
               }
           } 
           else if (key === 'padding') {
               (activeBlock.style as any).padding = value;
-          } else if (activeBlock.classList.contains('shape-cloud') && (key === 'borderWidth' || key === 'borderColor')) {
-              const newStyles = { ...selectionState, ...styles };
-              const width = parseInt(newStyles.borderWidth || '0');
-              const color = newStyles.borderColor || '#000000';
-              if (width > 0) {
-                  const shadow = `drop-shadow(0 0 ${width}px ${color})`;
-                  activeBlock.style.filter = shadow;
-                  // Clear border since we are using filter
-                  activeBlock.style.border = 'none';
-              } else {
-                  activeBlock.style.filter = 'none';
-              }
-          }
-          else {
+          } else {
               (activeBlock.style as any)[key] = value;
           }
       });

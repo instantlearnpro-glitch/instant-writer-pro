@@ -288,3 +288,5 @@ const Editor: React.FC<EditorProps> = ({
 };
 
 export default Editor;
+
+export default Editor;
