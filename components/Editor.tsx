@@ -118,13 +118,42 @@ const Editor: React.FC<EditorProps> = ({
         state.padding = parseInt(computed.paddingTop || '0').toString();
         state.backgroundColor = rgbToHex(computed.backgroundColor);
         state.textAlign = computed.textAlign;
+        // Read width if explicit, otherwise let toolbar handle default
+        state.width = activeBlock.style.width || '';
 
         // Detect Shape
-        if (activeBlock.classList.contains('shape-circle')) state.shape = 'circle';
-        else if (activeBlock.classList.contains('shape-pill')) state.shape = 'pill';
-        else if (activeBlock.classList.contains('shape-speech')) state.shape = 'speech';
-        else if (activeBlock.classList.contains('shape-cloud')) state.shape = 'cloud';
-        else state.shape = 'none';
+        const shapeContainer = activeBlock.closest('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud') as HTMLElement;
+        if (shapeContainer) {
+            if (shapeContainer.classList.contains('shape-circle')) state.shape = 'circle';
+            else if (shapeContainer.classList.contains('shape-pill')) state.shape = 'pill';
+            else if (shapeContainer.classList.contains('shape-speech')) state.shape = 'speech';
+            else if (shapeContainer.classList.contains('shape-cloud')) state.shape = 'cloud';
+            else state.shape = 'none'; // mission-box or tracing-line don't have a shape type in the dropdown
+        } else {
+            state.shape = 'none';
+        }
+
+        // Detect Alignment for Shapes
+        if (shapeContainer) {
+            const computedContainer = window.getComputedStyle(shapeContainer);
+            const ml = parseInt(computedContainer.marginLeft);
+            const mr = parseInt(computedContainer.marginRight);
+            
+            // Heuristic for alignment
+            if (ml < 10 && mr > 10) {
+                state.alignLeft = true;
+                state.alignCenter = false;
+                state.alignRight = false;
+            } else if (mr < 10 && ml > 10) {
+                state.alignLeft = false;
+                state.alignCenter = false;
+                state.alignRight = true;
+            } else {
+                state.alignLeft = false;
+                state.alignCenter = true;
+                state.alignRight = false;
+            }
+        }
     }
 
     onSelectionChange(state, activeBlock);
@@ -286,7 +315,5 @@ const Editor: React.FC<EditorProps> = ({
     </div>
   );
 };
-
-export default Editor;
 
 export default Editor;

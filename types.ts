@@ -29,6 +29,7 @@ export interface SelectionState {
   borderStyle: string;
   textAlign: string;
   shape: string; // New property for shape class
+  width?: string;
 }
 
 export interface HRProperties {

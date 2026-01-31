@@ -462,6 +462,20 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 
                 <div className="w-px h-4 bg-gray-300"></div>
 
+                {/* Width */}
+                <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-600 flex items-center gap-1"><MoveHorizontal size={10} /> Width:</label>
+                    <input 
+                        type="range" min="10" max="100" step="5"
+                        value={parseInt(selectionState.width || '0') || 100}
+                        onChange={(e) => handleBorderUpdate('width', e.target.value + '%')}
+                        className="w-20 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <span className="text-xs text-gray-600 w-6 text-right">{parseInt(selectionState.width || '0') || 'Auto'}%</span>
+                </div>
+
+                <div className="w-px h-4 bg-gray-300"></div>
+
                 {/* Text Align inside Frame */}
                 <div className="flex items-center gap-1">
                     <button onClick={() => handleBorderUpdate('textAlign', 'left')} className={ButtonClass(selectionState.textAlign === 'left')}><AlignLeft size={14} /></button>

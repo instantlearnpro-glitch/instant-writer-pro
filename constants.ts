@@ -91,6 +91,7 @@ p {
     min-width: 100px;
     min-height: 100px;
     background-color: #fff; /* Default to white for visibility */
+    cursor: pointer;
 }
 
 .shape-pill {
@@ -101,6 +102,7 @@ p {
     margin: 10px auto;
     text-align: center;
     background-color: #fff;
+    cursor: pointer;
 }
 
 .shape-speech {
@@ -110,6 +112,7 @@ p {
     position: relative;
     background-color: #fff;
     border: 2px solid #000;
+    cursor: pointer;
 }
 /* Speech bubble tail effect using pseudo-element */
 .shape-speech::after {
@@ -148,6 +151,7 @@ p {
     margin: 20px auto;
     padding: 50px 60px; /* Adjust padding for the new shape */
     box-sizing: border-box; /* Ensure padding is included in the element's total width and height */
+    cursor: pointer;
 }
 /* Making it bumpy is hard with just CSS on the element itself without breaking text flow. 
    We stick to a rounded box with a "cartoon" thick border and shadow for reliability. */
@@ -158,6 +162,7 @@ p {
     margin: 20px 0;
     background: #fafafa;
     font-family: 'Roboto', sans-serif;
+    cursor: pointer;
 }
 
 .tracing-line {
@@ -172,6 +177,7 @@ p {
     background-position: 0 48px;
     background-repeat: repeat-y;
     margin-bottom: 10px;
+    cursor: pointer;
 }
 
 /* --- Table of Contents Styles --- */

@@ -129,6 +129,60 @@ const App: React.FC = () => {
         setSelectedHR(null);
         return;
     }
+
+    // 1. Check for Shape Alignment FIRST
+    if (command === 'justifyLeft' || command === 'justifyCenter' || command === 'justifyRight') {
+        // Use direct DOM check to find if we are inside a shape
+        const selection = window.getSelection();
+        let shapeContainer: HTMLElement | null = null;
+
+        if (selection && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            let node = range.commonAncestorContainer;
+            if (node.nodeType === 3) node = node.parentElement!; // Fix text node
+            
+            shapeContainer = (node as HTMLElement).closest('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud');
+        }
+
+        // If we found a shape container, move THE CONTAINER, not the text
+        if (shapeContainer) {
+            // CRITICAL: A block must have width < 100% to be aligned via margins.
+            // If it's a full-width block (default div), margins do nothing visible.
+            // We force fit-content if no specific width is set, to allow movement.
+            if (!shapeContainer.style.width || shapeContainer.style.width === '100%') {
+                shapeContainer.style.width = 'fit-content';
+            }
+            shapeContainer.style.display = 'block'; 
+
+            // Reset margins first
+            shapeContainer.style.marginLeft = '';
+            shapeContainer.style.marginRight = '';
+
+            if (command === 'justifyLeft') {
+                shapeContainer.style.setProperty('margin-left', '0', 'important');
+                shapeContainer.style.setProperty('margin-right', 'auto', 'important');
+            } else if (command === 'justifyCenter') {
+                shapeContainer.style.setProperty('margin-left', 'auto', 'important');
+                shapeContainer.style.setProperty('margin-right', 'auto', 'important');
+            } else if (command === 'justifyRight') {
+                shapeContainer.style.setProperty('margin-left', 'auto', 'important');
+                shapeContainer.style.setProperty('margin-right', '0', 'important');
+            }
+            
+            // Update state manually since we bypassed execCommand
+            setSelectionState(prev => ({
+                ...prev,
+                alignLeft: command === 'justifyLeft',
+                alignCenter: command === 'justifyCenter',
+                alignRight: command === 'justifyRight'
+            }));
+            
+            // CRITICAL: Return immediately to prevent text alignment
+            return;
+        }
+    }
+
+    // 2. Standard Text Command (if not inside a shape)
     document.execCommand(command, false, value);
     
     // For font size, ensure we force focus back if dropdown was used
