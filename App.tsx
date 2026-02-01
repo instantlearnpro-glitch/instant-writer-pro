@@ -167,11 +167,22 @@ const App: React.FC = () => {
             tag.remove();
         });
 
-        const bodyContent = doc.body.innerHTML;
+        let bodyContent = doc.body.innerHTML;
+
+        // Auto-wrap content in a .page container if it doesn't have one
+        // This ensures imported "plain" HTML files are editable and support shapes
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = bodyContent;
+        if (!tempDiv.querySelector('.page')) {
+            bodyContent = `<div class="page">${bodyContent}</div>`;
+        }
+
+        // Always prepend DEFAULT_CSS so shape definitions are available even for external files
+        const finalCss = extractedCss ? `${DEFAULT_CSS}\n/* Imported Styles */\n${extractedCss}` : DEFAULT_CSS;
 
         const newState = {
           htmlContent: bodyContent,
-          cssContent: extractedCss || DEFAULT_CSS,
+          cssContent: finalCss,
           fileName: file.name
         };
         updateDocState(newState, true);
@@ -322,6 +333,46 @@ ${tagName} {
 
   // --- Feature: Real-time Block Styling (Frames & Pudding & Shapes) ---
   const handleBlockStyleUpdate = (styles: Record<string, string>) => {
+      // 1. Check if we should wrap selected text in a new block (for shapes)
+      // This prevents applying a shape to the entire page if the user selected a substring
+      if (styles.shape && styles.shape !== 'none') {
+          const selection = window.getSelection();
+          if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+              const range = selection.getRangeAt(0);
+              const content = range.extractContents();
+              
+              // Create new shape wrapper - Use SPAN for inline text safety
+              const wrapper = document.createElement('span');
+              wrapper.className = `mission-box shape-${styles.shape}`;
+              
+              // Set initial styles
+              if (styles.borderColor) {
+                  wrapper.style.borderColor = styles.borderColor;
+                  wrapper.style.setProperty('--shape-border', styles.borderColor);
+              }
+              if (styles.backgroundColor) {
+                  wrapper.style.backgroundColor = styles.backgroundColor;
+                  wrapper.style.setProperty('--shape-bg', styles.backgroundColor);
+              }
+              if (styles.borderWidth) wrapper.style.borderWidth = styles.borderWidth;
+              if (styles.borderStyle) wrapper.style.borderStyle = styles.borderStyle;
+              
+              wrapper.appendChild(content);
+              range.insertNode(wrapper);
+              
+              // Clear selection
+              selection.removeAllRanges();
+              
+              // Force history update
+              const workspace = document.querySelector('.editor-workspace');
+              if (workspace) {
+                  updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+              }
+              return;
+          }
+      }
+
+      // 2. Standard behavior: Apply to active block
       if (!activeBlock) return;
 
       Object.entries(styles).forEach(([key, value]) => {
@@ -336,19 +387,23 @@ ${tagName} {
           } 
           else if (key === 'padding') {
               (activeBlock.style as any).padding = value;
-          } else {
+          } 
+          else if (key === 'borderColor') {
+              (activeBlock.style as any).borderColor = value;
+              activeBlock.style.setProperty('--shape-border', value);
+          }
+          else if (key === 'backgroundColor') {
+              (activeBlock.style as any).backgroundColor = value;
+              activeBlock.style.setProperty('--shape-bg', value);
+          }
+          else {
               (activeBlock.style as any)[key] = value;
           }
       });
 
       setSelectionState(prev => ({ ...prev, ...styles }));
       
-      // Debounce history for slider moves (padding/width/border) would be ideal, 
-      // but here we are in a parent handler. Since this might be called rapidly by sliders,
-      // let's rely on handleContentChange (if DOM mutation is detected) OR force save on mouse up?
-      // For simplicity, sliders trigger many updates. We rely on the fact that Editor *might* not fire contentChange for style attributes unless mutation observer catches it.
-      // Ideally, we save history on "Done" or after delay.
-      // Let's manually trigger a debounced save for styles.
+      // Debounce history for slider moves
       if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
       debounceTimeoutRef.current = setTimeout(() => {
           const workspace = document.querySelector('.editor-workspace');

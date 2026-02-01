@@ -110,8 +110,8 @@ p {
     width: fit-content;
     margin: 10px 10px 10px 20px;
     position: relative;
-    background-color: #fff;
-    border: 2px solid #000;
+    background-color: var(--shape-bg, #fff);
+    border: 2px solid var(--shape-border, #000);
     cursor: pointer;
 }
 /* Speech bubble tail effect using pseudo-element */
@@ -124,20 +124,20 @@ p {
     height: 0;
     border-left: 10px solid transparent;
     border-right: 10px solid transparent;
-    border-top: 10px solid #000; /* Matches border color if black */
+    border-top: 10px solid var(--shape-border, #000); /* Matches border color */
     z-index: 1;
 }
 /* Inner triangle to hide border and make it look like outline */
 .shape-speech::before {
     content: '';
     position: absolute;
-    bottom: -6px;
+    bottom: -7px; /* Adjusted for better overlap */
     left: 22px;
     width: 0;
     height: 0;
     border-left: 8px solid transparent;
     border-right: 8px solid transparent;
-    border-top: 8px solid #fff; /* Matches background */
+    border-top: 8px solid var(--shape-bg, #fff); /* Matches background */
     z-index: 2;
 }
 
@@ -163,6 +163,15 @@ p {
     background: #fafafa;
     font-family: 'Roboto', sans-serif;
     cursor: pointer;
+    box-sizing: border-box;
+}
+
+/* Allow shapes to be inline-block when applied to spans (text selection) */
+span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud {
+    display: inline-block;
+    margin: 5px; /* Smaller margin for inline flow */
+    vertical-align: middle;
+    width: auto; /* Allow auto width */
 }
 
 .tracing-line {

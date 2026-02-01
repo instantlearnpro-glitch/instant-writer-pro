@@ -51,15 +51,18 @@ const Editor: React.FC<EditorProps> = ({
   // Initialize content
   useEffect(() => {
     if (contentRef.current) {
-        contentRef.current.innerHTML = htmlContent;
+        // Prevent cursor jumping and reference loss by only updating if content actually changed
+        if (contentRef.current.innerHTML !== htmlContent) {
+            contentRef.current.innerHTML = htmlContent;
+            
+            const imgs = contentRef.current.querySelectorAll('img');
+            imgs.forEach(img => {
+                img.onerror = () => {
+                    img.classList.add('broken-image');
+                };
+            });
+        }
         setIsReady(true);
-        
-        const imgs = contentRef.current.querySelectorAll('img');
-        imgs.forEach(img => {
-            img.onerror = () => {
-                img.classList.add('broken-image');
-            };
-        });
     }
   }, [htmlContent]);
 
@@ -104,8 +107,8 @@ const Editor: React.FC<EditorProps> = ({
     const element = commonNode.nodeType === 1 ? commonNode as HTMLElement : commonNode.parentElement;
     
     // CRITICAL FIX: Explicitly exclude .editor-workspace and .page to prevent layout framing issues
-    // We only want to select actual content elements
-    const block = element?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li');
+    // We only want to select actual content elements. Added spans with specific classes.
+    const block = element?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud');
     
     if (block) {
         activeBlock = block as HTMLElement;
