@@ -33,6 +33,7 @@ const rgbToHex = (rgb: string) => {
 const Editor: React.FC<EditorProps> = ({ 
   htmlContent, 
   cssContent, 
+  onContentChange,
   onSelectionChange,
   onImageSelect,
   onHRSelect,
@@ -234,14 +235,22 @@ const Editor: React.FC<EditorProps> = ({
           }
       };
 
+      const handleInput = () => {
+          if (contentRef.current) {
+              onContentChange(contentRef.current.innerHTML);
+          }
+      };
+
       container.addEventListener('click', handleClick);
+      container.addEventListener('input', handleInput);
       document.addEventListener('selectionchange', handleSelectionChange);
       
       return () => {
           container.removeEventListener('click', handleClick);
+          container.removeEventListener('input', handleInput);
           document.removeEventListener('selectionchange', handleSelectionChange);
       };
-  }, [handleSelectionChange, onImageSelect, onHRSelect]);
+  }, [handleSelectionChange, onImageSelect, onHRSelect, onContentChange]);
 
 
   return (

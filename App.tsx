@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
@@ -13,6 +13,15 @@ const App: React.FC = () => {
     cssContent: DEFAULT_CSS,
     fileName: 'untitled_mission.html'
   });
+
+  // History State
+  const [history, setHistory] = useState<DocumentState[]>([{ 
+    htmlContent: DEFAULT_HTML,
+    cssContent: DEFAULT_CSS,
+    fileName: 'untitled_mission.html'
+  }]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [selectionState, setSelectionState] = useState<SelectionState>({
     bold: false,
@@ -67,6 +76,71 @@ const App: React.FC = () => {
   
   const editorContainerRef = useRef<HTMLDivElement>(null);
 
+  // --- HISTORY MANAGEMENT ---
+
+  // Unified function to update state and manage history
+  const updateDocState = (newState: DocumentState, saveToHistory: boolean = false) => {
+      setDocState(newState);
+
+      if (saveToHistory) {
+          // Clear any pending debounce since we are forcing a save
+          if (debounceTimeoutRef.current) {
+              clearTimeout(debounceTimeoutRef.current);
+          }
+
+          const newHistory = history.slice(0, historyIndex + 1);
+          newHistory.push(newState);
+          
+          // Optional: Limit history size
+          if (newHistory.length > 50) newHistory.shift();
+
+          setHistory(newHistory);
+          setHistoryIndex(newHistory.length - 1);
+      }
+  };
+
+  const handleUndo = () => {
+      if (historyIndex > 0) {
+          const newIndex = historyIndex - 1;
+          setHistoryIndex(newIndex);
+          setDocState(history[newIndex]);
+      }
+  };
+
+  const handleRedo = () => {
+      if (historyIndex < history.length - 1) {
+          const newIndex = historyIndex + 1;
+          setHistoryIndex(newIndex);
+          setDocState(history[newIndex]);
+      }
+  };
+
+  // Helper for text input (debounced history)
+  const handleContentChange = (html: string) => {
+      const newState = { ...docState, htmlContent: html };
+      setDocState(newState); // Immediate update for UI
+
+      // Debounce history save
+      if (debounceTimeoutRef.current) {
+          clearTimeout(debounceTimeoutRef.current);
+      }
+
+      debounceTimeoutRef.current = setTimeout(() => {
+          setHistory(prevHistory => {
+              const newHistory = prevHistory.slice(0, historyIndex + 1);
+              // Only push if different from last saved state
+              if (newHistory[newHistory.length - 1].htmlContent !== html) {
+                  newHistory.push(newState);
+                  if (newHistory.length > 50) newHistory.shift();
+                  setHistoryIndex(newHistory.length - 1);
+                  return newHistory;
+              }
+              return prevHistory;
+          });
+      }, 1000); // Wait 1s after typing stops
+  };
+
+
   // Parse HTML to count pages when content changes
   useEffect(() => {
     const parser = new DOMParser();
@@ -95,11 +169,12 @@ const App: React.FC = () => {
 
         const bodyContent = doc.body.innerHTML;
 
-        setDocState({
+        const newState = {
           htmlContent: bodyContent,
           cssContent: extractedCss || DEFAULT_CSS,
           fileName: file.name
-        });
+        };
+        updateDocState(newState, true);
       }
     };
     reader.readAsText(file);
@@ -117,10 +192,14 @@ const App: React.FC = () => {
                 selectedImage.src = imgUrl;
                 selectedImage.classList.remove('broken-image');
                 handleImageSelect(selectedImage);
+                // Image attribute change doesn't automatically trigger react state update via Editor unless observed
+                // Editor observers mutation, so onContentChange will fire eventually. 
+                // But replacing src is immediate. 
             } else {
                 const editor = document.querySelector('.editor-workspace') as HTMLElement;
                 editor?.focus();
                 document.execCommand('insertImage', false, imgUrl);
+                // execCommand triggers input event -> handleContentChange
             }
         }
     };
@@ -182,7 +261,12 @@ const App: React.FC = () => {
                 alignRight: command === 'justifyRight'
             }));
             
-            // CRITICAL: Return immediately to prevent text alignment
+            // Force save history for alignment change
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            }
+            
             return;
         }
     }
@@ -193,6 +277,9 @@ const App: React.FC = () => {
     // For font size, ensure we force focus back if dropdown was used
     const editor = document.querySelector('.editor-workspace') as HTMLElement;
     editor?.focus();
+    
+    // NOTE: execCommand triggers the Editor's mutation observer or input listener, 
+    // which calls handleContentChange. So history will be saved via debounce.
   };
 
   const handleUpdateStyle = () => {
@@ -224,10 +311,11 @@ ${tagName} {
     line-height: ${computed.lineHeight} !important;
 }
 `;
-    setDocState(prev => ({
-        ...prev,
-        cssContent: prev.cssContent + '\n' + newRule
-    }));
+    // Styles are a major change, save immediately
+    updateDocState({
+        ...docState,
+        cssContent: docState.cssContent + '\n' + newRule
+    }, true);
     
     alert(`Updated style for <${tagName}> to match selection.`);
   };
@@ -254,6 +342,25 @@ ${tagName} {
       });
 
       setSelectionState(prev => ({ ...prev, ...styles }));
+      
+      // Debounce history for slider moves (padding/width/border) would be ideal, 
+      // but here we are in a parent handler. Since this might be called rapidly by sliders,
+      // let's rely on handleContentChange (if DOM mutation is detected) OR force save on mouse up?
+      // For simplicity, sliders trigger many updates. We rely on the fact that Editor *might* not fire contentChange for style attributes unless mutation observer catches it.
+      // Ideally, we save history on "Done" or after delay.
+      // Let's manually trigger a debounced save for styles.
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      debounceTimeoutRef.current = setTimeout(() => {
+          const workspace = document.querySelector('.editor-workspace');
+          if (workspace) {
+             const newHistory = history.slice(0, historyIndex + 1);
+             const newState = { ...docState, htmlContent: workspace.innerHTML };
+             newHistory.push(newState);
+             setHistory(newHistory);
+             setHistoryIndex(newHistory.length - 1);
+             setDocState(newState);
+          }
+      }, 500);
   };
 
   const handleInsertHorizontalRule = () => {
@@ -264,6 +371,7 @@ ${tagName} {
       // Insert an explicitly styled HR to avoid it being invisible due to default CSS
       const hrHtml = '<hr style="width: 100%; border-top: 2px solid #000; border-bottom: none; border-left: none; border-right: none; height: 0px; background-color: transparent; margin: 20px auto;" />';
       document.execCommand('insertHTML', false, hrHtml);
+      // History saved by content change debounce
   };
 
   // --- Feature: Page Break ---
@@ -308,7 +416,11 @@ ${tagName} {
       selection.removeAllRanges();
       selection.addRange(rangeNew);
       
-      setDocState(prev => ({ ...prev }));
+      // Page break is a significant structural change
+      const workspace = document.querySelector('.editor-workspace');
+      if (workspace) {
+          updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+      }
   };
 
   const handleInsertTOC = (settings: TOCSettings) => {
@@ -372,6 +484,7 @@ ${tagName} {
 
       document.execCommand('insertHTML', false, tocHtml);
       setIsTOCModalOpen(false);
+      // History saved by content change debounce
   };
 
   const preparePageAnchors = () => {
@@ -483,13 +596,13 @@ ${tagName} {
   const handleInsertPageNumbers = (startAnchorId: string, font: string, fontSize: string, position: 'top' | 'bottom', align: 'left' | 'center' | 'right', margin: number) => {
       const updatedHtml = updatePageNumbers(startAnchorId, font, fontSize, position, align, margin);
       if (updatedHtml) {
-          setDocState(prev => ({ ...prev, htmlContent: updatedHtml }));
+          updateDocState({ ...docState, htmlContent: updatedHtml }, true);
       }
       setIsPageNumberModalOpen(false);
   };
 
   const handlePageSizeChange = (formatId: string) => {
-    const format = PAGE_FORMATS[formatId as keyof typeof PAGE_FORMATS];
+    const format = Object.values(PAGE_FORMATS).find(f => f.id === formatId);
     if (!format) return;
 
     const markerStart = '/* SPYWRITER_LAYOUT_OVERRIDE_START */';
@@ -517,7 +630,7 @@ ${markerEnd}
         updatedCss = updatedCss + '\n' + newCssBlock.trim();
     }
 
-    setDocState(prev => ({ ...prev, cssContent: updatedCss }));
+    updateDocState({ ...docState, cssContent: updatedCss }, true);
   };
 
   const handleImageSelect = (img: HTMLImageElement | null) => {
@@ -565,11 +678,11 @@ ${markerEnd}
           else if (styleDisplay === 'block' && styleMargin === '0px auto') alignment = 'center';
           else alignment = 'left';
 
-          setImageProperties({ 
-              brightness, 
-              contrast, 
-              width, 
-              alignment, 
+          setImageProperties({
+              brightness,
+              contrast,
+              width,
+              alignment,
               isCropping: false
           });
       } else {
@@ -615,7 +728,7 @@ ${markerEnd}
               if (hex.startsWith('rgb')) {
                   const rgb = hex.match(/\d+/g);
                   if (rgb && rgb.length >= 3) {
-                      color = "#" + 
+                      color = "#" +
                       parseInt(rgb[0]).toString(16).padStart(2, '0') +
                       parseInt(rgb[1]).toString(16).padStart(2, '0') +
                       parseInt(rgb[2]).toString(16).padStart(2, '0');
@@ -688,6 +801,20 @@ ${markerEnd}
           selectedHR.style.borderTopColor = newProps.color;
           selectedHR.style.backgroundColor = 'transparent'; // Ensure no bg color
       }
+
+      // Trigger debounced history save
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      debounceTimeoutRef.current = setTimeout(() => {
+          const workspace = document.querySelector('.editor-workspace');
+          if (workspace) {
+             const newHistory = history.slice(0, historyIndex + 1);
+             const newState = { ...docState, htmlContent: workspace.innerHTML };
+             newHistory.push(newState);
+             setHistory(newHistory);
+             setHistoryIndex(newHistory.length - 1);
+             setDocState(newState);
+          }
+      }, 500);
   };
 
 
@@ -700,6 +827,11 @@ ${markerEnd}
       if (selectedImage) {
           selectedImage.src = newSrc;
           setImageProperties(prev => ({ ...prev, isCropping: false }));
+          // Save history after crop
+          const workspace = document.querySelector('.editor-workspace');
+          if (workspace) {
+              updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+          }
       }
   };
 
@@ -749,6 +881,20 @@ ${markerEnd}
                 break;
         }
       }
+
+      // Debounce history for sliders
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      debounceTimeoutRef.current = setTimeout(() => {
+          const workspace = document.querySelector('.editor-workspace');
+          if (workspace) {
+             const newHistory = history.slice(0, historyIndex + 1);
+             const newState = { ...docState, htmlContent: workspace.innerHTML };
+             newHistory.push(newState);
+             setHistory(newHistory);
+             setHistoryIndex(newHistory.length - 1);
+             setDocState(newState);
+          }
+      }, 500);
   };
 
   const handleSave = () => {
@@ -854,6 +1000,10 @@ ${markerEnd}
         hrProperties={hrProperties}
         onImagePropertyChange={handleImagePropertyChange}
         onHRPropertyChange={handleHRPropertyChange}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        canUndo={historyIndex > 0}
+        canRedo={historyIndex < history.length - 1}
       />
       
       <div className="flex flex-1 overflow-hidden">
@@ -868,7 +1018,7 @@ ${markerEnd}
             <Editor 
                 htmlContent={docState.htmlContent}
                 cssContent={docState.cssContent}
-                onContentChange={(html) => setDocState(prev => ({ ...prev, htmlContent: html }))}
+                onContentChange={handleContentChange}
                 onSelectionChange={onSelectionChange}
                 onImageSelect={handleImageSelect}
                 onHRSelect={handleHRSelect}

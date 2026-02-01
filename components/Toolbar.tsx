@@ -3,7 +3,8 @@ import {
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, 
   Image as ImageIcon, FileUp, Download, Save, Sun, Contrast, Settings, ImagePlus,
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
-  Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash
+  Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
+  RotateCcw, RotateCw
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -33,6 +34,10 @@ interface ToolbarProps {
   hrProperties: HRProperties;
   onImagePropertyChange: (prop: keyof ImageProperties, value: any) => void;
   onHRPropertyChange: (prop: keyof HRProperties, value: any) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -59,10 +64,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
   imageProperties,
   hrProperties,
   onImagePropertyChange,
-  onHRPropertyChange
+  onHRPropertyChange,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo
 }) => {
-  const ButtonClass = (isActive: boolean) => 
-    `p-2 rounded hover:bg-gray-100 transition-colors ${isActive ? 'bg-blue-100 text-blue-600' : 'text-gray-700'}`;
+  const ButtonClass = (isActive: boolean, disabled?: boolean) => 
+    `p-2 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-700 ' + (isActive ? 'bg-blue-100 text-blue-600' : '')}`;
 
   // Helper to handle real-time border updates
   const handleBorderUpdate = (prop: string, value: string) => {
@@ -74,177 +83,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
       onBlockStyleUpdate({ [prop]: value, ...extraStyles });
   };
 
-  // 1. IMAGE Toolbar Mode
-  if (selectedImage) {
-    if (imageProperties.isCropping) {
-        return (
-            <div className="h-16 border-b border-gray-200 bg-gray-800 text-white flex items-center px-4 justify-between shadow-sm z-10 sticky top-0">
-                <div className="flex items-center gap-2 font-semibold">
-                    <Crop size={20} />
-                    <span>Crop Mode</span>
-                </div>
-                <div className="text-sm text-gray-300">Drag corners to crop. Click Apply to finish.</div>
-                <div>{/* Controls are in overlay */}</div>
-            </div>
-        );
-    }
-    return (
-        <div className="h-20 border-b border-gray-200 bg-blue-50 flex items-center px-4 justify-between shadow-sm z-10 sticky top-0 overflow-x-auto">
-             <div className="flex items-center space-x-6">
-                <div className="flex items-center gap-2 text-blue-800 font-semibold border-r border-blue-200 pr-4">
-                    <ImageIcon size={20} />
-                    <span className="hidden sm:inline">Image Tools</span>
-                </div>
-                
-                {/* Image Actions */}
-                <div className="flex flex-col gap-1 border-r border-blue-200 pr-4">
-                   <label className="text-[10px] font-bold text-gray-500 uppercase">Actions</label>
-                   <div className="flex items-center gap-2">
-                      <button onClick={onToggleCrop} className={ButtonClass(false)} title="Crop Image">
-                        <Crop size={18} />
-                        <span className="text-xs ml-1">Crop</span>
-                      </button>
-                   </div>
-                </div>
-
-                {/* Adjustments (Brightness / Contrast) */}
-                <div className="flex items-center gap-4 border-r border-blue-200 pr-4">
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1">
-                            <Sun size={10} /> Brightness
-                        </label>
-                        <input 
-                            type="range" min="0" max="200" 
-                            value={imageProperties.brightness} 
-                            onChange={(e) => onImagePropertyChange('brightness', parseInt(e.target.value))}
-                            className="w-24 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-                        />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1">
-                            <Contrast size={10} /> Contrast
-                        </label>
-                        <input 
-                            type="range" min="0" max="200" 
-                            value={imageProperties.contrast} 
-                            onChange={(e) => onImagePropertyChange('contrast', parseInt(e.target.value))}
-                            className="w-24 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-                        />
-                    </div>
-                </div>
-
-                {/* Layout */}
-                <div className="flex flex-col gap-1">
-                   <label className="text-[10px] font-bold text-gray-500 uppercase">Layout</label>
-                   <div className="flex items-center space-x-1">
-                      <button onClick={() => onImagePropertyChange('alignment', 'left')} className={ButtonClass(imageProperties.alignment === 'left')}><AlignLeft size={16} /></button>
-                      <button onClick={() => onImagePropertyChange('alignment', 'center')} className={ButtonClass(imageProperties.alignment === 'center')}><AlignCenter size={16} /></button>
-                      <button onClick={() => onImagePropertyChange('alignment', 'right')} className={ButtonClass(imageProperties.alignment === 'right')}><AlignRight size={16} /></button>
-                      <button onClick={() => onImagePropertyChange('alignment', 'float-left')} className={ButtonClass(imageProperties.alignment === 'float-left')}><PanelLeft size={16} /></button>
-                      <button onClick={() => onImagePropertyChange('alignment', 'float-right')} className={ButtonClass(imageProperties.alignment === 'float-right')}><PanelRight size={16} /></button>
-                   </div>
-                </div>
-
-                {/* Size */}
-                <div className="flex flex-col gap-1">
-                   <label className="text-[10px] font-bold text-gray-500 uppercase">Size: {imageProperties.width}%</label>
-                   <input 
-                        type="range" min="10" max="100" 
-                        value={imageProperties.width} 
-                        onChange={(e) => onImagePropertyChange('width', parseInt(e.target.value))}
-                        className="w-20 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-                    />
-                </div>
-             </div>
-             <div>
-                 <button onClick={() => onFormat('removeSelection')} className="text-xs text-blue-600 underline font-medium">Done</button>
-             </div>
-        </div>
-    );
-  }
-
-  // 2. HORIZONTAL LINE (HR) Toolbar Mode
-  if (selectedHR) {
-      return (
-        <div className="h-20 border-b border-gray-200 bg-orange-50 flex items-center px-4 justify-between shadow-sm z-10 sticky top-0 overflow-x-auto">
-             <div className="flex items-center space-x-6">
-                <div className="flex items-center gap-2 text-orange-800 font-semibold border-r border-orange-200 pr-4">
-                    <Minus size={20} />
-                    <span className="hidden sm:inline">Line Tools</span>
-                </div>
-
-                {/* Color */}
-                <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase">Color</label>
-                    <input 
-                        type="color" 
-                        value={hrProperties.color} 
-                        onChange={(e) => onHRPropertyChange('color', e.target.value)}
-                        className="w-8 h-6 p-0 border-none cursor-pointer bg-transparent"
-                    />
-                </div>
-
-                {/* Height / Thickness */}
-                <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase">Thickness: {hrProperties.height}px</label>
-                    <input 
-                        type="range" min="1" max="50" 
-                        value={hrProperties.height} 
-                        onChange={(e) => onHRPropertyChange('height', parseInt(e.target.value))}
-                        className="w-24 accent-orange-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-                    />
-                </div>
-
-                {/* Width */}
-                <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase">Width: {hrProperties.width}%</label>
-                    <input 
-                        type="range" min="10" max="100" 
-                        value={hrProperties.width} 
-                        onChange={(e) => onHRPropertyChange('width', parseInt(e.target.value))}
-                        className="w-24 accent-orange-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-                    />
-                </div>
-
-                {/* Alignment */}
-                <div className="flex flex-col gap-1">
-                   <label className="text-[10px] font-bold text-gray-500 uppercase">Align</label>
-                   <div className="flex items-center space-x-1">
-                      <button onClick={() => onHRPropertyChange('alignment', 'left')} className={ButtonClass(hrProperties.alignment === 'left')}><AlignLeft size={16} /></button>
-                      <button onClick={() => onHRPropertyChange('alignment', 'center')} className={ButtonClass(hrProperties.alignment === 'center')}><AlignCenter size={16} /></button>
-                      <button onClick={() => onHRPropertyChange('alignment', 'right')} className={ButtonClass(hrProperties.alignment === 'right')}><AlignRight size={16} /></button>
-                   </div>
-                </div>
-
-                <div className="w-px h-8 bg-orange-200"></div>
-
-                {/* Style */}
-                <div className="flex flex-col gap-1">
-                     <label className="text-[10px] font-bold text-gray-500 uppercase">Style</label>
-                     <select 
-                        className="text-xs border border-gray-300 rounded p-1"
-                        value={hrProperties.style}
-                        onChange={(e) => onHRPropertyChange('style', e.target.value)}
-                     >
-                         <option value="solid">Solid</option>
-                         <option value="dashed">Dashed</option>
-                         <option value="dotted">Dotted</option>
-                         <option value="tapered">Tapered (Fade)</option>
-                     </select>
-                </div>
-
-             </div>
-             <div>
-                 <button onClick={() => onFormat('removeSelection')} className="text-xs text-orange-600 underline font-medium">Done</button>
-             </div>
-        </div>
-      );
-  }
-
-  // 3. STANDARD Toolbar
   return (
     <div className="flex flex-col border-b border-gray-200 shadow-sm z-10 sticky top-0 bg-white">
-        <div className="h-16 flex items-center px-4 justify-between">
+        {/* === MAIN TOOLBAR (Always Visible) === */}
+        <div className="h-16 flex items-center px-4 justify-between bg-white z-20 relative">
             <div className="flex items-center space-x-2">
                 <div className="mr-4 flex items-center space-x-2 border-r border-gray-200 pr-4">
                 <h1 className="font-bold text-lg text-gray-800 tracking-tight flex items-center gap-2">
@@ -253,6 +95,16 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 <button onClick={onToggleSidebar} className={ButtonClass(false)} title="Toggle Sidebar">
                     {isSidebarOpen ? <PanelLeft size={18} /> : <PanelRight size={18} />}
                 </button>
+                </div>
+
+                {/* Undo / Redo */}
+                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2">
+                    <button onClick={onUndo} disabled={!canUndo} className={ButtonClass(false, !canUndo)} title="Undo (Ctrl+Z)">
+                        <RotateCcw size={18} />
+                    </button>
+                    <button onClick={onRedo} disabled={!canRedo} className={ButtonClass(false, !canRedo)} title="Redo (Ctrl+Y)">
+                        <RotateCw size={18} />
+                    </button>
                 </div>
 
                 <div className="flex items-center space-x-1 border-r border-gray-200 pr-2">
@@ -379,10 +231,174 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </button>
             </div>
         </div>
+
+        {/* === CONTEXTUAL TOOLBARS (Below Main) === */}
         
-        {/* Frame / Border Tools - Secondary Toolbar */}
-        {showFrameTools && (
-            <div className="h-12 bg-gray-50 border-b border-gray-200 flex items-center px-4 space-x-6 overflow-x-auto">
+        {/* 1. Image Tools */}
+        {selectedImage && (
+            imageProperties.isCropping ? (
+                <div className="h-14 border-b border-gray-200 bg-gray-800 text-white flex items-center px-4 justify-between shadow-inner">
+                    <div className="flex items-center gap-2 font-semibold">
+                        <Crop size={18} />
+                        <span>Crop Mode</span>
+                    </div>
+                    <div className="text-xs text-gray-300">Drag corners to crop.</div>
+                    <div>{/* Controls are in overlay */}</div>
+                </div>
+            ) : (
+                <div className="h-16 border-b border-gray-200 bg-blue-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
+                    <div className="flex items-center space-x-6">
+                        <div className="flex items-center gap-2 text-blue-800 font-semibold border-r border-blue-200 pr-4">
+                            <ImageIcon size={18} />
+                            <span className="hidden sm:inline text-sm">Image</span>
+                        </div>
+                        
+                        {/* Image Actions */}
+                        <div className="flex flex-col gap-0.5 border-r border-blue-200 pr-4">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Actions</label>
+                        <div className="flex items-center gap-2">
+                            <button onClick={onToggleCrop} className={ButtonClass(false)} title="Crop Image">
+                                <Crop size={16} />
+                                <span className="text-xs ml-1">Crop</span>
+                            </button>
+                        </div>
+                        </div>
+
+                        {/* Adjustments */}
+                        <div className="flex items-center gap-4 border-r border-blue-200 pr-4">
+                            <div className="flex flex-col gap-0.5">
+                                <label className="text-[9px] font-bold text-gray-500 uppercase flex items-center gap-1">
+                                    <Sun size={9} /> Brightness
+                                </label>
+                                <input 
+                                    type="range" min="0" max="200" 
+                                    value={imageProperties.brightness} 
+                                    onChange={(e) => onImagePropertyChange('brightness', parseInt(e.target.value))}
+                                    className="w-20 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                                <label className="text-[9px] font-bold text-gray-500 uppercase flex items-center gap-1">
+                                    <Contrast size={9} /> Contrast
+                                </label>
+                                <input 
+                                    type="range" min="0" max="200" 
+                                    value={imageProperties.contrast} 
+                                    onChange={(e) => onImagePropertyChange('contrast', parseInt(e.target.value))}
+                                    className="w-20 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Layout */}
+                        <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Layout</label>
+                        <div className="flex items-center space-x-1">
+                            <button onClick={() => onImagePropertyChange('alignment', 'left')} className={ButtonClass(imageProperties.alignment === 'left')}><AlignLeft size={14} /></button>
+                            <button onClick={() => onImagePropertyChange('alignment', 'center')} className={ButtonClass(imageProperties.alignment === 'center')}><AlignCenter size={14} /></button>
+                            <button onClick={() => onImagePropertyChange('alignment', 'right')} className={ButtonClass(imageProperties.alignment === 'right')}><AlignRight size={14} /></button>
+                            <button onClick={() => onImagePropertyChange('alignment', 'float-left')} className={ButtonClass(imageProperties.alignment === 'float-left')}><PanelLeft size={14} /></button>
+                            <button onClick={() => onImagePropertyChange('alignment', 'float-right')} className={ButtonClass(imageProperties.alignment === 'float-right')}><PanelRight size={14} /></button>
+                        </div>
+                        </div>
+
+                        {/* Size */}
+                        <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Size: {imageProperties.width}%</label>
+                        <input 
+                                type="range" min="10" max="100" 
+                                value={imageProperties.width} 
+                                onChange={(e) => onImagePropertyChange('width', parseInt(e.target.value))}
+                                className="w-16 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <button onClick={() => onFormat('removeSelection')} className="text-xs text-blue-600 underline font-medium ml-4">Close Tools</button>
+                    </div>
+                </div>
+            )
+        )}
+
+        {/* 2. HR Tools */}
+        {selectedHR && (
+             <div className="h-16 border-b border-gray-200 bg-orange-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
+                <div className="flex items-center space-x-6">
+                   <div className="flex items-center gap-2 text-orange-800 font-semibold border-r border-orange-200 pr-4">
+                       <Minus size={18} />
+                       <span className="hidden sm:inline text-sm">Line</span>
+                   </div>
+   
+                   {/* Color */}
+                   <div className="flex flex-col gap-0.5">
+                       <label className="text-[9px] font-bold text-gray-500 uppercase">Color</label>
+                       <input 
+                           type="color" 
+                           value={hrProperties.color} 
+                           onChange={(e) => onHRPropertyChange('color', e.target.value)}
+                           className="w-8 h-6 p-0 border-none cursor-pointer bg-transparent"
+                       />
+                   </div>
+   
+                   {/* Height / Thickness */}
+                   <div className="flex flex-col gap-0.5">
+                       <label className="text-[9px] font-bold text-gray-500 uppercase">Thickness: {hrProperties.height}px</label>
+                       <input 
+                           type="range" min="1" max="50" 
+                           value={hrProperties.height} 
+                           onChange={(e) => onHRPropertyChange('height', parseInt(e.target.value))}
+                           className="w-20 accent-orange-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                       />
+                   </div>
+   
+                   {/* Width */}
+                   <div className="flex flex-col gap-0.5">
+                       <label className="text-[9px] font-bold text-gray-500 uppercase">Width: {hrProperties.width}%</label>
+                       <input 
+                           type="range" min="10" max="100" 
+                           value={hrProperties.width} 
+                           onChange={(e) => onHRPropertyChange('width', parseInt(e.target.value))}
+                           className="w-20 accent-orange-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                       />
+                   </div>
+   
+                   {/* Alignment */}
+                   <div className="flex flex-col gap-0.5">
+                      <label className="text-[9px] font-bold text-gray-500 uppercase">Align</label>
+                      <div className="flex items-center space-x-1">
+                         <button onClick={() => onHRPropertyChange('alignment', 'left')} className={ButtonClass(hrProperties.alignment === 'left')}><AlignLeft size={14} /></button>
+                         <button onClick={() => onHRPropertyChange('alignment', 'center')} className={ButtonClass(hrProperties.alignment === 'center')}><AlignCenter size={14} /></button>
+                         <button onClick={() => onHRPropertyChange('alignment', 'right')} className={ButtonClass(hrProperties.alignment === 'right')}><AlignRight size={14} /></button>
+                      </div>
+                   </div>
+   
+                   <div className="w-px h-8 bg-orange-200"></div>
+   
+                   {/* Style */}
+                   <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Style</label>
+                        <select 
+                           className="text-xs border border-gray-300 rounded p-1"
+                           value={hrProperties.style}
+                           onChange={(e) => onHRPropertyChange('style', e.target.value)}
+                        >
+                            <option value="solid">Solid</option>
+                            <option value="dashed">Dashed</option>
+                            <option value="dotted">Dotted</option>
+                            <option value="tapered">Tapered (Fade)</option>
+                        </select>
+                   </div>
+   
+                </div>
+                <div>
+                    <button onClick={() => onFormat('removeSelection')} className="text-xs text-orange-600 underline font-medium ml-4">Close Tools</button>
+                </div>
+           </div>
+        )}
+        
+        {/* 3. Frame / Border Tools (Contextual or toggled) */}
+        {showFrameTools && !selectedImage && !selectedHR && (
+            <div className="h-12 bg-gray-50 border-b border-gray-200 flex items-center px-4 space-x-6 overflow-x-auto shadow-inner">
                 <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase">
                     <Square size={14} />
                     <span>Frame Tools</span>
