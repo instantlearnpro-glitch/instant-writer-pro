@@ -406,20 +406,18 @@ ${tagName} {
       setIsPageNumberModalOpen(true);
   };
 
-  const handleInsertPageNumbers = (startAnchorId: string, font: string, fontSize: string) => {
+  const updatePageNumbers = (startAnchorId: string, font: string, fontSize: string, position: 'top' | 'bottom', align: 'left' | 'center' | 'right', margin: number) => {
       const workspace = document.querySelector('.editor-workspace');
       if (!workspace) return;
 
       const pages = workspace.querySelectorAll('.page');
-      
-      let startPageIndex = 0; // Default to first page (0-based)
+      let startPageIndex = 0;
 
       if (startAnchorId !== 'DOC_START') {
           const anchorEl = document.getElementById(startAnchorId);
           if (anchorEl) {
               const pageEl = anchorEl.closest('.page');
               if (pageEl) {
-                  // Find index of this page
                   for (let i = 0; i < pages.length; i++) {
                       if (pages[i] === pageEl) {
                           startPageIndex = i;
@@ -430,38 +428,63 @@ ${tagName} {
           }
       }
 
-      // Re-query parser only to reconstruct full HTML properly, but rely on page indices
-      // Ideally we should manipulate the existing DOM nodes in workspace directly, but docState is truth.
-      // However, footer manipulation is tricky in pure string regex.
-      // Let's operate on the live DOM nodes in `pages` then serialize back.
-
       pages.forEach((page, index) => {
-          // Remove existing footers first
           const existingFooter = page.querySelector('.page-footer');
           if (existingFooter) {
               existingFooter.remove();
           }
 
-          // Check if we should number this page
           if (index >= startPageIndex) {
               const footer = document.createElement('div');
               footer.className = 'page-footer';
               footer.style.fontFamily = font;
               footer.style.fontSize = `${fontSize}pt`;
-              // Number starts at 1 relative to the start page
+              footer.style.textAlign = align;
+              footer.style.position = 'absolute';
+              footer.style.left = '0';
+              footer.style.width = '100%';
+              footer.style.pointerEvents = 'none';
+              footer.style.zIndex = '10';
+              
+              if (position === 'top') {
+                  footer.style.top = `${margin}in`;
+                  footer.style.bottom = 'auto';
+              } else {
+                  footer.style.bottom = `${margin}in`;
+                  footer.style.top = 'auto';
+              }
+
+              if (align === 'left') {
+                  footer.style.paddingLeft = '0.6in';
+                  footer.style.paddingRight = '0';
+              } else if (align === 'right') {
+                   footer.style.paddingRight = '0.6in';
+                   footer.style.paddingLeft = '0';
+              } else {
+                  footer.style.padding = '0';
+              }
+
               footer.textContent = (index - startPageIndex + 1).toString(); 
-              
-              // Prevent editing of the footer itself
               footer.setAttribute('contenteditable', 'false');
-              
               page.appendChild(footer);
           }
       });
+      
+      return workspace.innerHTML;
+  };
 
-      setDocState(prev => ({
-          ...prev,
-          htmlContent: workspace.innerHTML // Capture the modified live DOM
-      }));
+  const handlePageNumberPreview = (startAnchorId: string, font: string, fontSize: string, position: 'top' | 'bottom', align: 'left' | 'center' | 'right', margin: number) => {
+      const updatedHtml = updatePageNumbers(startAnchorId, font, fontSize, position, align, margin);
+      if (updatedHtml) {
+          setDocState(prev => ({ ...prev, htmlContent: updatedHtml }));
+      }
+  };
+
+  const handleInsertPageNumbers = (startAnchorId: string, font: string, fontSize: string, position: 'top' | 'bottom', align: 'left' | 'center' | 'right', margin: number) => {
+      const updatedHtml = updatePageNumbers(startAnchorId, font, fontSize, position, align, margin);
+      if (updatedHtml) {
+          setDocState(prev => ({ ...prev, htmlContent: updatedHtml }));
+      }
       setIsPageNumberModalOpen(false);
   };
 
@@ -870,7 +893,7 @@ ${markerEnd}
         isOpen={isPageNumberModalOpen}
         onClose={() => setIsPageNumberModalOpen(false)}
         onApply={handleInsertPageNumbers}
-        totalPages={pageCount}
+        onPreview={handlePageNumberPreview}
         anchors={pageAnchors}
       />
     </div>

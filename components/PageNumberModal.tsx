@@ -1,27 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, ArrowUpFromLine, ArrowDownFromLine, AlignLeft, AlignCenter, AlignRight, MoveVertical } from 'lucide-react';
 import { PageAnchor } from '../types';
 
 interface PageNumberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onApply: (startAnchorId: string, font: string, fontSize: string) => void;
+  onApply: (startAnchorId: string, font: string, fontSize: string, position: 'top' | 'bottom', align: 'left' | 'center' | 'right', margin: number) => void;
+  onPreview: (startAnchorId: string, font: string, fontSize: string, position: 'top' | 'bottom', align: 'left' | 'center' | 'right', margin: number) => void;
   anchors: PageAnchor[];
 }
 
-const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onApply, anchors }) => {
+const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onApply, onPreview, anchors }) => {
   const [selectedAnchorId, setSelectedAnchorId] = useState<string>('');
   const [font, setFont] = useState('Arial, sans-serif');
   const [fontSize, setFontSize] = useState('12');
+  const [position, setPosition] = useState<'top' | 'bottom'>('bottom');
+  const [align, setAlign] = useState<'left' | 'center' | 'right'>('center');
+  const [margin, setMargin] = useState(0.4);
 
   useEffect(() => {
     if (isOpen) {
-        // Default to the first anchor (usually "Beginning of Document" or first header)
-        if (anchors.length > 0) {
+        if (anchors.length > 0 && !selectedAnchorId) {
             setSelectedAnchorId(anchors[0].id);
         }
     }
   }, [isOpen, anchors]);
+
+  // Real-time preview whenever any property changes
+  useEffect(() => {
+      if (isOpen && selectedAnchorId) {
+          onPreview(selectedAnchorId, font, fontSize, position, align, margin);
+      }
+  }, [selectedAnchorId, font, fontSize, position, align, margin]);
 
   if (!isOpen) return null;
 
@@ -29,13 +39,13 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
       <div className="bg-white rounded-lg shadow-xl w-96 border border-gray-200">
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <h3 className="font-bold text-gray-800">Insert Page Numbers</h3>
+          <h3 className="font-bold text-gray-800">Page Numbering Settings</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={20} />
           </button>
         </div>
         
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-5">
           {/* Start Point Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Start numbering from:</label>
@@ -50,40 +60,110 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
                    </option>
                ))}
             </select>
-            <p className="text-xs text-gray-500 mt-1">Numbering starts on the page containing this section.</p>
           </div>
 
-          {/* Font Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Font Family:</label>
-            <select 
-              value={font}
-              onChange={(e) => setFont(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-            >
-              <option value="'Roboto', sans-serif">Roboto</option>
-              <option value="'Courier Prime', monospace">Courier Prime</option>
-              <option value="'Times New Roman', serif">Times New Roman</option>
-              <option value="Arial, sans-serif">Arial</option>
-              <option value="'Black Ops One', cursive">Black Ops One</option>
-            </select>
+          <div className="grid grid-cols-2 gap-4">
+              {/* Position Controls */}
+              <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Position:</label>
+                  <div className="flex border border-gray-300 rounded overflow-hidden">
+                      <button 
+                        onClick={() => setPosition('top')}
+                        className={`flex-1 flex justify-center py-2 ${position === 'top' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                      >
+                          <ArrowUpFromLine size={18} />
+                      </button>
+                      <div className="w-px bg-gray-300"></div>
+                      <button 
+                        onClick={() => setPosition('bottom')}
+                        className={`flex-1 flex justify-center py-2 ${position === 'bottom' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                      >
+                          <ArrowDownFromLine size={18} />
+                      </button>
+                  </div>
+              </div>
+              
+              {/* Alignment Controls */}
+              <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Alignment:</label>
+                  <div className="flex border border-gray-300 rounded overflow-hidden">
+                      <button 
+                        onClick={() => setAlign('left')}
+                        className={`flex-1 flex justify-center py-2 ${align === 'left' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                      >
+                          <AlignLeft size={18} />
+                      </button>
+                      <div className="w-px bg-gray-300"></div>
+                      <button 
+                        onClick={() => setAlign('center')}
+                        className={`flex-1 flex justify-center py-2 ${align === 'center' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                      >
+                          <AlignCenter size={18} />
+                      </button>
+                      <div className="w-px bg-gray-300"></div>
+                      <button 
+                        onClick={() => setAlign('right')}
+                        className={`flex-1 flex justify-center py-2 ${align === 'right' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                      >
+                          <AlignRight size={18} />
+                      </button>
+                  </div>
+              </div>
           </div>
 
-          {/* Size Selection */}
+          {/* Margin Adjustment (Inches) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Font Size:</label>
-            <div className="flex items-center gap-2">
-                <input 
-                type="range" 
-                min="8" 
-                max="24" 
-                value={fontSize}
-                onChange={(e) => setFontSize(e.target.value)}
-                className="flex-1 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-                />
-                <span className="text-sm font-bold text-gray-600 w-8">{fontSize}pt</span>
+            <div className="flex justify-between items-center mb-1">
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                    <MoveVertical size={14} /> Margin from edge:
+                </label>
+                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{margin.toFixed(2)} in</span>
+            </div>
+            <input 
+              type="range" min="0.1" max="2.0" step="0.05"
+              value={margin} 
+              onChange={(e) => setMargin(parseFloat(e.target.value))}
+              className="w-full accent-blue-600 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                <span>0.1"</span>
+                <span>1.0"</span>
+                <span>2.0"</span>
             </div>
           </div>
+
+          {/* Font & Size */}
+          <div className="flex gap-4">
+            <div className="flex-[2]">
+                <label className="block text-sm font-medium text-gray-700 mb-1 text-[11px] uppercase tracking-wider">Font:</label>
+                <select 
+                value={font}
+                onChange={(e) => setFont(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                >
+                <option value="'Roboto', sans-serif">Roboto</option>
+                <option value="'Courier Prime', monospace">Courier Prime</option>
+                <option value="'Times New Roman', serif">Times New Roman</option>
+                <option value="Arial, sans-serif">Arial</option>
+                <option value="'Black Ops One', cursive">Black Ops One</option>
+                </select>
+            </div>
+            <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1 text-[11px] uppercase tracking-wider">Size:</label>
+                <select 
+                value={fontSize}
+                onChange={(e) => setFontSize(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                >
+                <option value="9">9pt</option>
+                <option value="10">10pt</option>
+                <option value="11">11pt</option>
+                <option value="12">12pt</option>
+                <option value="14">14pt</option>
+                </select>
+            </div>
+          </div>
+
         </div>
 
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-2 rounded-b-lg">
@@ -94,10 +174,10 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
             Cancel
           </button>
           <button 
-            onClick={() => onApply(selectedAnchorId, font, fontSize)}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded shadow-sm transition-colors"
+            onClick={() => onApply(selectedAnchorId, font, fontSize, position, align, margin)}
+            className="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-md transition-all active:scale-95"
           >
-            Apply Numbers
+            Finish
           </button>
         </div>
       </div>
