@@ -412,7 +412,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         value={selectionState.shape || 'none'}
                         onChange={(e) => handleBorderUpdate('shape', e.target.value)}
                      >
-                         <option value="none">Rectangle</option>
+                         <option value="none">No Shape</option>
+                         <option value="rectangle">Rectangle</option>
                          <option value="circle">Circle</option>
                          <option value="pill">Pill / Oval</option>
                          <option value="speech">Speech Bubble</option>
@@ -425,11 +426,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     <label className="text-xs text-gray-600">Thickness:</label>
                     <input 
                         type="range" min="0" max="20" step="1"
-                        value={parseInt(selectionState.borderWidth || '0')}
+                        value={parseInt(selectionState.borderWidth || '0') || 0}
                         onChange={(e) => handleBorderUpdate('borderWidth', e.target.value + 'px')}
                         className="w-20 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                     />
-                    <span className="text-xs text-gray-600 w-4">{parseInt(selectionState.borderWidth || '0')}</span>
+                    <span className="text-xs text-gray-600 w-4">{parseInt(selectionState.borderWidth || '0') || 0}</span>
                 </div>
 
                 {/* Border Color */}

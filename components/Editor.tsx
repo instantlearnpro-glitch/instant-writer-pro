@@ -109,30 +109,36 @@ const Editor: React.FC<EditorProps> = ({
     
     // CRITICAL FIX: Explicitly exclude .editor-workspace and .page to prevent layout framing issues
     // We only want to select actual content elements. Added spans with specific classes.
-    const block = element?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud');
+    const block = element?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle');
     
     if (block) {
         activeBlock = block as HTMLElement;
         const computed = window.getComputedStyle(block);
         
         // Read current styles to update toolbar
-        state.borderWidth = parseInt(computed.borderTopWidth || '0').toString();
+        const safeParseInt = (val: string) => {
+            const parsed = parseInt(val);
+            return isNaN(parsed) ? '0' : parsed.toString();
+        };
+
+        state.borderWidth = safeParseInt(computed.borderTopWidth);
         state.borderColor = rgbToHex(computed.borderTopColor);
         state.borderStyle = computed.borderTopStyle;
-        state.borderRadius = parseInt(computed.borderRadius || '0').toString();
-        state.padding = parseInt(computed.paddingTop || '0').toString();
+        state.borderRadius = safeParseInt(computed.borderRadius);
+        state.padding = safeParseInt(computed.paddingTop);
         state.backgroundColor = rgbToHex(computed.backgroundColor);
         state.textAlign = computed.textAlign;
         // Read width if explicit, otherwise let toolbar handle default
         state.width = activeBlock.style.width || '';
 
         // Detect Shape
-        const shapeContainer = activeBlock.closest('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud') as HTMLElement;
+        const shapeContainer = activeBlock.closest('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle') as HTMLElement;
         if (shapeContainer) {
             if (shapeContainer.classList.contains('shape-circle')) state.shape = 'circle';
             else if (shapeContainer.classList.contains('shape-pill')) state.shape = 'pill';
             else if (shapeContainer.classList.contains('shape-speech')) state.shape = 'speech';
             else if (shapeContainer.classList.contains('shape-cloud')) state.shape = 'cloud';
+            else if (shapeContainer.classList.contains('shape-rectangle')) state.shape = 'rectangle';
             else state.shape = 'none'; // mission-box or tracing-line don't have a shape type in the dropdown
         } else {
             state.shape = 'none';
@@ -182,7 +188,7 @@ const Editor: React.FC<EditorProps> = ({
           const element = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
           
           // Check if we are inside a special container like .mission-box or .tracing-line or headings
-          const specialBlock = element?.closest('.mission-box, .tracing-line, h1, h2, h3, h4, h5, h6, .shape-speech, .shape-cloud, .shape-circle');
+          const specialBlock = element?.closest('.mission-box, .tracing-line, h1, h2, h3, h4, h5, h6, .shape-speech, .shape-cloud, .shape-circle, .shape-rectangle');
           
           if (specialBlock) {
              setTimeout(() => {
@@ -191,7 +197,7 @@ const Editor: React.FC<EditorProps> = ({
                  const newRange = selection.getRangeAt(0);
                  const newNode = newRange.commonAncestorContainer;
                  const newElement = newNode.nodeType === 1 ? newNode as HTMLElement : newNode.parentElement;
-                 const newBlock = newElement?.closest('.mission-box, .tracing-line, h1, h2, h3, h4, h5, h6, .shape-speech, .shape-cloud, .shape-circle');
+                 const newBlock = newElement?.closest('.mission-box, .tracing-line, h1, h2, h3, h4, h5, h6, .shape-speech, .shape-cloud, .shape-circle, .shape-rectangle');
 
                  if (newBlock && newBlock !== specialBlock) {
                      // We created a duplicate block! Convert it to a paragraph

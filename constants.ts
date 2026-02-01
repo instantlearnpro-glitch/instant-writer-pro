@@ -80,7 +80,7 @@ p {
 
 /* --- Shapes --- */
 .shape-circle {
-    border-radius: 50% !important;
+    border-radius: 50%;
     text-align: center;
     display: flex;
     align-items: center;
@@ -90,23 +90,25 @@ p {
     margin: 10px auto;
     min-width: 100px;
     min-height: 100px;
-    background-color: #fff; /* Default to white for visibility */
+    background-color: var(--shape-bg, #fff);
+    border: 2px solid var(--shape-border, #000);
     cursor: pointer;
 }
 
 .shape-pill {
-    border-radius: 9999px !important;
+    border-radius: 9999px;
     width: fit-content;
-    padding-left: 20px !important;
-    padding-right: 20px !important;
+    padding-left: 20px;
+    padding-right: 20px;
     margin: 10px auto;
     text-align: center;
-    background-color: #fff;
+    background-color: var(--shape-bg, #fff);
+    border: 2px solid var(--shape-border, #000);
     cursor: pointer;
 }
 
 .shape-speech {
-    border-radius: 15px !important;
+    border-radius: 15px;
     width: fit-content;
     margin: 10px 10px 10px 20px;
     position: relative;
@@ -161,13 +163,23 @@ p {
     padding: 15px 20px;
     margin: 20px 0;
     background: #fafafa;
-    font-family: 'Roboto', sans-serif;
+    /* font-family removed to preserve user selection */
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.shape-rectangle {
+    /* Identical to mission-box, ensures specific targeting works */
+    border: 2px solid #000;
+    padding: 15px 20px;
+    margin: 20px 0;
+    background: #fafafa;
     cursor: pointer;
     box-sizing: border-box;
 }
 
 /* Allow shapes to be inline-block when applied to spans (text selection) */
-span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud {
+span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle {
     display: inline-block;
     margin: 5px; /* Smaller margin for inline flow */
     vertical-align: middle;

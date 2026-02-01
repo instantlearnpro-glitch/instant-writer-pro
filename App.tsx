@@ -163,7 +163,9 @@ const App: React.FC = () => {
         const styleTags = doc.querySelectorAll('style');
         let extractedCss = '';
         styleTags.forEach(tag => {
-            extractedCss += tag.innerHTML + '\n';
+            // STRIP !important from uploaded CSS to ensure the editor tools can override legacy styles
+            let css = tag.innerHTML.replace(/!important/g, '');
+            extractedCss += css + '\n';
             tag.remove();
         });
 
@@ -236,7 +238,7 @@ const App: React.FC = () => {
             let node = range.commonAncestorContainer;
             if (node.nodeType === 3) node = node.parentElement!; // Fix text node
             
-            shapeContainer = (node as HTMLElement).closest('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud');
+            shapeContainer = (node as HTMLElement).closest('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle');
         }
 
         // If we found a shape container, move THE CONTAINER, not the text
@@ -334,25 +336,29 @@ ${tagName} {
   // --- Feature: Real-time Block Styling (Frames & Pudding & Shapes) ---
   const handleBlockStyleUpdate = (styles: Record<string, string>) => {
       // 1. Check if we should wrap selected text in a new block (for shapes)
-      // Allow wrapping even if shape is 'none' (Rectangle), as long as 'shape' property is present
       if (styles.shape) {
-          const range = selectionState.range;
+          // Try to get the freshest range possible
+          let range = selectionState.range;
+          const liveSelection = window.getSelection();
+          if (liveSelection && liveSelection.rangeCount > 0 && !liveSelection.isCollapsed) {
+              range = liveSelection.getRangeAt(0);
+          }
           
           // Check if selection is ALREADY inside a shape to prevent nesting
           let existingShape = null;
           if (range) {
               const node = range.commonAncestorContainer;
               const element = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
-              existingShape = element?.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud');
+              existingShape = element?.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle');
           }
 
-          // If we are already inside a shape, FORCE update the existing one, do NOT create new
+          // If we are already inside a shape, FORCE update the existing one
           if (existingShape) {
               const shapeEl = existingShape as HTMLElement;
               
               // Update shape class
-              shapeEl.classList.remove('shape-circle', 'shape-pill', 'shape-speech', 'shape-cloud', 'mission-box');
-              shapeEl.classList.add('mission-box'); // Always base class
+              shapeEl.classList.remove('shape-circle', 'shape-pill', 'shape-speech', 'shape-cloud', 'mission-box', 'shape-rectangle');
+              shapeEl.classList.add('mission-box'); 
               if (styles.shape !== 'none') {
                   shapeEl.classList.add(`shape-${styles.shape}`);
               }
@@ -377,35 +383,42 @@ ${tagName} {
               return;
           }
 
-          // Verify range is valid and connected to DOM for NEW creation
+          // Verify range is valid for NEW creation
           const isRangeValid = range && 
                                !range.collapsed && 
-                               range.commonAncestorContainer.isConnected &&
-                               document.contains(range.commonAncestorContainer);
+                               (document.contains(range.commonAncestorContainer) || (contentRef.current && contentRef.current.contains(range.commonAncestorContainer)));
 
           if (isRangeValid) {
-              const content = range.extractContents();
+              const content = range!.extractContents();
               
               // --- SANITIZATION START ---
-              // 1. Un-nest: Remove existing shapes inside the selection to prevent "circles on circles"
-              const nestedShapes = content.querySelectorAll('.mission-box');
-              nestedShapes.forEach(shape => {
-                  // Move children out of the shape, then remove the shape node
-                  while (shape.firstChild) {
-                      shape.parentNode?.insertBefore(shape.firstChild, shape);
+              // Helper to unwrap elements
+              const unwrap = (element: HTMLElement) => {
+                  const parent = element.parentNode;
+                  if (!parent) return;
+                  
+                  const isBlock = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/.test(element.tagName);
+                  
+                  while (element.firstChild) {
+                      parent.insertBefore(element.firstChild, element);
                   }
-                  shape.parentNode?.removeChild(shape);
-              });
+                  
+                  if (isBlock && element.nextSibling) {
+                      parent.insertBefore(document.createElement('br'), element);
+                  }
+                  
+                  parent.removeChild(element);
+              };
 
-              // 2. Block Safety: Check if selection contains block elements
-              // If we wrap block elements in a SPAN, the layout explodes ("Giant Shape"). 
-              // Use DIV if blocks are present, SPAN if it's just text/inline.
-              const hasBlockElements = content.querySelector('p, div, h1, h2, h3, h4, h5, h6, li, blockquote, hr');
-              const wrapperTag = hasBlockElements ? 'div' : 'span';
+              // 1. Un-nest: Remove existing shapes
+              content.querySelectorAll('.mission-box').forEach(el => unwrap(el as HTMLElement));
+
+              // 2. Flatten Blocks: Convert P/DIV inside selection to inline text + BR
+              content.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, li, blockquote').forEach(el => unwrap(el as HTMLElement));
               // --- SANITIZATION END ---
 
               // Create new shape wrapper
-              const wrapper = document.createElement(wrapperTag);
+              const wrapper = document.createElement('span');
               const shapeClass = styles.shape === 'none' ? '' : ` shape-${styles.shape}`;
               wrapper.className = `mission-box${shapeClass}`;
               
@@ -422,11 +435,10 @@ ${tagName} {
               if (styles.borderStyle) wrapper.style.borderStyle = styles.borderStyle;
               
               wrapper.appendChild(content);
-              range.insertNode(wrapper);
+              range!.insertNode(wrapper);
               
               // Clear selection
-              const sel = window.getSelection();
-              if (sel) sel.removeAllRanges();
+              if (liveSelection) liveSelection.removeAllRanges();
               
               // Force history update
               const workspace = document.querySelector('.editor-workspace');
@@ -438,31 +450,86 @@ ${tagName} {
       }
 
       // 2. Standard behavior: Apply to active block
-      if (!activeBlock) return;
+      
+      // RECOVERY: If activeBlock is detached (due to re-render), try to find it again via selection
+      let currentBlock = activeBlock;
+      if (currentBlock && !currentBlock.isConnected) {
+          const selection = window.getSelection();
+          if (selection && selection.rangeCount > 0) {
+              const node = selection.getRangeAt(0).commonAncestorContainer;
+              const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+              // Re-select based on the same criteria as Editor.tsx
+              const recovered = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle');
+              if (recovered) {
+                  currentBlock = recovered as HTMLElement;
+                  setActiveBlock(currentBlock); // Sync state
+              }
+          }
+      }
+
+      if (!currentBlock) return;
+
+      // RESOLVE TARGET: If applying shape properties, look for the shape container
+      const isShapeProperty = styles.shape || styles.borderColor || styles.backgroundColor || styles.borderWidth || styles.borderStyle || styles.padding;
+      
+      let targetBlock = currentBlock;
+      let isShape = currentBlock.matches('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle');
+
+      if (isShapeProperty && !isShape) {
+          // Try to find a parent shape
+          const parentShape = currentBlock.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle');
+          if (parentShape) {
+              targetBlock = parentShape as HTMLElement;
+              isShape = true;
+          }
+      }
+
+      if (isShapeProperty && !isShape) {
+          // Exception: If we are just aligning text (textAlign), that's allowed on paragraphs.
+          // But if we are setting borders/backgrounds/shapes, abort if it's not a shape.
+          // This prevents "Page Rectangle" layout breakage.
+          if (!styles.textAlign && !styles.blockType && !styles.fontSize && !styles.fontName) {
+             return;
+          }
+      }
 
       Object.entries(styles).forEach(([key, value]) => {
           if (key === 'shape') {
               // Remove existing shape classes
-              activeBlock.classList.remove('shape-circle', 'shape-pill', 'shape-speech', 'shape-cloud');
+              targetBlock.classList.remove('shape-circle', 'shape-pill', 'shape-speech', 'shape-cloud', 'shape-rectangle');
               
               if (value !== 'none') {
-                  activeBlock.style.borderRadius = ''; 
-                  activeBlock.classList.add(`shape-${value}`);
+                  targetBlock.style.borderRadius = ''; 
+                  targetBlock.classList.add(`shape-${value}`);
               }
           } 
           else if (key === 'padding') {
-              (activeBlock.style as any).padding = value;
+              (targetBlock.style as any).padding = value;
           } 
           else if (key === 'borderColor') {
-              (activeBlock.style as any).borderColor = value;
-              activeBlock.style.setProperty('--shape-border', value);
+              (targetBlock.style as any).borderColor = value;
+              targetBlock.style.setProperty('--shape-border', value);
           }
           else if (key === 'backgroundColor') {
-              (activeBlock.style as any).backgroundColor = value;
-              activeBlock.style.setProperty('--shape-bg', value);
+              (targetBlock.style as any).backgroundColor = value;
+              targetBlock.style.setProperty('--shape-bg', value);
+          }
+          else if (key === 'borderWidth') {
+              (targetBlock.style as any).borderWidth = value;
+              // Auto-set style to solid if width > 0 and style is missing/none
+              if (parseInt(value) > 0) {
+                  const computedStyle = window.getComputedStyle(targetBlock);
+                  if (!computedStyle.borderStyle || computedStyle.borderStyle === 'none') {
+                      targetBlock.style.borderStyle = 'solid';
+                  }
+              }
+          }
+          else if (key === 'width') {
+              (targetBlock.style as any).width = value;
+              (targetBlock.style as any).maxWidth = 'none'; // Ensure it's not constrained
           }
           else {
-              (activeBlock.style as any)[key] = value;
+              (targetBlock.style as any)[key] = value;
           }
       });
 
@@ -1085,12 +1152,11 @@ ${markerEnd}
       if (block) {
           setActiveBlock(block);
           
-          // Automatically show frame tools if it's a shape
-          const isShape = block.matches('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud');
-          if (isShape || state.shape !== 'none') {
-              setShowFrameTools(true);
-          }
-      }
+                // Automatically show frame tools if it's a shape
+                const isShape = block.matches('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle');
+                if (isShape || state.shape !== 'none') {
+                    setShowFrameTools(true);
+                }      }
   };
 
   return (
