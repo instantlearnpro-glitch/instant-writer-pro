@@ -167,48 +167,132 @@ const App: React.FC = () => {
     setPageCount(pages.length || 1);
   }, [docState.htmlContent]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      if (text) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(text, 'text/html');
-        
-        const styleTags = doc.querySelectorAll('style');
-        let extractedCss = '';
-        styleTags.forEach(tag => {
-            // STRIP !important from uploaded CSS to ensure the editor tools can override legacy styles
-            let css = tag.innerHTML.replace(/!important/g, '');
-            extractedCss += css + '\n';
-            tag.remove();
-        });
+    // 1. Find the main document file
+    const docFile = files.find(f => f.name.endsWith('.html') || f.name.endsWith('.htm') || f.name.endsWith('.docx'));
+    if (!docFile) {
+        alert("Please select an HTML or DOCX file.");
+        return;
+    }
 
-        let bodyContent = doc.body.innerHTML;
-
-        // Auto-wrap content in a .page container if it doesn't have one
-        // This ensures imported "plain" HTML files are editable and support shapes
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = bodyContent;
-        if (!tempDiv.querySelector('.page')) {
-            bodyContent = `<div class="page">${bodyContent}</div>`;
-        }
-
-        // Always prepend DEFAULT_CSS so shape definitions are available even for external files
-        const finalCss = extractedCss ? `${DEFAULT_CSS}\n/* Imported Styles */\n${extractedCss}` : DEFAULT_CSS;
-
-        const newState = {
-          htmlContent: bodyContent,
-          cssContent: finalCss,
-          fileName: file.name
+    // 2. Process based on type
+    if (docFile.name.endsWith('.docx')) {
+        // ... (Existing Mammoth Logic)
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const arrayBuffer = event.target?.result as ArrayBuffer;
+            if (arrayBuffer) {
+                // @ts-ignore
+                if (window.mammoth) {
+                    // @ts-ignore
+                    window.mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
+                        .then((result: any) => {
+                            const html = result.value;
+                            const bodyContent = `<div class="page">${html}</div>`;
+                            const newState = {
+                                htmlContent: bodyContent,
+                                cssContent: DEFAULT_CSS,
+                                fileName: docFile.name
+                            };
+                            updateDocState(newState, true);
+                        })
+                        .catch((err: any) => { console.error(err); alert("Error converting Word document."); });
+                }
+            }
         };
-        updateDocState(newState, true);
-      }
-    };
-    reader.readAsText(file);
+        reader.readAsArrayBuffer(docFile);
+    } 
+    else {
+        // 3. HTML Handling with "Smart Image Linking"
+        
+        // A. Load all companion images into a map: filename -> DataURL
+        const imageMap = new Map<string, string>();
+        const imageFiles = files.filter(f => f.type.startsWith('image/'));
+        
+        await Promise.all(imageFiles.map(file => new Promise<void>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                if (evt.target?.result) {
+                    imageMap.set(file.name, evt.target.result as string);
+                }
+                resolve();
+            };
+            reader.readAsDataURL(file);
+        })));
+
+        // B. Read and parse HTML
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const text = event.target?.result as string;
+            if (text) {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, 'text/html');
+                
+                // Extract and Clean CSS
+                const styleTags = doc.querySelectorAll('style');
+                let extractedCss = '';
+                styleTags.forEach(tag => {
+                    let css = tag.innerHTML.replace(/!important/g, '');
+                    extractedCss += css + '\n';
+                    tag.remove();
+                });
+
+                // C. Auto-link Images
+                const images = doc.querySelectorAll('img');
+                let linkedCount = 0;
+                images.forEach(img => {
+                    const src = img.getAttribute('src');
+                    if (src) {
+                        // Extract just the filename from path (e.g., /Users/me/img.png -> img.png)
+                        // Handle both forward and backslashes
+                        const rawFilename = src.split(/[\\/]/).pop();
+                        // Also try decoding URI (e.g. Screenshot%20(7).png)
+                        const decodedFilename = rawFilename ? decodeURIComponent(rawFilename) : '';
+
+                        if (decodedFilename && imageMap.has(decodedFilename)) {
+                            img.src = imageMap.get(decodedFilename)!;
+                            linkedCount++;
+                        }
+                    }
+                });
+
+                let bodyContent = doc.body.innerHTML;
+                
+                // Wrap in page if needed
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = bodyContent;
+                if (!tempDiv.querySelector('.page')) {
+                    bodyContent = `<div class="page">${bodyContent}</div>`;
+                }
+
+                const finalCss = extractedCss ? `${DEFAULT_CSS}\n/* Imported Styles */\n${extractedCss}` : DEFAULT_CSS;
+
+                const newState = {
+                    htmlContent: bodyContent,
+                    cssContent: finalCss,
+                    fileName: docFile.name
+                };
+                
+                updateDocState(newState, true);
+                
+                if (imageFiles.length > 0) {
+                    if (linkedCount > 0) {
+                        console.log(`Linked ${linkedCount} images from selection.`);
+                    } else {
+                        // If user selected images but none matched, warn them
+                        alert("Images were selected but didn't match the filenames in the HTML. Please ensure filenames (e.g., 'image.png') match exactly.");
+                    }
+                }
+            }
+        };
+        reader.readAsText(docFile);
+    }
+    
+    // Reset input
+    e.target.value = '';
   };
 
   const handleInsertImage = (e: React.ChangeEvent<HTMLInputElement>) => {

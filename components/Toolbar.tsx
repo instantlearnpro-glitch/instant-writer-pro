@@ -4,7 +4,7 @@ import {
   Image as ImageIcon, FileUp, Download, Save, Sun, Contrast, Settings, ImagePlus,
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
-  RotateCcw, RotateCw
+  RotateCcw, RotateCw, RefreshCw
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -133,8 +133,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1 border-r border-gray-200 pr-2">
-                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Open File">
-                        <input type="file" accept=".html,.htm" onChange={onFileUpload} className="hidden" />
+                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Open File (Select HTML + Images to link)">
+                        <input type="file" multiple accept=".html,.htm,.docx,image/*" onChange={onFileUpload} className="hidden" />
                         <FileUp size={18} />
                     </label>
                     <button onClick={onSave} className={ButtonClass(false)} title="Save HTML">
@@ -295,9 +295,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         <div className="flex flex-col gap-0.5 border-r border-blue-200 pr-4">
                         <label className="text-[9px] font-bold text-gray-500 uppercase">Actions</label>
                         <div className="flex items-center gap-2">
+                            <label className={`${ButtonClass(false)} cursor-pointer`} title="Replace Image">
+                                <input type="file" accept="image/*" onChange={onInsertImage} className="hidden" />
+                                <RefreshCw size={16} />
+                                <span className="text-xs ml-1 hidden lg:inline">Replace</span>
+                            </label>
                             <button onClick={onToggleCrop} className={ButtonClass(false)} title="Crop Image">
                                 <Crop size={16} />
-                                <span className="text-xs ml-1">Crop</span>
+                                <span className="text-xs ml-1 hidden lg:inline">Crop</span>
                             </button>
                         </div>
                         </div>

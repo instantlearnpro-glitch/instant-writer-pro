@@ -269,6 +269,51 @@ const Editor: React.FC<EditorProps> = ({
       }
   };
 
+  // --- Drag and Drop Handling ---
+  const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+          const file = files[0];
+          if (file.type.startsWith('image/')) {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                  const imgUrl = event.target?.result as string;
+                  if (imgUrl) {
+                      // Check if dropped onto an existing image
+                      const target = e.target as HTMLElement;
+                      if (target.tagName === 'IMG') {
+                          const img = target as HTMLImageElement;
+                          img.src = imgUrl;
+                          img.classList.remove('broken-image');
+                          onImageSelect(img); // Re-select to update tools
+                      } else {
+                          // Standard insert
+                          // We need to restore focus or range if dropped elsewhere, 
+                          // but for simplicity, execCommand inserts at caret (or last focus).
+                          // Ideally, we move caret to drop point, but that's complex with React events.
+                          // Browsers often handle caret move on dragover automatically.
+                          document.execCommand('insertImage', false, imgUrl);
+                      }
+                      
+                      // Trigger save
+                      if (contentRef.current) {
+                          onContentChange(contentRef.current.innerHTML);
+                      }
+                  }
+              };
+              reader.readAsDataURL(file);
+          }
+      }
+  };
+
   useEffect(() => {
       const container = contentRef.current;
       if (!container) return;
@@ -365,6 +410,8 @@ const Editor: React.FC<EditorProps> = ({
             className="editor-workspace w-full flex flex-col items-center outline-none"
             contentEditable={!imageProperties.isCropping}
             onKeyDown={handleKeyDown}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
             suppressContentEditableWarning={true}
         />
         
