@@ -334,11 +334,50 @@ ${tagName} {
   // --- Feature: Real-time Block Styling (Frames & Pudding & Shapes) ---
   const handleBlockStyleUpdate = (styles: Record<string, string>) => {
       // 1. Check if we should wrap selected text in a new block (for shapes)
-      if (styles.shape && styles.shape !== 'none') {
-          // Use persisted range from selectionState
+      // Allow wrapping even if shape is 'none' (Rectangle), as long as 'shape' property is present
+      if (styles.shape) {
           const range = selectionState.range;
           
-          // Verify range is valid and connected to DOM
+          // Check if selection is ALREADY inside a shape to prevent nesting
+          let existingShape = null;
+          if (range) {
+              const node = range.commonAncestorContainer;
+              const element = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+              existingShape = element?.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud');
+          }
+
+          // If we are already inside a shape, FORCE update the existing one, do NOT create new
+          if (existingShape) {
+              const shapeEl = existingShape as HTMLElement;
+              
+              // Update shape class
+              shapeEl.classList.remove('shape-circle', 'shape-pill', 'shape-speech', 'shape-cloud', 'mission-box');
+              shapeEl.classList.add('mission-box'); // Always base class
+              if (styles.shape !== 'none') {
+                  shapeEl.classList.add(`shape-${styles.shape}`);
+              }
+
+              // Update styles
+              if (styles.borderColor) {
+                  shapeEl.style.borderColor = styles.borderColor;
+                  shapeEl.style.setProperty('--shape-border', styles.borderColor);
+              }
+              if (styles.backgroundColor) {
+                  shapeEl.style.backgroundColor = styles.backgroundColor;
+                  shapeEl.style.setProperty('--shape-bg', styles.backgroundColor);
+              }
+              if (styles.borderWidth) shapeEl.style.borderWidth = styles.borderWidth;
+              if (styles.borderStyle) shapeEl.style.borderStyle = styles.borderStyle;
+
+              // Force history update and exit
+              const workspace = document.querySelector('.editor-workspace');
+              if (workspace) {
+                  updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+              }
+              return;
+          }
+
+          // Verify range is valid and connected to DOM for NEW creation
           const isRangeValid = range && 
                                !range.collapsed && 
                                range.commonAncestorContainer.isConnected &&
@@ -349,7 +388,9 @@ ${tagName} {
               
               // Create new shape wrapper - Use SPAN for inline text safety
               const wrapper = document.createElement('span');
-              wrapper.className = `mission-box shape-${styles.shape}`;
+              // Handle "Rectangle" (none) correctly
+              const shapeClass = styles.shape === 'none' ? '' : ` shape-${styles.shape}`;
+              wrapper.className = `mission-box${shapeClass}`;
               
               // Set initial styles
               if (styles.borderColor) {
