@@ -386,9 +386,26 @@ ${tagName} {
           if (isRangeValid) {
               const content = range.extractContents();
               
-              // Create new shape wrapper - Use SPAN for inline text safety
-              const wrapper = document.createElement('span');
-              // Handle "Rectangle" (none) correctly
+              // --- SANITIZATION START ---
+              // 1. Un-nest: Remove existing shapes inside the selection to prevent "circles on circles"
+              const nestedShapes = content.querySelectorAll('.mission-box');
+              nestedShapes.forEach(shape => {
+                  // Move children out of the shape, then remove the shape node
+                  while (shape.firstChild) {
+                      shape.parentNode?.insertBefore(shape.firstChild, shape);
+                  }
+                  shape.parentNode?.removeChild(shape);
+              });
+
+              // 2. Block Safety: Check if selection contains block elements
+              // If we wrap block elements in a SPAN, the layout explodes ("Giant Shape"). 
+              // Use DIV if blocks are present, SPAN if it's just text/inline.
+              const hasBlockElements = content.querySelector('p, div, h1, h2, h3, h4, h5, h6, li, blockquote, hr');
+              const wrapperTag = hasBlockElements ? 'div' : 'span';
+              // --- SANITIZATION END ---
+
+              // Create new shape wrapper
+              const wrapper = document.createElement(wrapperTag);
               const shapeClass = styles.shape === 'none' ? '' : ` shape-${styles.shape}`;
               wrapper.className = `mission-box${shapeClass}`;
               
