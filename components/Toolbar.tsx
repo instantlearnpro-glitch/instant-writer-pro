@@ -18,6 +18,9 @@ interface ToolbarProps {
   onInsertImage: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSave: () => void;
   onPageSizeChange: (formatId: string) => void;
+  pageFormatId: string;
+  customPageSize: { width: string, height: string };
+  onCustomPageSizeChange: (width: string, height: string) => void;
   onUpdateStyle: () => void;
   onOpenTOCModal: () => void;
   onOpenPageNumberModal: () => void;
@@ -50,6 +53,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onInsertImage,
   onSave, 
   onPageSizeChange,
+  pageFormatId,
+  customPageSize,
+  onCustomPageSizeChange,
   onUpdateStyle,
   onOpenTOCModal,
   onOpenPageNumberModal,
@@ -175,11 +181,34 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     <select 
                         className="h-9 border border-gray-300 rounded px-2 text-sm text-gray-700 focus:outline-none focus:border-blue-500 bg-white"
                         onChange={(e) => onPageSizeChange(e.target.value)}
-                        defaultValue={PAGE_FORMATS.LETTER.id}
+                        value={pageFormatId}
                     >
                         <option value={PAGE_FORMATS.LETTER.id}>{PAGE_FORMATS.LETTER.name}</option>
                         <option value={PAGE_FORMATS.TRADE.id}>{PAGE_FORMATS.TRADE.name}</option>
+                        <option value={PAGE_FORMATS.CUSTOM.id}>{PAGE_FORMATS.CUSTOM.name}</option>
                     </select>
+                    
+                    {pageFormatId === 'custom' && (
+                        <div className="flex items-center gap-1 ml-1">
+                            <input 
+                                type="text" 
+                                value={customPageSize.width} 
+                                onChange={(e) => onCustomPageSizeChange(e.target.value, customPageSize.height)}
+                                className="w-12 h-7 border border-gray-300 rounded px-1 text-xs text-center"
+                                placeholder="W"
+                                title="Width (e.g. 8.5in, 800px)"
+                            />
+                            <span className="text-gray-400 text-xs">x</span>
+                            <input 
+                                type="text" 
+                                value={customPageSize.height} 
+                                onChange={(e) => onCustomPageSizeChange(customPageSize.width, e.target.value)}
+                                className="w-12 h-7 border border-gray-300 rounded px-1 text-xs text-center"
+                                placeholder="H"
+                                title="Height (e.g. 11in, 1200px)"
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {/* Text Styles */}

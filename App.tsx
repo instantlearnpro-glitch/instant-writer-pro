@@ -82,6 +82,9 @@ const App: React.FC = () => {
       style: 'solid'
   });
 
+  const [pageFormatId, setPageFormatId] = useState<string>('letter');
+  const [customPageSize, setCustomPageSize] = useState<{ width: string, height: string }>({ width: '8.5in', height: '11in' });
+
   const [pageCount, setPageCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -902,23 +905,20 @@ ${tagName} {
       setIsPageNumberModalOpen(false);
   };
 
-  const handlePageSizeChange = (formatId: string) => {
-    const format = Object.values(PAGE_FORMATS).find(f => f.id === formatId);
-    if (!format) return;
-
+  const updatePageCSS = (width: string, height: string, margin: string) => {
     const markerStart = '/* SPYWRITER_LAYOUT_OVERRIDE_START */';
     const markerEnd = '/* SPYWRITER_LAYOUT_OVERRIDE_END */';
 
     const newCssBlock = `
 ${markerStart}
 @page {
-    size: ${format.width} ${format.height};
-    margin: ${format.margin};
+    size: ${width} ${height};
+    margin: ${margin};
 }
 .page {
-    width: ${format.width} !important;
-    min-height: ${format.height} !important;
-    padding: ${format.margin} !important;
+    width: ${width} !important;
+    min-height: ${height} !important;
+    padding: ${margin} !important;
 }
 ${markerEnd}
 `;
@@ -932,6 +932,27 @@ ${markerEnd}
     }
 
     updateDocState({ ...docState, cssContent: updatedCss }, true);
+  };
+
+  const handlePageSizeChange = (formatId: string) => {
+    setPageFormatId(formatId);
+    
+    if (formatId === 'custom') {
+        updatePageCSS(customPageSize.width, customPageSize.height, '0.5in');
+        return;
+    }
+
+    const format = Object.values(PAGE_FORMATS).find(f => f.id === formatId);
+    if (!format) return;
+
+    updatePageCSS(format.width, format.height, format.margin);
+  };
+
+  const handleCustomPageSizeChange = (width: string, height: string) => {
+      setCustomPageSize({ width, height });
+      if (pageFormatId === 'custom') {
+          updatePageCSS(width, height, '0.5in');
+      }
   };
 
   const handleImageSelect = (img: HTMLImageElement | null) => {
@@ -1124,9 +1145,14 @@ ${markerEnd}
       setImageProperties(prev => ({ ...prev, isCropping: !prev.isCropping }));
   };
 
-  const handleCropComplete = (newSrc: string) => {
+  const handleCropComplete = (newSrc: string, newWidth: number, newHeight: number) => {
       if (selectedImage) {
           selectedImage.src = newSrc;
+          // Update dimensions to match the new crop size exactly
+          selectedImage.style.width = `${newWidth}px`;
+          selectedImage.style.height = `${newHeight}px`;
+          selectedImage.style.maxWidth = 'none'; // Allow exact sizing
+          
           setImageProperties(prev => ({ ...prev, isCropping: false }));
           // Save history after crop
           const workspace = document.querySelector('.editor-workspace');
@@ -1283,6 +1309,9 @@ ${markerEnd}
         onInsertImage={handleInsertImage}
         onSave={handleSave}
         onPageSizeChange={handlePageSizeChange}
+        pageFormatId={pageFormatId}
+        customPageSize={customPageSize}
+        onCustomPageSizeChange={handleCustomPageSizeChange}
         onUpdateStyle={handleUpdateStyle}
         onOpenTOCModal={() => setIsTOCModalOpen(true)}
         onOpenPageNumberModal={preparePageAnchors} 

@@ -13,7 +13,7 @@ interface EditorProps {
   selectedImage: HTMLImageElement | null;
   selectedHR: HTMLHRElement | null;
   imageProperties: ImageProperties;
-  onCropComplete: (newSrc: string) => void;
+  onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
   onPageBreak: () => void;
 }

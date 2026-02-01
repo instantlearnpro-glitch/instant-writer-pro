@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Crop } from 'lucide-react';
 
 interface ImageOverlayProps {
   image: HTMLImageElement;
   containerRef: React.RefObject<HTMLDivElement | null>;
   isCropping: boolean;
-  onCropComplete: (newSrc: string) => void;
+  onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
 }
 
@@ -18,13 +17,10 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
 }) => {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [cropRect, setCropRect] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
-
+  
   // Sync overlay position with image
-  useEffect(() => {
-    const updatePosition = () => {
+  const updatePosition = () => {
       if (image && containerRef.current) {
-        // Calculate position relative to container
         const imgRect = image.getBoundingClientRect();
         const containerRect = containerRef.current.getBoundingClientRect();
         
@@ -41,16 +37,14 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
            toJSON: imgRect.toJSON
         });
       }
-    };
+  };
 
+  useEffect(() => {
     updatePosition();
-    
-    // Update on scroll or resize
     const container = containerRef.current;
     if (container) {
         container.addEventListener('scroll', updatePosition);
         window.addEventListener('resize', updatePosition);
-        // Also listen to image load/resize
         const observer = new ResizeObserver(updatePosition);
         observer.observe(image);
         return () => {
@@ -64,46 +58,69 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   // Initialize Crop Rect
   useEffect(() => {
     if (isCropping && rect) {
+        // Start with full image
         setCropRect({ x: 0, y: 0, w: rect.width, h: rect.height });
     }
-  }, [isCropping, rect?.width, rect?.height]);
+  }, [isCropping]); // Only reset when entering crop mode
 
   if (!rect) return null;
 
   // --- RESIZE LOGIC ---
-  const handleResizeStart = (e: React.MouseEvent, corner: string) => {
+  const handleResizeStart = (e: React.MouseEvent, direction: string) => {
     e.preventDefault();
     e.stopPropagation();
     
     const startX = e.clientX;
     const startY = e.clientY;
-    const startWidth = rect.width;
-    const startHeight = rect.height;
-    const aspectRatio = startWidth / startHeight;
+    const startRect = image.getBoundingClientRect();
+    const startWidth = startRect.width;
+    const startHeight = startRect.height;
+
+    // Remove max-width constraint to allow free resizing
+    // Use setProperty with 'important' to override any potential CSS conflicts
+    image.style.setProperty('max-width', 'none', 'important');
+    image.style.setProperty('max-height', 'none', 'important');
+    image.style.setProperty('min-width', '0', 'important');
+    image.style.setProperty('min-height', '0', 'important');
+    image.style.setProperty('aspect-ratio', 'auto', 'important');
+    image.style.setProperty('object-fit', 'fill', 'important');
+    
+    // Set initial size
+    image.style.setProperty('width', `${startWidth}px`);
+    image.style.setProperty('height', `${startHeight}px`);
 
     const onMove = (moveEvent: MouseEvent) => {
         const dx = moveEvent.clientX - startX;
+        const dy = moveEvent.clientY - startY;
+        
         let newWidth = startWidth;
-        
-        // Simple corner logic: assume dragging SE corner for now or check 'corner'
-        // For simplicity in this implementation, we will treat all corners as resizing width/height proportionally
-        // but mirroring properly requires checking corner.
-        
-        if (corner.includes('e')) newWidth = startWidth + dx;
-        else if (corner.includes('w')) newWidth = startWidth - dx;
+        let newHeight = startHeight;
 
-        // Maintain Aspect Ratio
-        const newHeight = newWidth / aspectRatio;
+        // Horizontal
+        if (direction.includes('e')) newWidth = startWidth + dx;
+        else if (direction.includes('w')) newWidth = startWidth - dx;
 
-        image.style.width = `${newWidth}px`;
-        image.style.height = `${newHeight}px`;
-        // Also reset max-width to allow growth beyond initial if needed, or keep it 100%
-        image.style.maxWidth = 'none'; 
+        // Vertical
+        if (direction.includes('s')) newHeight = startHeight + dy;
+        else if (direction.includes('n')) newHeight = startHeight - dy;
+
+        // Minimum size constraint
+        if (newWidth < 20) newWidth = 20;
+        if (newHeight < 20) newHeight = 20;
+
+        // Apply BOTH dimensions always to allow deformation (break aspect ratio)
+        image.style.setProperty('width', `${newWidth}px`, 'important');
+        image.style.setProperty('height', `${newHeight}px`, 'important');
+        
+        // Force update overlay
+        updatePosition();
     };
 
     const onUp = () => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        // Re-enable max-width to 100% to fit page layout flow if desired?
+        // No, user explicitly resized it, keep fixed pixel size.
     };
 
     document.addEventListener('mousemove', onMove);
@@ -111,7 +128,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   };
 
   // --- CROP LOGIC ---
-  const handleCropStart = (e: React.MouseEvent, type: 'move' | 'nw' | 'ne' | 'se' | 'sw') => {
+  const handleCropStart = (e: React.MouseEvent, type: string) => {
       if (!cropRect) return;
       e.preventDefault();
       e.stopPropagation();
@@ -139,11 +156,24 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
              if (type.includes('n')) { newY += dy; newH -= dy; }
           }
           
-          // Constrain to image bounds
-          if (newX < 0) newX = 0;
-          if (newY < 0) newY = 0;
-          if (newX + newW > rect.width) newW = rect.width - newX;
-          if (newY + newH > rect.height) newH = rect.height - newY;
+          // Constrain to image bounds (rect is the displayed size)
+          const maxX = rect.width;
+          const maxY = rect.height;
+
+          // Normalize negative width/height (flipping)
+          if (newW < 0) { newX += newW; newW = Math.abs(newW); }
+          if (newH < 0) { newY += newH; newH = Math.abs(newH); }
+
+          // Hard bounds check
+          if (newX < 0) { newW += newX; newX = 0; } // Grow width if pushed left out
+          if (newY < 0) { newH += newY; newY = 0; }
+          
+          if (newX + newW > maxX) newW = maxX - newX;
+          if (newY + newH > maxY) newH = maxY - newY;
+
+          // Min size
+          if (newW < 10) newW = 10;
+          if (newH < 10) newH = 10;
 
           setCropRect({ x: newX, y: newY, w: newW, h: newH });
       };
@@ -164,109 +194,160 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Real image natural size might differ from displayed size
-      const scaleX = image.naturalWidth / rect.width;
-      const scaleY = image.naturalHeight / rect.height;
+      // 1. Get Borders
+      const style = window.getComputedStyle(image);
+      const borderLeft = parseFloat(style.borderLeftWidth) || 0;
+      const borderTop = parseFloat(style.borderTopWidth) || 0;
+      const borderRight = parseFloat(style.borderRightWidth) || 0;
+      const borderBottom = parseFloat(style.borderBottomWidth) || 0;
 
-      canvas.width = cropRect.w * scaleX;
-      canvas.height = cropRect.h * scaleY;
+      // 2. Define Content Rect (relative to overlay/rect)
+      // rect.width is full border-box width.
+      const contentX = borderLeft;
+      const contentY = borderTop;
+      const contentW = rect.width - borderLeft - borderRight;
+      const contentH = rect.height - borderTop - borderBottom;
 
-      ctx.drawImage(
-          image,
-          cropRect.x * scaleX, cropRect.y * scaleY, cropRect.w * scaleX, cropRect.h * scaleY,
-          0, 0, canvas.width, canvas.height
-      );
+      // 3. Intersect Selection with Content
+      // cropRect is relative to rect (0,0 is top-left of border-box)
+      const iX = Math.max(cropRect.x, contentX);
+      const iY = Math.max(cropRect.y, contentY);
+      const iR = Math.min(cropRect.x + cropRect.w, contentX + contentW);
+      const iB = Math.min(cropRect.y + cropRect.h, contentY + contentH);
+      
+      const iW = Math.max(0, iR - iX);
+      const iH = Math.max(0, iB - iY);
 
-      onCropComplete(canvas.toDataURL());
+      if (iW <= 0 || iH <= 0) {
+          alert("Selection is empty or entirely on the border.");
+          return;
+      }
+
+      // 4. Calculate Source Coords (Natural Scale)
+      const scaleX = image.naturalWidth / contentW;
+      const scaleY = image.naturalHeight / contentH;
+
+      const sx = (iX - contentX) * scaleX;
+      const sy = (iY - contentY) * scaleY;
+      const sw = iW * scaleX;
+      const sh = iH * scaleY;
+
+      // 5. Draw
+      canvas.width = sw;
+      canvas.height = sh;
+
+      try {
+        ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+        
+        // 6. Calculate Final Display Size
+        // We want the new element's *content box* to equal iW x iH.
+        // So we add the borders back to get the required border-box size.
+        const finalWidth = iW + borderLeft + borderRight;
+        const finalHeight = iH + borderTop + borderBottom;
+
+        onCropComplete(canvas.toDataURL(), finalWidth, finalHeight);
+      } catch (e) {
+          console.error("Crop failed", e);
+          alert("Could not crop image. It might be tainted (cross-origin).");
+      }
   };
+
+  const Handle = ({ dir, cursor, onStart }: { dir: string, cursor: string, onStart: any }) => {
+      // Position logic
+      const style: React.CSSProperties = { position: 'absolute', width: '10px', height: '10px', backgroundColor: 'white', border: '1px solid #2563eb', zIndex: 50, cursor };
+      
+      if (dir.includes('n')) style.top = '-5px';
+      else if (dir.includes('s')) style.bottom = '-5px';
+      else style.top = 'calc(50% - 5px)';
+
+      if (dir.includes('w')) style.left = '-5px';
+      else if (dir.includes('e')) style.right = '-5px';
+      else style.left = 'calc(50% - 5px)';
+
+      return <div style={style} onMouseDown={(e) => onStart(e, dir)} />;
+  };
+
+  // --- RENDER ---
 
   if (isCropping && cropRect) {
       return (
         <div 
             style={{ 
                 position: 'absolute', 
-                top: rect.top, 
-                left: rect.left, 
-                width: rect.width, 
-                height: rect.height,
+                top: rect.top, left: rect.left, width: rect.width, height: rect.height,
                 zIndex: 50,
-                pointerEvents: 'none' // allow click through to dim backdrop? no, we need to block
+                pointerEvents: 'none'
             }}
         >
-            {/* Dimmed Backdrop */}
-            <div className="absolute inset-0 bg-black/50" style={{ pointerEvents: 'auto' }}></div>
+            {/* Dimmed Overlay */}
+            <div className="absolute inset-0 bg-black/60 pointer-events-auto"></div>
             
-            {/* Crop Box */}
+            {/* Crop Selection */}
             <div 
                 style={{
                     position: 'absolute',
-                    top: cropRect.y,
-                    left: cropRect.x,
-                    width: cropRect.w,
-                    height: cropRect.h,
-                    border: '2px solid white',
-                    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)', // clip masking trick
-                    pointerEvents: 'auto',
-                    cursor: 'move'
+                    top: cropRect.y, left: cropRect.x, width: cropRect.w, height: cropRect.h,
+                    border: '1px solid rgba(255,255,255,0.8)',
+                    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)', 
+                    cursor: 'move',
+                    pointerEvents: 'auto'
                 }}
                 onMouseDown={(e) => handleCropStart(e, 'move')}
             >
-                {/* Crop Handles */}
-                <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-white -translate-x-1/2 -translate-y-1/2 cursor-nw-resize" onMouseDown={(e) => handleCropStart(e, 'nw')} />
-                <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-white translate-x-1/2 -translate-y-1/2 cursor-ne-resize" onMouseDown={(e) => handleCropStart(e, 'ne')} />
-                <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-white -translate-x-1/2 translate-y-1/2 cursor-sw-resize" onMouseDown={(e) => handleCropStart(e, 'sw')} />
-                <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-white translate-x-1/2 translate-y-1/2 cursor-se-resize" onMouseDown={(e) => handleCropStart(e, 'se')} />
-                
-                {/* Grid of thirds */}
-                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
-                    <div className="border-r border-white/30" />
-                    <div className="border-r border-white/30" />
-                    <div className="border-b border-white/30 col-span-3 row-start-1" />
-                    <div className="border-b border-white/30 col-span-3 row-start-2" />
+                {/* Rule of Thirds Grid */}
+                <div className="absolute inset-0 flex flex-col">
+                    <div className="flex-1 border-b border-white/30"></div>
+                    <div className="flex-1 border-b border-white/30"></div>
+                    <div className="flex-1"></div>
                 </div>
+                <div className="absolute inset-0 flex flex-row">
+                    <div className="flex-1 border-r border-white/30"></div>
+                    <div className="flex-1 border-r border-white/30"></div>
+                    <div className="flex-1"></div>
+                </div>
+
+                {/* Handles */}
+                <Handle dir="nw" cursor="nw-resize" onStart={handleCropStart} />
+                <Handle dir="n" cursor="n-resize" onStart={handleCropStart} />
+                <Handle dir="ne" cursor="ne-resize" onStart={handleCropStart} />
+                <Handle dir="e" cursor="e-resize" onStart={handleCropStart} />
+                <Handle dir="se" cursor="se-resize" onStart={handleCropStart} />
+                <Handle dir="s" cursor="s-resize" onStart={handleCropStart} />
+                <Handle dir="sw" cursor="sw-resize" onStart={handleCropStart} />
+                <Handle dir="w" cursor="w-resize" onStart={handleCropStart} />
             </div>
 
-            {/* Controls */}
-            <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 flex gap-2 pointer-events-auto">
-                <button onClick={applyCrop} className="bg-blue-600 text-white px-3 py-1 rounded shadow text-sm">Apply</button>
-                <button onClick={onCancelCrop} className="bg-white text-gray-800 px-3 py-1 rounded shadow text-sm">Cancel</button>
+            {/* Toolbar */}
+            <div className="absolute top-full left-0 mt-2 flex gap-2 pointer-events-auto bg-white p-1 rounded shadow-xl border border-gray-200">
+                <button onClick={applyCrop} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs font-bold uppercase tracking-wide">Apply</button>
+                <button onClick={onCancelCrop} className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded text-xs font-bold uppercase tracking-wide">Cancel</button>
             </div>
         </div>
       );
   }
 
-  // Normal Selection Overlay (Resize Handles)
+  // Standard Resize Overlay
   return (
     <div 
-        ref={overlayRef}
         style={{ 
             position: 'absolute', 
-            top: rect.top, 
-            left: rect.left, 
-            width: rect.width, 
-            height: rect.height,
-            pointerEvents: 'none', // Allow clicks to pass through to text, but handles catch events
-            border: '2px solid #3b82f6',
+            top: rect.top, left: rect.left, width: rect.width, height: rect.height,
+            pointerEvents: 'none', 
+            border: '1px solid #3b82f6',
             zIndex: 40
         }}
     >
-        {/* Resize Handles */}
-        <div 
-            className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border border-blue-600 pointer-events-auto cursor-nw-resize" 
-            onMouseDown={(e) => handleResizeStart(e, 'nw')}
-        />
-        <div 
-            className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border border-blue-600 pointer-events-auto cursor-ne-resize" 
-            onMouseDown={(e) => handleResizeStart(e, 'ne')}
-        />
-        <div 
-            className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border border-blue-600 pointer-events-auto cursor-sw-resize" 
-            onMouseDown={(e) => handleResizeStart(e, 'sw')}
-        />
-        <div 
-            className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border border-blue-600 pointer-events-auto cursor-se-resize" 
-            onMouseDown={(e) => handleResizeStart(e, 'se')}
-        />
+        {/* Resize Handles (8 directions) */}
+        <div style={{ pointerEvents: 'auto' }}>
+            <Handle dir="nw" cursor="nw-resize" onStart={handleResizeStart} />
+            <Handle dir="n" cursor="n-resize" onStart={handleResizeStart} />
+            <Handle dir="ne" cursor="ne-resize" onStart={handleResizeStart} />
+            <Handle dir="e" cursor="e-resize" onStart={handleResizeStart} />
+            <Handle dir="se" cursor="se-resize" onStart={handleResizeStart} />
+            <Handle dir="s" cursor="s-resize" onStart={handleResizeStart} />
+            <Handle dir="sw" cursor="sw-resize" onStart={handleResizeStart} />
+            <Handle dir="w" cursor="w-resize" onStart={handleResizeStart} />
+        </div>
     </div>
   );
 };

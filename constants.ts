@@ -17,7 +17,7 @@ export const DEFAULT_CSS = `
     position: relative;
     background: #fff;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    overflow: hidden; /* Prevent floating elements from breaking layout */
+    /* overflow: hidden; Removed to allow image bleed */
 }
 
 /* Ensure images fit within the page */
@@ -318,8 +318,15 @@ export const PAGE_FORMATS = {
     width: '6in', 
     height: '9in', 
     margin: '0.5in' 
-    }
-  };
+  },
+  CUSTOM: {
+    id: 'custom',
+    name: 'Custom Size...',
+    width: '10in',
+    height: '10in',
+    margin: '0.5in'
+  }
+};
   
   export const FONTS = [
     { name: 'Default', value: 'inherit' },
