@@ -228,25 +228,37 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </button>
                 </div>
 
-                {/* Text Styles */}
-                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 pl-2">
-                <div className="flex flex-col">
-                    <div className="flex items-center gap-1">
-                        <select 
-                                className="h-6 border-none bg-transparent text-xs font-bold text-gray-800 focus:outline-none w-24"
-                                value={selectionState.blockType || 'p'}
-                                onChange={(e) => onFormat('formatBlock', e.target.value)}
-                        >
-                            <option value="p">Normal</option>
-                            <option value="h1">Heading 1</option>
-                            <option value="h2">Heading 2</option>
-                            <option value="h3">Heading 3</option>
-                            <option value="blockquote">Quote</option>
-                            <option value="pre">Code</option>
-                        </select>
+                {/* 1. Style Group */}
+                <div className="flex flex-col border-r border-gray-200 px-3 h-full justify-center min-w-[100px]">
+                    <select 
+                        className="h-6 border-none bg-transparent text-xs font-bold text-gray-800 focus:outline-none w-full mb-1 cursor-pointer hover:bg-gray-50 rounded"
+                        value={selectionState.blockType || 'p'}
+                        onChange={(e) => onFormat('formatBlock', e.target.value)}
+                        title="Paragraph Style"
+                    >
+                        <option value="p">Normal</option>
+                        <option value="h1">Heading 1</option>
+                        <option value="h2">Heading 2</option>
+                        <option value="h3">Heading 3</option>
+                        <option value="blockquote">Quote</option>
+                        <option value="pre">Code</option>
+                    </select>
+                    
+                    <button 
+                        onClick={onUpdateStyle}
+                        className="text-[9px] text-blue-600 hover:text-white hover:bg-blue-600 border border-blue-100 rounded px-1 py-0.5 transition-colors flex items-center justify-center gap-1 whitespace-nowrap"
+                        title={`Update ${selectionState.blockType} style to match current selection`}
+                    >
+                        <ArrowBigUpDash size={10} /> Update to Match
+                    </button>
+                </div>
 
+                {/* 2. Font & Formatting Group */}
+                <div className="flex flex-col border-r border-gray-200 px-3 h-full justify-center">
+                    {/* Row 1: Font Family & Size */}
+                    <div className="flex items-center gap-1 mb-1">
                         <select 
-                            className="h-6 border-none bg-transparent text-xs text-gray-800 focus:outline-none w-28"
+                            className="h-6 border border-gray-200 rounded text-[11px] text-gray-800 focus:outline-none w-32 px-1 cursor-pointer"
                             onChange={(e) => onFormat('fontName', e.target.value)}
                             value={selectionState.fontName || 'inherit'}
                             title="Font Family"
@@ -258,10 +270,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             ))}
                         </select>
 
-                            <select 
-                                className="h-6 border-none bg-transparent text-xs text-gray-800 focus:outline-none w-16"
-                                onChange={(e) => onFormat('fontSize', e.target.value)}
-                                value={selectionState.fontSize || '3'}
+                        <select 
+                            className="h-6 border border-gray-200 rounded text-[11px] text-gray-800 focus:outline-none w-14 px-1 cursor-pointer"
+                            onChange={(e) => onFormat('fontSize', e.target.value)}
+                            value={selectionState.fontSize || '3'}
+                            title="Font Size"
                         >
                             <option value="1">10px</option>
                             <option value="2">13px</option>
@@ -272,44 +285,44 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             <option value="7">48px</option>
                         </select>
                     </div>
-                    
-                    {/* Update Style Button */}
-                    <button 
-                        onClick={onUpdateStyle}
-                        className="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-1 leading-none pb-1"
-                        title={`Update ${selectionState.blockType} to match current selection`}
-                    >
-                        <ArrowBigUpDash size={10} /> Update {selectionState.blockType}
+
+                    {/* Row 2: BIU & Color */}
+                    <div className="flex items-center gap-1">
+                        <button onClick={() => onFormat('bold')} className={`${ButtonClass(selectionState.bold)} !p-1`} title="Bold (Ctrl+B)">
+                            <Bold size={14} />
+                        </button>
+                        <button onClick={() => onFormat('italic')} className={`${ButtonClass(selectionState.italic)} !p-1`} title="Italic (Ctrl+I)">
+                            <Italic size={14} />
+                        </button>
+                        <button onClick={() => onFormat('underline')} className={`${ButtonClass(selectionState.underline)} !p-1`} title="Underline (Ctrl+U)">
+                            <Underline size={14} />
+                        </button>
+                        <div className="w-px h-4 bg-gray-200 mx-1"></div>
+                        <div className="relative flex items-center justify-center w-6 h-6 rounded hover:bg-gray-100 cursor-pointer border border-transparent hover:border-gray-300" title="Text Color">
+                            <span className="font-bold text-gray-700 text-[10px] select-none" style={{ color: selectionState.foreColor }}>A</span>
+                            <input 
+                                type="color" 
+                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                value={selectionState.foreColor || '#000000'}
+                                onChange={(e) => onFormat('foreColor', e.target.value)}
+                            />
+                            <div className="absolute bottom-0.5 w-3 h-0.5 rounded-full" style={{ backgroundColor: selectionState.foreColor || '#000000' }}></div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 3. Alignment Group */}
+                <div className="flex items-center gap-1 border-r border-gray-200 px-3 h-full justify-center">
+                    <button onClick={() => onFormat('justifyLeft')} className={`${ButtonClass(selectionState.alignLeft)} !p-1.5`} title="Align Left">
+                        <AlignLeft size={16} />
+                    </button>
+                    <button onClick={() => onFormat('justifyCenter')} className={`${ButtonClass(selectionState.alignCenter)} !p-1.5`} title="Align Center">
+                        <AlignCenter size={16} />
+                    </button>
+                    <button onClick={() => onFormat('justifyRight')} className={`${ButtonClass(selectionState.alignRight)} !p-1.5`} title="Align Right">
+                        <AlignRight size={16} />
                     </button>
                 </div>
-                </div>
-
-                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 pl-2">
-                <button onClick={() => onFormat('bold')} className={ButtonClass(selectionState.bold)}>
-                    <Bold size={18} />
-                </button>
-                <button onClick={() => onFormat('italic')} className={ButtonClass(selectionState.italic)}>
-                    <Italic size={18} />
-                </button>
-                <button onClick={() => onFormat('underline')} className={ButtonClass(selectionState.underline)}>
-                    <Underline size={18} />
-                </button>
-                </div>
-
-                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 pl-2">
-                <button onClick={() => onFormat('justifyLeft')} className={ButtonClass(selectionState.alignLeft)}>
-                    <AlignLeft size={18} />
-                </button>
-                <button onClick={() => onFormat('justifyCenter')} className={ButtonClass(selectionState.alignCenter)}>
-                    <AlignCenter size={18} />
-                </button>
-                <button onClick={() => onFormat('justifyRight')} className={ButtonClass(selectionState.alignRight)}>
-                    <AlignRight size={18} />
-                </button>
-                </div>
-            </div>
-
-            <div className="flex items-center space-x-3">
                 <button className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 shadow-sm flex items-center gap-2">
                 <Download size={16} /> PDF
                 </button>

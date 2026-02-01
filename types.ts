@@ -20,6 +20,7 @@ export interface SelectionState {
   alignRight: boolean;
   fontName: string;
   fontSize: string;
+  foreColor: string;
   // Frame/Border props
   borderWidth: string;
   borderColor: string;

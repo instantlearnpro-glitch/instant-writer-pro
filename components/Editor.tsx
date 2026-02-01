@@ -141,6 +141,7 @@ const Editor: React.FC<EditorProps> = ({
       alignRight: document.queryCommandState('justifyRight'),
       fontName: document.queryCommandValue('fontName') || 'sans-serif',
       fontSize: document.queryCommandValue('fontSize') || '3',
+      foreColor: rgbToHex(document.queryCommandValue('foreColor')),
       // Defaults
       borderWidth: '0',
       borderColor: '#000000',

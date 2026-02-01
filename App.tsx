@@ -51,6 +51,7 @@ const App: React.FC = () => {
     alignRight: false,
     fontName: 'sans-serif',
     fontSize: '3',
+    foreColor: '#000000',
     // Defaults
     borderWidth: '0',
     borderColor: '#000000',
