@@ -309,29 +309,28 @@ export const DEFAULT_HTML = `
 `;
 
 export const PAGE_FORMATS = {
-  LETTER: { 
-    id: 'letter', 
-    name: 'US Letter (8.5" x 11")', 
-    width: '8.5in', 
-    height: '11in', 
-    margin: '0.6in' 
+  LETTER: {
+    id: 'letter',
+    name: 'US Letter (8.5" x 11")',
+    width: '8.5in',
+    height: '11in',
+    margins: { top: 1, bottom: 1, left: 1, right: 1 }
   },
-  TRADE: { 
-    id: 'trade', 
-    name: 'Trade (6" x 9")', 
-    width: '6in', 
-    height: '9in', 
-    margin: '0.5in' 
+  TRADE: {
+    id: '6x9',
+    name: 'Trade (6" x 9")',
+    width: '6in',
+    height: '9in',
+    margins: { top: 0.75, bottom: 0.75, left: 0.75, right: 0.625 }
   },
   CUSTOM: {
     id: 'custom',
-    name: 'Custom Size...',
-    width: '10in',
-    height: '10in',
-    margin: '0.5in'
+    name: 'Custom Size',
+    width: '8.5in',
+    height: '11in',
+    margins: { top: 1, bottom: 1, left: 1, right: 1 }
   }
-};
-  
+};  
   export const FONTS = [
     { name: 'Default', value: 'inherit' },
     // App Specific

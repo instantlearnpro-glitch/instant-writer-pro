@@ -86,6 +86,8 @@ const App: React.FC = () => {
 
   const [pageFormatId, setPageFormatId] = useState<string>('letter');
   const [customPageSize, setCustomPageSize] = useState<{ width: string, height: string }>({ width: '8.5in', height: '11in' });
+  const [pageMargins, setPageMargins] = useState<{ top: number, bottom: number, left: number, right: number }>({ top: 1, bottom: 1, left: 1, right: 1 });
+  const [showMarginGuides, setShowMarginGuides] = useState(false);
 
   const [pageCount, setPageCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
@@ -1065,7 +1067,7 @@ ${tagName} {
       setIsPageNumberModalOpen(false);
   };
 
-  const updatePageCSS = (width: string, height: string, margin: string) => {
+  const updatePageCSS = (width: string, height: string, margins: { top: number, bottom: number, left: number, right: number }) => {
     const markerStart = '/* SPYWRITER_LAYOUT_OVERRIDE_START */';
     const markerEnd = '/* SPYWRITER_LAYOUT_OVERRIDE_END */';
 
@@ -1073,12 +1075,12 @@ ${tagName} {
 ${markerStart}
 @page {
     size: ${width} ${height};
-    margin: ${margin};
+    margin: 0; /* Use padding on .page instead for better control */
 }
 .page {
     width: ${width} !important;
     height: ${height} !important;
-    padding: ${margin} !important;
+    padding: ${margins.top}in ${margins.right}in ${margins.bottom}in ${margins.left}in !important;
     overflow: hidden !important;
 }
 ${markerEnd}
@@ -1098,22 +1100,35 @@ ${markerEnd}
   const handlePageSizeChange = (formatId: string) => {
     setPageFormatId(formatId);
     
-    if (formatId === 'custom') {
-        updatePageCSS(customPageSize.width, customPageSize.height, '0.5in');
-        return;
-    }
-
     const format = Object.values(PAGE_FORMATS).find(f => f.id === formatId);
     if (!format) return;
 
-    updatePageCSS(format.width, format.height, format.margin);
+    // Update margins to format defaults
+    setPageMargins(format.margins);
+
+    if (formatId === 'custom') {
+        updatePageCSS(customPageSize.width, customPageSize.height, format.margins);
+    } else {
+        updatePageCSS(format.width, format.height, format.margins);
+    }
   };
 
   const handleCustomPageSizeChange = (width: string, height: string) => {
       setCustomPageSize({ width, height });
       if (pageFormatId === 'custom') {
-          updatePageCSS(width, height, '0.5in');
+          updatePageCSS(width, height, pageMargins);
       }
+  };
+
+  const handleMarginChange = (key: keyof typeof pageMargins, value: number) => {
+      const newMargins = { ...pageMargins, [key]: value };
+      setPageMargins(newMargins);
+      
+      const format = Object.values(PAGE_FORMATS).find(f => f.id === pageFormatId);
+      const width = pageFormatId === 'custom' ? customPageSize.width : (format?.width || '8.5in');
+      const height = pageFormatId === 'custom' ? customPageSize.height : (format?.height || '11in');
+      
+      updatePageCSS(width, height, newMargins);
   };
 
   // --- HR (Horizontal Rule) Selection & Logic ---
@@ -1437,6 +1452,10 @@ ${markerEnd}
         canUndo={historyIndex > 0}
         canRedo={historyIndex < history.length - 1}
         availableFonts={availableFonts}
+        pageMargins={pageMargins}
+        onMarginChange={handleMarginChange}
+        showMarginGuides={showMarginGuides}
+        onToggleMarginGuides={() => setShowMarginGuides(!showMarginGuides)}
       />
       
       <div className="flex flex-1 overflow-hidden">
@@ -1464,6 +1483,9 @@ ${markerEnd}
                 onCropComplete={handleCropComplete}
                 onCancelCrop={handleCancelCrop}
                 onPageBreak={handlePageBreak}
+                showMarginGuides={showMarginGuides}
+                pageMargins={pageMargins}
+                onMarginChange={handleMarginChange}
             />
         </div>
       </div>

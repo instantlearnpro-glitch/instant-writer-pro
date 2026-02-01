@@ -4,7 +4,7 @@ import {
   Image as ImageIcon, FileUp, Download, Save, Sun, Contrast, Settings, ImagePlus,
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
-  RotateCcw, RotateCw, RefreshCw
+  RotateCcw, RotateCw, RefreshCw, LayoutTemplate
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -44,6 +44,8 @@ interface ToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   availableFonts: FontDefinition[];
+  showMarginGuides: boolean;
+  onToggleMarginGuides: () => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -79,7 +81,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onRedo,
   canUndo,
   canRedo,
-  availableFonts
+  availableFonts,
+  showMarginGuides,
+  onToggleMarginGuides
 }) => {
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
     `p-2 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-700 ' + (isActive ? 'bg-blue-100 text-blue-600' : '')}`;
@@ -211,6 +215,17 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             />
                         </div>
                     )}
+
+                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
+                    
+                    {/* Toggle Margins */}
+                    <button 
+                        onClick={onToggleMarginGuides} 
+                        className={ButtonClass(showMarginGuides)}
+                        title="Show/Edit Page Margins"
+                    >
+                        <LayoutTemplate size={18} />
+                    </button>
                 </div>
 
                 {/* Text Styles */}

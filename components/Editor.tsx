@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import ImageOverlay from './ImageOverlay';
 import { reflowPages } from '../utils/pagination';
+import MarginGuides from './MarginGuides';
+import PageRuler from './PageRuler';
 
 interface EditorProps {
   htmlContent: string;
@@ -12,7 +14,6 @@ interface EditorProps {
   onHRSelect: (hr: HTMLHRElement | null) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
   selectedImage: HTMLImageElement | null;
-  selectedImage: HTMLImageElement | null;
   selectedHR: HTMLHRElement | null;
   selectedFooter: HTMLElement | null;
   onFooterSelect: (footer: HTMLElement | null) => void;
@@ -20,6 +21,9 @@ interface EditorProps {
   onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
   onPageBreak: () => void;
+  showMarginGuides: boolean;
+  pageMargins: { top: number, bottom: number, left: number, right: number };
+  onMarginChange: (key: 'top' | 'bottom' | 'left' | 'right', value: number) => void;
 }
 
 // Helper to convert RGB/RGBA to Hex
@@ -49,10 +53,14 @@ const Editor: React.FC<EditorProps> = ({
   imageProperties,
   onCropComplete,
   onCancelCrop,
-  onPageBreak
+  onPageBreak,
+  showMarginGuides,
+  pageMargins,
+  onMarginChange
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [isReady, setIsReady] = useState(false);
+  const [pageRects, setPageRects] = useState<{ top: number; left: number; width: number; height: number }[]>([]);
 
   // Initialize content
   useEffect(() => {
@@ -71,6 +79,41 @@ const Editor: React.FC<EditorProps> = ({
         setIsReady(true);
     }
   }, [htmlContent]);
+
+  // Measure pages for overlays
+  useEffect(() => {
+      if (!showMarginGuides || !contentRef.current || !containerRef.current) return;
+
+      const updateRects = () => {
+          if (!contentRef.current || !containerRef.current) return;
+          
+          const containerRect = containerRef.current.getBoundingClientRect();
+          const pages = Array.from(contentRef.current.querySelectorAll('.page')) as HTMLElement[];
+          
+          const rects = pages.map(page => {
+              const pageRect = page.getBoundingClientRect();
+              return {
+                  top: pageRect.top - containerRect.top + containerRef.current!.scrollTop,
+                  left: pageRect.left - containerRect.left + containerRef.current!.scrollLeft,
+                  width: pageRect.width,
+                  height: pageRect.height
+              };
+          });
+          setPageRects(rects);
+      };
+
+      updateRects();
+      
+      // Observer for size changes
+      const observer = new ResizeObserver(updateRects);
+      observer.observe(contentRef.current);
+      window.addEventListener('resize', updateRects);
+      
+      return () => {
+          observer.disconnect();
+          window.removeEventListener('resize', updateRects);
+      };
+  }, [htmlContent, showMarginGuides, containerRef]);
 
   const handleSelectionChange = useCallback(() => {
     const selection = document.getSelection();
@@ -435,7 +478,7 @@ const Editor: React.FC<EditorProps> = ({
 
         <div 
             ref={contentRef}
-            className="editor-workspace w-full flex flex-col items-center outline-none"
+            className="editor-workspace w-full flex flex-col items-center outline-none relative"
             contentEditable={!imageProperties.isCropping}
             onKeyDown={handleKeyDown}
             onDrop={handleDrop}
@@ -443,6 +486,34 @@ const Editor: React.FC<EditorProps> = ({
             suppressContentEditableWarning={true}
         />
         
+        {/* Margin Guides Overlay Layer */}
+        {showMarginGuides && (
+            <div className="absolute inset-0 pointer-events-none">
+                <div className="relative w-full h-full">
+                    {pageRects.map((rect, i) => (
+                        <div 
+                            key={i}
+                            className="absolute pointer-events-none"
+                            style={{
+                                top: rect.top,
+                                left: rect.left,
+                                width: rect.width,
+                                height: rect.height
+                            }}
+                        >
+                            <PageRuler width={rect.width} height={rect.height} />
+                            <MarginGuides 
+                                width={rect.width} 
+                                height={rect.height} 
+                                margins={pageMargins} 
+                                onMarginChange={onMarginChange} 
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
+
         {selectedImage && (
             <ImageOverlay 
                 image={selectedImage}
