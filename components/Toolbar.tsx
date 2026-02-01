@@ -34,6 +34,7 @@ interface ToolbarProps {
   fileName: string;
   selectedImage: HTMLImageElement | null;
   selectedHR: HTMLHRElement | null;
+  selectedFooter: HTMLElement | null;
   imageProperties: ImageProperties;
   hrProperties: HRProperties;
   onImagePropertyChange: (prop: keyof ImageProperties, value: any) => void;
@@ -69,6 +70,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   fileName,
   selectedImage,
   selectedHR,
+  selectedFooter,
   imageProperties,
   hrProperties,
   onImagePropertyChange,
@@ -468,8 +470,83 @@ const Toolbar: React.FC<ToolbarProps> = ({
            </div>
         )}
         
-        {/* 3. Frame / Border Tools (Contextual or toggled) */}
-        {showFrameTools && !selectedImage && !selectedHR && (
+        {/* 3. Footer Tools */}
+        {selectedFooter && (
+            <div className="h-16 border-b border-gray-200 bg-orange-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
+                <div className="flex items-center space-x-6">
+                    <div className="flex items-center gap-2 text-orange-800 font-semibold border-r border-orange-200 pr-4">
+                        <Hash size={18} />
+                        <span className="hidden sm:inline text-sm">Footer</span>
+                    </div>
+
+                    {/* Font & Size */}
+                    <div className="flex flex-col gap-0.5 border-r border-orange-200 pr-4">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Text</label>
+                        <div className="flex items-center gap-1">
+                            <select 
+                                className="text-xs border border-gray-300 rounded p-1 w-24"
+                                value={selectionState.fontName || 'inherit'}
+                                onChange={(e) => onFormat('fontName', e.target.value)}
+                            >
+                                {displayFonts.map((font, idx) => (
+                                    <option key={idx} value={font.value}>{font.name}</option>
+                                ))}
+                            </select>
+                            <select 
+                                className="text-xs border border-gray-300 rounded p-1 w-12"
+                                value={selectionState.fontSize || '3'}
+                                onChange={(e) => onFormat('fontSize', e.target.value)}
+                            >
+                                <option value="1">8</option>
+                                <option value="2">10</option>
+                                <option value="3">12</option>
+                                <option value="4">14</option>
+                                <option value="5">18</option>
+                                <option value="6">24</option>
+                                <option value="7">36</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Style */}
+                    <div className="flex flex-col gap-0.5 border-r border-orange-200 pr-4">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Style</label>
+                        <div className="flex items-center gap-1">
+                            <button onClick={() => onFormat('bold')} className={ButtonClass(selectionState.bold)}><Bold size={14} /></button>
+                            <button onClick={() => onFormat('italic')} className={ButtonClass(selectionState.italic)}><Italic size={14} /></button>
+                            <button onClick={() => onFormat('underline')} className={ButtonClass(selectionState.underline)}><Underline size={14} /></button>
+                        </div>
+                    </div>
+
+                    {/* Alignment */}
+                    <div className="flex flex-col gap-0.5 border-r border-orange-200 pr-4">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Align</label>
+                        <div className="flex items-center gap-1">
+                            <button onClick={() => onFormat('justifyLeft')} className={ButtonClass(selectionState.alignLeft)}><AlignLeft size={14} /></button>
+                            <button onClick={() => onFormat('justifyCenter')} className={ButtonClass(selectionState.alignCenter)}><AlignCenter size={14} /></button>
+                            <button onClick={() => onFormat('justifyRight')} className={ButtonClass(selectionState.alignRight)}><AlignRight size={14} /></button>
+                        </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Actions</label>
+                        <button 
+                            onClick={() => onFormat('deleteFooter')} 
+                            className="bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded text-xs flex items-center gap-1"
+                        >
+                            Delete All
+                        </button>
+                    </div>
+                </div>
+                <div>
+                    <button onClick={() => onFormat('removeSelection')} className="text-xs text-orange-600 underline font-medium ml-4">Close</button>
+                </div>
+            </div>
+        )}
+
+        {/* 4. Frame / Border Tools (Contextual or toggled) */}
+        {showFrameTools && !selectedImage && !selectedHR && !selectedFooter && (
             <div className="h-12 bg-gray-50 border-b border-gray-200 flex items-center px-4 space-x-6 overflow-x-auto shadow-inner">
                 <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase">
                     <Square size={14} />

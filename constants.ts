@@ -286,8 +286,12 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
     left: 0;
     width: 100%;
     text-align: center;
-    pointer-events: none; /* Do not interfere with text selection */
+    pointer-events: auto; /* Allow interaction */
     color: #000;
+}
+.page-footer:hover {
+    outline: 2px dashed #f97316;
+    cursor: pointer;
 }
 `;
 

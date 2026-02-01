@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import ImageOverlay from './ImageOverlay';
+import { reflowPages } from '../utils/pagination';
 
 interface EditorProps {
   htmlContent: string;
@@ -11,7 +12,10 @@ interface EditorProps {
   onHRSelect: (hr: HTMLHRElement | null) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
   selectedImage: HTMLImageElement | null;
+  selectedImage: HTMLImageElement | null;
   selectedHR: HTMLHRElement | null;
+  selectedFooter: HTMLElement | null;
+  onFooterSelect: (footer: HTMLElement | null) => void;
   imageProperties: ImageProperties;
   onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
@@ -37,6 +41,8 @@ const Editor: React.FC<EditorProps> = ({
   onSelectionChange,
   onImageSelect,
   onHRSelect,
+  selectedFooter,
+  onFooterSelect,
   containerRef,
   selectedImage,
   selectedHR,
@@ -109,7 +115,7 @@ const Editor: React.FC<EditorProps> = ({
     
     // CRITICAL FIX: Explicitly exclude .editor-workspace and .page to prevent layout framing issues
     // We only want to select actual content elements. Added spans with specific classes.
-    const block = element?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle');
+    const block = element?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, .page-footer');
     
     if (block) {
         activeBlock = block as HTMLElement;
@@ -305,12 +311,23 @@ const Editor: React.FC<EditorProps> = ({
                       
                       // Trigger save
                       if (contentRef.current) {
+                          reflowPages(contentRef.current);
                           onContentChange(contentRef.current.innerHTML);
                       }
                   }
               };
               reader.readAsDataURL(file);
           }
+      } else {
+          // Internal Drop (Text/Element move)
+          // Allow the default browser behavior to handle the move, then reflow
+          // We need to wait for the DOM to update
+          setTimeout(() => {
+              if (contentRef.current) {
+                   reflowPages(contentRef.current);
+                   onContentChange(contentRef.current.innerHTML);
+              }
+          }, 0);
       }
   };
 
@@ -325,12 +342,21 @@ const Editor: React.FC<EditorProps> = ({
           if (target.tagName === 'IMG') {
               onImageSelect(target as HTMLImageElement);
               onHRSelect(null);
+              onFooterSelect(null);
           } 
           // HR Selection - stopPropagation to prevent immediate deselection if logic bubbles
           else if (target.tagName === 'HR') {
               e.stopPropagation(); 
               onHRSelect(target as HTMLHRElement);
               onImageSelect(null);
+              onFooterSelect(null);
+          }
+          // Footer Selection
+          else if (target.closest('.page-footer')) {
+              e.stopPropagation();
+              onFooterSelect(target.closest('.page-footer') as HTMLElement);
+              onImageSelect(null);
+              onHRSelect(null);
           }
           else {
               // Ignore resize handles
@@ -339,11 +365,13 @@ const Editor: React.FC<EditorProps> = ({
               // Only clear if we clicked something that isn't a tool
               onImageSelect(null);
               onHRSelect(null);
+              onFooterSelect(null);
           }
       };
 
       const handleInput = () => {
           if (contentRef.current) {
+              const changed = reflowPages(contentRef.current);
               onContentChange(contentRef.current.innerHTML);
           }
       };
@@ -357,7 +385,7 @@ const Editor: React.FC<EditorProps> = ({
           container.removeEventListener('input', handleInput);
           document.removeEventListener('selectionchange', handleSelectionChange);
       };
-  }, [handleSelectionChange, onImageSelect, onHRSelect, onContentChange]);
+  }, [handleSelectionChange, onImageSelect, onHRSelect, onFooterSelect, onContentChange]);
 
 
   return (

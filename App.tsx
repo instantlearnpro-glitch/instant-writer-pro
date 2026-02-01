@@ -82,6 +82,8 @@ const App: React.FC = () => {
       style: 'solid'
   });
 
+  const [selectedFooter, setSelectedFooter] = useState<HTMLElement | null>(null);
+
   const [pageFormatId, setPageFormatId] = useState<string>('letter');
   const [customPageSize, setCustomPageSize] = useState<{ width: string, height: string }>({ width: '8.5in', height: '11in' });
 
@@ -325,10 +327,168 @@ const App: React.FC = () => {
     e.target.value = ''; 
   };
 
+  const handleImageSelect = (img: HTMLImageElement | null) => {
+      if (selectedImage && selectedImage !== img) {
+          selectedImage.removeAttribute('data-selected');
+      }
+
+      if (img) {
+          img.setAttribute('data-selected', 'true');
+          
+          const filter = img.style.filter || '';
+          const styleWidth = img.style.width || '100%';
+          const styleFloat = img.style.float;
+          const styleDisplay = img.style.display;
+          const styleMargin = img.style.margin;
+
+          let brightness = 100;
+          let contrast = 100;
+          
+          // Robust regex to handle spaces, % or decimals
+          const bMatch = filter.match(/brightness\s*\(\s*([\d\.]+)(%?)\s*\)/);
+          if (bMatch) {
+              let val = parseFloat(bMatch[1]);
+              if (!bMatch[2] && val <= 2) val *= 100; // Handle decimal 1.0 = 100%
+              brightness = Math.round(val);
+          }
+          
+          const cMatch = filter.match(/contrast\s*\(\s*([\d\.]+)(%?)\s*\)/);
+          if (cMatch) {
+              let val = parseFloat(cMatch[1]);
+              if (!cMatch[2] && val <= 2) val *= 100; 
+              contrast = Math.round(val);
+          }
+
+          let width = 100;
+          if (styleWidth.includes('%')) {
+              width = parseInt(styleWidth);
+          } else if (styleWidth.includes('px')) {
+              width = 100; 
+          }
+
+          let alignment: 'left' | 'center' | 'right' | 'float-left' | 'float-right' = 'center';
+          if (styleFloat === 'left') alignment = 'float-left';
+          else if (styleFloat === 'right') alignment = 'float-right';
+          else if (styleDisplay === 'block' && styleMargin === '0px auto') alignment = 'center';
+          else alignment = 'left';
+
+          setImageProperties({
+              brightness,
+              contrast,
+              width,
+              alignment,
+              isCropping: false
+          });
+      } else {
+          setImageProperties(prev => ({ ...prev, isCropping: false }));
+      }
+
+      setSelectedImage(img);
+      if (img) {
+          setSelectedHR(null);
+          setSelectedFooter(null);
+      }
+  };
+
+  const handleFooterSelect = (footer: HTMLElement | null) => {
+      const workspace = document.querySelector('.editor-workspace');
+      if (!workspace) return;
+      const allFooters = workspace.querySelectorAll('.page-footer');
+
+      // Clear previous outlines
+      allFooters.forEach(f => (f as HTMLElement).style.outline = '');
+      
+      if (footer) {
+          // Visual feedback: Highlight ALL footers to show global selection
+          allFooters.forEach(f => (f as HTMLElement).style.outline = '2px dashed #f97316');
+          
+          // Parse current styles from the CLICKED footer (as representative)
+          const computed = window.getComputedStyle(footer);
+          setSelectionState(prev => ({
+              ...prev,
+              fontSize: '3', 
+              fontName: computed.fontFamily.replace(/['"]/g, ''),
+              bold: computed.fontWeight === 'bold' || parseInt(computed.fontWeight) >= 700,
+              italic: computed.fontStyle === 'italic',
+              underline: computed.textDecoration.includes('underline'),
+              alignLeft: computed.textAlign === 'left',
+              alignCenter: computed.textAlign === 'center',
+              alignRight: computed.textAlign === 'right'
+          }));
+      }
+
+      setSelectedFooter(footer);
+      if (footer) {
+          setSelectedImage(null);
+          setSelectedHR(null);
+      }
+  };
+
+  const handleRemoveFooter = () => {
+      const workspace = document.querySelector('.editor-workspace');
+      if (workspace) {
+          const footers = workspace.querySelectorAll('.page-footer');
+          footers.forEach(f => f.remove());
+          setSelectedFooter(null);
+          updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+      }
+  };
+
   const handleFormat = (command: string, value?: string) => {
     if (command === 'removeSelection') {
         setSelectedImage(null);
         setSelectedHR(null);
+        if (selectedFooter) {
+            const workspace = document.querySelector('.editor-workspace');
+            workspace?.querySelectorAll('.page-footer').forEach(f => (f as HTMLElement).style.outline = '');
+            setSelectedFooter(null);
+        }
+        return;
+    }
+
+    if (command === 'deleteFooter') {
+        handleRemoveFooter();
+        return;
+    }
+
+    // --- Footer Global Styling ---
+    if (selectedFooter) {
+        const workspace = document.querySelector('.editor-workspace');
+        if (!workspace) return;
+        const footers = workspace.querySelectorAll('.page-footer');
+        
+        footers.forEach((footerEl) => {
+            const footer = footerEl as HTMLElement;
+            if (command === 'fontSize') {
+                const sizes = { '1': '8pt', '2': '10pt', '3': '12pt', '4': '14pt', '5': '18pt', '6': '24pt', '7': '36pt' };
+                // @ts-ignore
+                const pt = sizes[value] || '12pt';
+                footer.style.fontSize = pt;
+            } else if (command === 'fontName') {
+                footer.style.fontFamily = value || 'inherit';
+            } else if (command === 'bold') {
+                footer.style.fontWeight = footer.style.fontWeight === 'bold' ? 'normal' : 'bold';
+            } else if (command === 'italic') {
+                footer.style.fontStyle = footer.style.fontStyle === 'italic' ? 'normal' : 'italic';
+            } else if (command === 'underline') {
+                footer.style.textDecoration = footer.style.textDecoration.includes('underline') ? 'none' : 'underline';
+            } else if (command === 'justifyLeft') {
+                footer.style.textAlign = 'left';
+                footer.style.paddingLeft = '0.6in'; 
+                footer.style.paddingRight = '0';
+            } else if (command === 'justifyCenter') {
+                footer.style.textAlign = 'center';
+                footer.style.padding = '0';
+            } else if (command === 'justifyRight') {
+                footer.style.textAlign = 'right';
+                footer.style.paddingRight = '0.6in';
+                footer.style.paddingLeft = '0';
+            } else if (command === 'foreColor') {
+                footer.style.color = value || '#000000';
+            }
+        });
+
+        updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
         return;
     }
 
@@ -917,8 +1077,9 @@ ${markerStart}
 }
 .page {
     width: ${width} !important;
-    min-height: ${height} !important;
+    height: ${height} !important;
     padding: ${margin} !important;
+    overflow: hidden !important;
 }
 ${markerEnd}
 `;
@@ -953,65 +1114,6 @@ ${markerEnd}
       if (pageFormatId === 'custom') {
           updatePageCSS(width, height, '0.5in');
       }
-  };
-
-  const handleImageSelect = (img: HTMLImageElement | null) => {
-      if (selectedImage && selectedImage !== img) {
-          selectedImage.removeAttribute('data-selected');
-      }
-
-      if (img) {
-          img.setAttribute('data-selected', 'true');
-          
-          const filter = img.style.filter || '';
-          const styleWidth = img.style.width || '100%';
-          const styleFloat = img.style.float;
-          const styleDisplay = img.style.display;
-          const styleMargin = img.style.margin;
-
-          let brightness = 100;
-          let contrast = 100;
-          
-          // Robust regex to handle spaces, % or decimals
-          const bMatch = filter.match(/brightness\s*\(\s*([\d\.]+)(%?)\s*\)/);
-          if (bMatch) {
-              let val = parseFloat(bMatch[1]);
-              if (!bMatch[2] && val <= 2) val *= 100; // Handle decimal 1.0 = 100%
-              brightness = Math.round(val);
-          }
-          
-          const cMatch = filter.match(/contrast\s*\(\s*([\d\.]+)(%?)\s*\)/);
-          if (cMatch) {
-              let val = parseFloat(cMatch[1]);
-              if (!cMatch[2] && val <= 2) val *= 100; 
-              contrast = Math.round(val);
-          }
-
-          let width = 100;
-          if (styleWidth.includes('%')) {
-              width = parseInt(styleWidth);
-          } else if (styleWidth.includes('px')) {
-              width = 100; 
-          }
-
-          let alignment: 'left' | 'center' | 'right' | 'float-left' | 'float-right' = 'center';
-          if (styleFloat === 'left') alignment = 'float-left';
-          else if (styleFloat === 'right') alignment = 'float-right';
-          else if (styleDisplay === 'block' && styleMargin === '0px auto') alignment = 'center';
-          else alignment = 'left';
-
-          setImageProperties({
-              brightness,
-              contrast,
-              width,
-              alignment,
-              isCropping: false
-          });
-      } else {
-          setImageProperties(prev => ({ ...prev, isCropping: false }));
-      }
-
-      setSelectedImage(img);
   };
 
   // --- HR (Horizontal Rule) Selection & Logic ---
@@ -1325,6 +1427,7 @@ ${markerEnd}
         fileName={docState.fileName}
         selectedImage={selectedImage}
         selectedHR={selectedHR}
+        selectedFooter={selectedFooter}
         imageProperties={imageProperties}
         hrProperties={hrProperties}
         onImagePropertyChange={handleImagePropertyChange}
@@ -1352,8 +1455,10 @@ ${markerEnd}
                 onSelectionChange={onSelectionChange}
                 onImageSelect={handleImageSelect}
                 onHRSelect={handleHRSelect}
+                onFooterSelect={handleFooterSelect}
                 selectedImage={selectedImage}
                 selectedHR={selectedHR}
+                selectedFooter={selectedFooter}
                 containerRef={editorContainerRef}
                 imageProperties={imageProperties}
                 onCropComplete={handleCropComplete}
