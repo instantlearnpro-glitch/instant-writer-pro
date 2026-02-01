@@ -4,7 +4,7 @@ import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
 import TOCModal from './components/TOCModal';
 import PageNumberModal from './components/PageNumberModal';
-import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor } from './types';
+import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry } from './types';
 import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
 import { getSystemFonts, FontDefinition } from './utils/fontUtils';
 
@@ -16,6 +16,14 @@ const App: React.FC = () => {
   });
 
   const [availableFonts, setAvailableFonts] = useState<FontDefinition[]>(FONTS.map(f => ({ ...f, available: true })));
+  const [structureEntries, setStructureEntries] = useState<StructureEntry[]>([]);
+  
+  // Manual Structure Selection State
+  const [selectionMode, setSelectionMode] = useState<{ active: boolean; level: string | null; selectedIds: string[] }>({
+      active: false,
+      level: null,
+      selectedIds: []
+  });
 
   // Load available system fonts on mount and when web fonts are ready
   useEffect(() => {
@@ -563,7 +571,7 @@ const App: React.FC = () => {
     // which calls handleContentChange. So history will be saved via debounce.
   };
 
-  const handleUpdateStyle = () => {
+  const handleUpdateStyle = (targetTagName?: string) => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
 
@@ -575,7 +583,8 @@ const App: React.FC = () => {
         return;
     }
 
-    const tagName = parentBlock.nodeName.toLowerCase();
+    // Determine which tag to update: the one passed explicitly, or the one we are sitting in.
+    const tagName = targetTagName ? targetTagName.toLowerCase() : parentBlock.nodeName.toLowerCase();
     const computed = window.getComputedStyle(parentBlock as Element);
     
     const newRule = `
@@ -598,7 +607,7 @@ ${tagName} {
         cssContent: docState.cssContent + '\n' + newRule
     }, true);
     
-    alert(`Updated style for <${tagName}> to match selection.`);
+    alert(`Updated style for <${tagName.toUpperCase()}>. All <${tagName.toUpperCase()}> elements in the document will now match this style.`);
   };
 
   // --- Feature: Real-time Block Styling (Frames & Pudding & Shapes) ---
@@ -1417,6 +1426,138 @@ ${markerEnd}
                 }      }
   };
 
+  // --- Structure & Navigation ---
+  const handleStartSelection = (level: string) => {
+      setSelectionMode({ active: true, level, selectedIds: [] });
+  };
+
+  const handleBlockSelection = (elementId: string) => {
+      if (!selectionMode.active) return;
+      
+      setSelectionMode(prev => {
+          const exists = prev.selectedIds.includes(elementId);
+          if (exists) {
+              return { ...prev, selectedIds: prev.selectedIds.filter(id => id !== elementId) };
+          } else {
+              return { ...prev, selectedIds: [...prev.selectedIds, elementId] };
+          }
+      });
+  };
+
+  const handleConfirmSelection = () => {
+      if (!selectionMode.active || !selectionMode.level) return;
+
+      const targetTag = selectionMode.level; // e.g., 'h1'
+      const newEntries: StructureEntry[] = [];
+      let domModified = false;
+
+      selectionMode.selectedIds.forEach(id => {
+          const element = document.getElementById(id);
+          if (element) {
+              // 1. Convert Tag if needed
+              if (element.tagName.toLowerCase() !== targetTag) {
+                  const newElement = document.createElement(targetTag);
+                  Array.from(element.attributes).forEach(attr => {
+                      newElement.setAttribute(attr.name, attr.value);
+                  });
+                  newElement.innerHTML = element.innerHTML;
+                  element.parentNode?.replaceChild(newElement, element);
+                  domModified = true;
+              }
+
+              // 2. Add to Structure List (avoid duplicates)
+              if (!structureEntries.some(e => e.id === id)) {
+                  // Find page number (approximate)
+                  const page = element.closest('.page');
+                  const pages = document.querySelectorAll('.page');
+                  let pageNum = 1;
+                  pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+
+                  newEntries.push({
+                      id: id,
+                      elementId: id, // ID persists even if tag changes if we copied attrs
+                      text: element.innerText.substring(0, 50),
+                      page: pageNum,
+                      type: targetTag,
+                      status: 'approved'
+                  });
+              }
+          }
+      });
+
+      if (newEntries.length > 0) {
+          setStructureEntries(prev => [...prev, ...newEntries]);
+      }
+
+      if (domModified || newEntries.length > 0) {
+          const workspace = document.querySelector('.editor-workspace');
+          if (workspace) {
+              updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+          }
+      }
+
+      setSelectionMode({ active: false, level: null, selectedIds: [] });
+  };
+
+  const handleCancelSelection = () => {
+      setSelectionMode({ active: false, level: null, selectedIds: [] });
+  };
+
+  const handleNavigateToEntry = (elementId: string) => {
+      const element = document.getElementById(elementId);
+      if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          
+          // Visual cue
+          const originalOutline = element.style.outline;
+          element.style.outline = '2px solid #a855f7'; // Purple highlight
+          element.style.transition = 'outline 0.3s';
+          setTimeout(() => {
+              element.style.outline = originalOutline;
+          }, 1500);
+      }
+  };
+
+  const handleUpdateEntryStatus = (id: string, status: 'approved' | 'rejected') => {
+      // 1. Update local list state for immediate UI feedback
+      setStructureEntries(prev => prev.map(e => e.id === id ? { ...e, status } : e));
+
+      // 2. Persist to DOM/HTML
+      const element = document.getElementById(id);
+      if (element) {
+          element.setAttribute('data-structure-status', status);
+          
+          // --- Feature: Auto-convert detected tags on approval ---
+          if (status === 'approved') {
+              // Retrieve the entry to check type
+              const entry = structureEntries.find(e => e.id === id);
+              if (entry && entry.type.startsWith('detected-')) {
+                  const targetTag = entry.type.replace('detected-', ''); // e.g. 'h1'
+                  
+                  // Only convert if it's not already that tag
+                  if (element.tagName.toLowerCase() !== targetTag) {
+                      const newElement = document.createElement(targetTag);
+                      // Copy attributes (id, style, class, etc.)
+                      Array.from(element.attributes).forEach(attr => {
+                          newElement.setAttribute(attr.name, attr.value);
+                      });
+                      // Copy content
+                      newElement.innerHTML = element.innerHTML;
+                      
+                      // Replace in DOM
+                      element.parentNode?.replaceChild(newElement, element);
+                  }
+              }
+          }
+
+          // Trigger a save so this persistence is kept in history
+          const workspace = document.querySelector('.editor-workspace');
+          if (workspace) {
+              updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+          }
+      }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-white">
       <Toolbar
@@ -1465,6 +1606,13 @@ ${markerEnd}
           pageCount={pageCount} 
           currentPage={currentPage}
           onPageSelect={scrollToPage}
+          structureEntries={structureEntries}
+          selectionMode={selectionMode}
+          onStartSelection={handleStartSelection}
+          onConfirmSelection={handleConfirmSelection}
+          onCancelSelection={handleCancelSelection}
+          onNavigateToEntry={handleNavigateToEntry}
+          onUpdateEntryStatus={handleUpdateEntryStatus}
         />
         
         <div className="flex-1 relative" onScroll={handleScroll}>
@@ -1487,6 +1635,8 @@ ${markerEnd}
                 showMarginGuides={showMarginGuides}
                 pageMargins={pageMargins}
                 onMarginChange={handleMarginChange}
+                selectionMode={selectionMode}
+                onBlockSelection={handleBlockSelection}
             />
         </div>
       </div>

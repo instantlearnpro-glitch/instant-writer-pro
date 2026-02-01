@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, 
   Image as ImageIcon, FileUp, Download, Save, Sun, Contrast, Settings, ImagePlus,
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
-  RotateCcw, RotateCw, RefreshCw, LayoutTemplate
+  RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -21,7 +21,7 @@ interface ToolbarProps {
   pageFormatId: string;
   customPageSize: { width: string, height: string };
   onCustomPageSizeChange: (width: string, height: string) => void;
-  onUpdateStyle: () => void;
+  onUpdateStyle: (targetTagName?: string) => void;
   onOpenTOCModal: () => void;
   onOpenPageNumberModal: () => void;
   onInsertHorizontalRule: () => void;
@@ -85,8 +85,33 @@ const Toolbar: React.FC<ToolbarProps> = ({
   showMarginGuides,
   onToggleMarginGuides
 }) => {
+  const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
+  const styleMenuRef = useRef<HTMLDivElement>(null);
+
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
     `p-2 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-700 ' + (isActive ? 'bg-blue-100 text-blue-600' : '')}`;
+
+  // Close menu when clicking outside
+  useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+          if (styleMenuRef.current && !styleMenuRef.current.contains(event.target as Node)) {
+              setIsStyleMenuOpen(false);
+          }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const styles = [
+      { label: 'Normal', tag: 'p' },
+      { label: 'Heading 1', tag: 'h1' },
+      { label: 'Heading 2', tag: 'h2' },
+      { label: 'Heading 3', tag: 'h3' },
+      { label: 'Quote', tag: 'blockquote' },
+      { label: 'Code', tag: 'pre' },
+  ];
+
+  const currentStyleLabel = styles.find(s => s.tag === selectionState.blockType)?.label || 'Normal';
 
   // Helper to handle real-time border updates
   const handleBorderUpdate = (prop: string, value: string) => {
@@ -228,29 +253,47 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </button>
                 </div>
 
-                {/* 1. Style Group */}
-                <div className="flex flex-col border-r border-gray-200 px-3 h-full justify-center min-w-[100px]">
-                    <select 
-                        className="h-6 border-none bg-transparent text-xs font-bold text-gray-800 focus:outline-none w-full mb-1 cursor-pointer hover:bg-gray-50 rounded"
-                        value={selectionState.blockType || 'p'}
-                        onChange={(e) => onFormat('formatBlock', e.target.value)}
-                        title="Paragraph Style"
+                {/* 1. Style Group (Custom Dropdown) */}
+                <div className="relative flex flex-col border-r border-gray-200 px-3 h-full justify-center min-w-[120px]" ref={styleMenuRef}>
+                    <button
+                        onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
+                        className="flex items-center justify-between w-full h-8 px-2 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 text-sm font-medium text-gray-700"
                     >
-                        <option value="p">Normal</option>
-                        <option value="h1">Heading 1</option>
-                        <option value="h2">Heading 2</option>
-                        <option value="h3">Heading 3</option>
-                        <option value="blockquote">Quote</option>
-                        <option value="pre">Code</option>
-                    </select>
-                    
-                    <button 
-                        onClick={onUpdateStyle}
-                        className="text-[9px] text-blue-600 hover:text-white hover:bg-blue-600 border border-blue-100 rounded px-1 py-0.5 transition-colors flex items-center justify-center gap-1 whitespace-nowrap"
-                        title={`Update ${selectionState.blockType} style to match current selection`}
-                    >
-                        <ArrowBigUpDash size={10} /> Update to Match
+                        <span className="truncate">{currentStyleLabel}</span>
+                        <ChevronDown size={14} className="ml-2 text-gray-400" />
                     </button>
+
+                    {isStyleMenuOpen && (
+                        <div className="absolute top-14 left-0 w-64 bg-white border border-gray-200 rounded-md shadow-xl z-50 flex flex-col p-1">
+                            <div className="text-[10px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">
+                                Apply or Update Styles
+                            </div>
+                            {styles.map((style) => (
+                                <div key={style.tag} className="flex items-center justify-between hover:bg-blue-50 rounded px-2 py-1.5 group cursor-pointer">
+                                    <span 
+                                        className="flex-1 text-sm text-gray-700"
+                                        onClick={() => {
+                                            onFormat('formatBlock', style.tag);
+                                            setIsStyleMenuOpen(false);
+                                        }}
+                                    >
+                                        {style.label}
+                                    </span>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onUpdateStyle(style.tag);
+                                            setIsStyleMenuOpen(false);
+                                        }}
+                                        className="text-gray-400 hover:text-blue-600 p-1 rounded hover:bg-blue-100 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px]"
+                                        title={`Update ${style.label} style to match selection`}
+                                    >
+                                        Update <RefreshCw size={10} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* 2. Font & Formatting Group */}

@@ -82,3 +82,15 @@ export interface PageAnchor {
   text: string;
   tagName: string;
 }
+
+export type StructureStatus = 'pending' | 'approved' | 'rejected';
+
+export interface StructureEntry {
+  id: string; // Unique ID for the list
+  elementId: string; // DOM ID of the element
+  text: string;
+  page: number;
+  type: string; // 'h1', 'h2', 'style-match', etc.
+  status: StructureStatus;
+  context?: string; // Snippet of text for context
+}
