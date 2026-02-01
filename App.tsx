@@ -3,7 +3,8 @@ import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
 import TOCModal from './components/TOCModal';
-import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties } from './types';
+import PageNumberModal from './components/PageNumberModal';
+import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor } from './types';
 import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS } from './constants';
 
 const App: React.FC = () => {
@@ -59,6 +60,9 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
+  const [isPageNumberModalOpen, setIsPageNumberModalOpen] = useState(false);
+  const [pageAnchors, setPageAnchors] = useState<PageAnchor[]>([]);
+  
   const [showFrameTools, setShowFrameTools] = useState(false);
   
   const editorContainerRef = useRef<HTMLDivElement>(null);
@@ -368,6 +372,97 @@ ${tagName} {
 
       document.execCommand('insertHTML', false, tocHtml);
       setIsTOCModalOpen(false);
+  };
+
+  const preparePageAnchors = () => {
+      const workspace = document.querySelector('.editor-workspace');
+      if (!workspace) {
+          setPageAnchors([]);
+          return;
+      }
+
+      const headings = workspace.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      const anchors: PageAnchor[] = [];
+
+      // Always add "Start of Document"
+      anchors.push({
+          id: 'DOC_START',
+          text: 'Start of Document',
+          tagName: 'DOC_START'
+      });
+
+      headings.forEach((heading, index) => {
+          if (!heading.id) {
+              heading.id = `anchor-${index}-${Date.now()}`;
+          }
+          anchors.push({
+              id: heading.id,
+              text: heading.textContent || 'Untitled Section',
+              tagName: heading.tagName.toLowerCase()
+          });
+      });
+
+      setPageAnchors(anchors);
+      setIsPageNumberModalOpen(true);
+  };
+
+  const handleInsertPageNumbers = (startAnchorId: string, font: string, fontSize: string) => {
+      const workspace = document.querySelector('.editor-workspace');
+      if (!workspace) return;
+
+      const pages = workspace.querySelectorAll('.page');
+      
+      let startPageIndex = 0; // Default to first page (0-based)
+
+      if (startAnchorId !== 'DOC_START') {
+          const anchorEl = document.getElementById(startAnchorId);
+          if (anchorEl) {
+              const pageEl = anchorEl.closest('.page');
+              if (pageEl) {
+                  // Find index of this page
+                  for (let i = 0; i < pages.length; i++) {
+                      if (pages[i] === pageEl) {
+                          startPageIndex = i;
+                          break;
+                      }
+                  }
+              }
+          }
+      }
+
+      // Re-query parser only to reconstruct full HTML properly, but rely on page indices
+      // Ideally we should manipulate the existing DOM nodes in workspace directly, but docState is truth.
+      // However, footer manipulation is tricky in pure string regex.
+      // Let's operate on the live DOM nodes in `pages` then serialize back.
+
+      pages.forEach((page, index) => {
+          // Remove existing footers first
+          const existingFooter = page.querySelector('.page-footer');
+          if (existingFooter) {
+              existingFooter.remove();
+          }
+
+          // Check if we should number this page
+          if (index >= startPageIndex) {
+              const footer = document.createElement('div');
+              footer.className = 'page-footer';
+              footer.style.fontFamily = font;
+              footer.style.fontSize = `${fontSize}pt`;
+              // Number starts at 1 relative to the start page
+              footer.textContent = (index - startPageIndex + 1).toString(); 
+              
+              // Prevent editing of the footer itself
+              footer.setAttribute('contenteditable', 'false');
+              
+              page.appendChild(footer);
+          }
+      });
+
+      setDocState(prev => ({
+          ...prev,
+          htmlContent: workspace.innerHTML // Capture the modified live DOM
+      }));
+      setIsPageNumberModalOpen(false);
   };
 
   const handlePageSizeChange = (formatId: string) => {
@@ -721,6 +816,7 @@ ${markerEnd}
         onPageSizeChange={handlePageSizeChange}
         onUpdateStyle={handleUpdateStyle}
         onOpenTOCModal={() => setIsTOCModalOpen(true)}
+        onOpenPageNumberModal={preparePageAnchors} 
         onInsertHorizontalRule={handleInsertHorizontalRule}
         onToggleCrop={handleToggleCrop}
         onPageBreak={handlePageBreak}
@@ -768,6 +864,14 @@ ${markerEnd}
         isOpen={isTOCModalOpen} 
         onClose={() => setIsTOCModalOpen(false)} 
         onInsert={handleInsertTOC} 
+      />
+
+      <PageNumberModal
+        isOpen={isPageNumberModalOpen}
+        onClose={() => setIsPageNumberModalOpen(false)}
+        onApply={handleInsertPageNumbers}
+        totalPages={pageCount}
+        anchors={pageAnchors}
       />
     </div>
   );

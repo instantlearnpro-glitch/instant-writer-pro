@@ -74,3 +74,9 @@ export interface BorderSettings {
   padding: number;
   borderStyle: 'solid' | 'dashed' | 'dotted' | 'double' | 'none';
 }
+
+export interface PageAnchor {
+  id: string;
+  text: string;
+  tagName: string;
+}

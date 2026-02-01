@@ -3,7 +3,7 @@ import {
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, 
   Image as ImageIcon, FileUp, Download, Save, Sun, Contrast, Settings, ImagePlus,
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
-  Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes
+  Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -18,6 +18,7 @@ interface ToolbarProps {
   onPageSizeChange: (formatId: string) => void;
   onUpdateStyle: () => void;
   onOpenTOCModal: () => void;
+  onOpenPageNumberModal: () => void;
   onInsertHorizontalRule: () => void;
   onToggleCrop: () => void;
   onPageBreak: () => void;
@@ -44,6 +45,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onPageSizeChange,
   onUpdateStyle,
   onOpenTOCModal,
+  onOpenPageNumberModal,
   onInsertHorizontalRule,
   onToggleCrop,
   onPageBreak,
@@ -274,6 +276,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </button>
                     <button onClick={onOpenTOCModal} className={ButtonClass(false)} title="Insert Table of Contents">
                         <List size={18} />
+                    </button>
+                    <button onClick={onOpenPageNumberModal} className={ButtonClass(false)} title="Insert Page Numbers">
+                        <Hash size={18} />
                     </button>
                     <button onClick={onInsertHorizontalRule} className={ButtonClass(false)} title="Insert Horizontal Line">
                         <Minus size={18} />

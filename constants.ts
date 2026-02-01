@@ -251,6 +251,17 @@ p {
     flex-shrink: 0;
     margin-left: 5px;
 }
+
+/* --- Page Footer (Numbering) --- */
+.page-footer {
+    position: absolute;
+    bottom: 0.4in; /* Inside the bottom margin */
+    left: 0;
+    width: 100%;
+    text-align: center;
+    pointer-events: none; /* Do not interfere with text selection */
+    color: #000;
+}
 `;
 
 export const DEFAULT_HTML = `
