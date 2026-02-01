@@ -30,6 +30,7 @@ export interface SelectionState {
   textAlign: string;
   shape: string; // New property for shape class
   width?: string;
+  range?: Range | null;
 }
 
 export interface HRProperties {

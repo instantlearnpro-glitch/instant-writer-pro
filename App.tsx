@@ -334,11 +334,17 @@ ${tagName} {
   // --- Feature: Real-time Block Styling (Frames & Pudding & Shapes) ---
   const handleBlockStyleUpdate = (styles: Record<string, string>) => {
       // 1. Check if we should wrap selected text in a new block (for shapes)
-      // This prevents applying a shape to the entire page if the user selected a substring
       if (styles.shape && styles.shape !== 'none') {
-          const selection = window.getSelection();
-          if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
-              const range = selection.getRangeAt(0);
+          // Use persisted range from selectionState
+          const range = selectionState.range;
+          
+          // Verify range is valid and connected to DOM
+          const isRangeValid = range && 
+                               !range.collapsed && 
+                               range.commonAncestorContainer.isConnected &&
+                               document.contains(range.commonAncestorContainer);
+
+          if (isRangeValid) {
               const content = range.extractContents();
               
               // Create new shape wrapper - Use SPAN for inline text safety
@@ -361,7 +367,8 @@ ${tagName} {
               range.insertNode(wrapper);
               
               // Clear selection
-              selection.removeAllRanges();
+              const sel = window.getSelection();
+              if (sel) sel.removeAllRanges();
               
               // Force history update
               const workspace = document.querySelector('.editor-workspace');

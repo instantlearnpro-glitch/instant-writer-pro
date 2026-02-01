@@ -100,7 +100,8 @@ const Editor: React.FC<EditorProps> = ({
       padding: '0',
       borderStyle: 'none',
       textAlign: 'left',
-      shape: 'none'
+      shape: 'none',
+      range: range // Store the range to persist selection
     };
 
     let activeBlock: HTMLElement | null = null;
