@@ -92,6 +92,7 @@ p {
     min-height: 100px;
     background-color: var(--shape-bg, #fff);
     border: 2px solid var(--shape-border, #000);
+    overflow-wrap: break-word; /* Ensure text wraps */
     cursor: pointer;
 }
 
@@ -104,6 +105,7 @@ p {
     text-align: center;
     background-color: var(--shape-bg, #fff);
     border: 2px solid var(--shape-border, #000);
+    overflow-wrap: break-word;
     cursor: pointer;
 }
 
@@ -114,6 +116,7 @@ p {
     position: relative;
     background-color: var(--shape-bg, #fff);
     border: 2px solid var(--shape-border, #000);
+    overflow-wrap: break-word;
     cursor: pointer;
 }
 /* Speech bubble tail effect using pseudo-element */
@@ -153,6 +156,7 @@ p {
     margin: 20px auto;
     padding: 50px 60px; /* Adjust padding for the new shape */
     box-sizing: border-box; /* Ensure padding is included in the element's total width and height */
+    overflow-wrap: break-word;
     cursor: pointer;
 }
 /* Making it bumpy is hard with just CSS on the element itself without breaking text flow. 
@@ -164,6 +168,7 @@ p {
     margin: 20px 0;
     background: #fafafa;
     /* font-family removed to preserve user selection */
+    overflow-wrap: break-word;
     cursor: pointer;
     box-sizing: border-box;
 }
@@ -174,6 +179,7 @@ p {
     padding: 15px 20px;
     margin: 20px 0;
     background: #fafafa;
+    overflow-wrap: break-word;
     cursor: pointer;
     box-sizing: border-box;
 }
@@ -312,5 +318,54 @@ export const PAGE_FORMATS = {
     width: '6in', 
     height: '9in', 
     margin: '0.5in' 
-  }
-};
+    }
+  };
+  
+  export const FONTS = [
+    { name: 'Default', value: 'inherit' },
+    // App Specific
+    { name: 'Courier Prime', value: "'Courier Prime', monospace" },
+    { name: 'Black Ops One', value: "'Black Ops One', cursive" },
+    { name: 'Lobster', value: "'Lobster', cursive" },
+    // Sans Serif
+    { name: 'Arial', value: "Arial, Helvetica, sans-serif" },
+    { name: 'Arial Black', value: "'Arial Black', Gadget, sans-serif" },
+    { name: 'Verdana', value: "Verdana, Geneva, sans-serif" },
+    { name: 'Tahoma', value: "Tahoma, Geneva, sans-serif" },
+    { name: 'Trebuchet MS', value: "'Trebuchet MS', Helvetica, sans-serif" },
+    { name: 'Impact', value: "Impact, Charcoal, sans-serif" },
+    { name: 'Helvetica', value: "Helvetica, Arial, sans-serif" },
+    { name: 'Optima', value: "Optima, Segoe, 'Segoe UI', Candara, Calibri, Arial, sans-serif" },
+    { name: 'Segoe UI', value: "'Segoe UI', Frutiger, 'Frutiger Linotype', 'Dejavu Sans', 'Helvetica Neue', Arial, sans-serif" },
+    // Serif
+    { name: 'Times New Roman', value: "'Times New Roman', Times, serif" },
+    { name: 'Didot', value: "Didot, 'Didot LT STD', 'Hoefler Text', Garamond, 'Times New Roman', serif" },
+    { name: 'Georgia', value: "Georgia, serif" },
+    { name: 'American Typewriter', value: "'American Typewriter', serif" },
+    // Monospace
+    { name: 'Andale Mono', value: "'Andale Mono', monospace" },
+    { name: 'Courier', value: "Courier, monospace" },
+    { name: 'Lucida Console', value: "'Lucida Console', Monaco, monospace" },
+    { name: 'Monaco', value: "Monaco, Consolas, 'Lucida Console', monospace" },
+    // Fantasy / Cursive
+    { name: 'Bradley Hand', value: "'Bradley Hand', cursive" },
+    { name: 'Brush Script MT', value: "'Brush Script MT', cursive" },
+    { name: 'Luminari', value: "Luminari, fantasy" },
+    { name: 'Comic Sans MS', value: "'Comic Sans MS', cursive, sans-serif" },
+    // Google Fonts / Web Standards (if available)
+    { name: 'Roboto', value: "'Roboto', sans-serif" },
+    { name: 'Open Sans', value: "'Open Sans', sans-serif" },
+    { name: 'Lato', value: "'Lato', sans-serif" },
+    { name: 'Montserrat', value: "'Montserrat', sans-serif" },
+    { name: 'Oswald', value: "'Oswald', sans-serif" },
+    { name: 'Source Sans Pro', value: "'Source Sans Pro', sans-serif" },
+    { name: 'Slabo 27px', value: "'Slabo 27px', serif" },
+    { name: 'Raleway', value: "'Raleway', sans-serif" },
+    { name: 'PT Sans', value: "'PT Sans', sans-serif" },
+    { name: 'Merriweather', value: "'Merriweather', serif" },
+    { name: 'Noto Sans', value: "'Noto Sans', sans-serif" },
+    { name: 'Nunito', value: "'Nunito', sans-serif" },
+    { name: 'Concert One', value: "'Concert One', cursive" },
+    { name: 'Prompt', value: "'Prompt', sans-serif" },
+    { name: 'Work Sans', value: "'Work Sans', sans-serif" }
+  ];

@@ -5,7 +5,8 @@ import Editor from './components/Editor';
 import TOCModal from './components/TOCModal';
 import PageNumberModal from './components/PageNumberModal';
 import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor } from './types';
-import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS } from './constants';
+import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
+import { getSystemFonts, FontDefinition } from './utils/fontUtils';
 
 const App: React.FC = () => {
   const [docState, setDocState] = useState<DocumentState>({
@@ -13,6 +14,23 @@ const App: React.FC = () => {
     cssContent: DEFAULT_CSS,
     fileName: 'untitled_mission.html'
   });
+
+  const [availableFonts, setAvailableFonts] = useState<FontDefinition[]>(FONTS.map(f => ({ ...f, available: true })));
+
+  // Load available system fonts on mount and when web fonts are ready
+  useEffect(() => {
+      const loadFonts = async () => {
+          const fonts = await getSystemFonts();
+          setAvailableFonts(fonts);
+      };
+      
+      loadFonts();
+
+      // Re-check when document fonts are fully loaded (handles web font latency)
+      document.fonts.ready.then(() => {
+          loadFonts();
+      });
+  }, []);
 
   // History State
   const [history, setHistory] = useState<DocumentState[]>([{ 
@@ -397,6 +415,18 @@ ${tagName} {
                   const parent = element.parentNode;
                   if (!parent) return;
                   
+                  // Preserve styles (especially font-family) by wrapping content in a span
+                  if (element.hasAttribute('style')) {
+                      const span = document.createElement('span');
+                      span.setAttribute('style', element.getAttribute('style')!);
+                      
+                      // Move all children into the span
+                      while (element.firstChild) {
+                          span.appendChild(element.firstChild);
+                      }
+                      element.appendChild(span);
+                  }
+
                   const isBlock = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/.test(element.tagName);
                   
                   while (element.firstChild) {
@@ -526,7 +556,7 @@ ${tagName} {
           }
           else if (key === 'width') {
               (targetBlock.style as any).width = value;
-              (targetBlock.style as any).maxWidth = 'none'; // Ensure it's not constrained
+              (targetBlock.style as any).maxWidth = '100%'; // Constraint to prevent page overflow
           }
           else {
               (targetBlock.style as any)[key] = value;
@@ -1190,6 +1220,7 @@ ${markerEnd}
         onRedo={handleRedo}
         canUndo={historyIndex > 0}
         canRedo={historyIndex < history.length - 1}
+        availableFonts={availableFonts}
       />
       
       <div className="flex flex-1 overflow-hidden">

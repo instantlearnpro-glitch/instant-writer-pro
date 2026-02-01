@@ -187,10 +187,55 @@ const Editor: React.FC<EditorProps> = ({
           const node = range.commonAncestorContainer;
           const element = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
           
-          // Check if we are inside a special container like .mission-box or .tracing-line or headings
-          const specialBlock = element?.closest('.mission-box, .tracing-line, h1, h2, h3, h4, h5, h6, .shape-speech, .shape-cloud, .shape-circle, .shape-rectangle');
+          // Check if we are inside a special container
+          const specialBlock = element?.closest('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle') as HTMLElement;
           
           if (specialBlock) {
+             // Logic for SPAN-based shapes (inline-block)
+             // Default behavior usually inserts <br>, which keeps text inside the shape.
+             // We want to break out into a new Paragraph.
+             if (specialBlock.tagName === 'SPAN') {
+                 e.preventDefault();
+                 
+                 range.deleteContents(); // Clear selection if any
+                 
+                 // Create a range from caret to end of shape
+                 const afterRange = document.createRange();
+                 afterRange.setStart(range.endContainer, range.endOffset);
+                 afterRange.setEndAfter(specialBlock);
+                 
+                 const contentAfter = afterRange.extractContents();
+                 
+                 const newP = document.createElement('p');
+                 // If content is just empty text nodes, treat as empty
+                 if (!contentAfter.textContent?.trim()) {
+                     newP.innerHTML = '<br>'; 
+                 } else {
+                     newP.appendChild(contentAfter);
+                 }
+                 
+                 // Insert new P after the shape
+                 if (specialBlock.parentNode) {
+                     specialBlock.parentNode.insertBefore(newP, specialBlock.nextSibling);
+                 }
+                 
+                 // Move Selection to new P
+                 const newRange = document.createRange();
+                 newRange.setStart(newP, 0);
+                 newRange.collapse(true);
+                 selection.removeAllRanges();
+                 selection.addRange(newRange);
+                 
+                 // Force update
+                 if (contentRef.current) {
+                     onContentChange(contentRef.current.innerHTML);
+                 }
+                 return;
+             }
+
+             // Logic for Block-based shapes (P/DIV/H*)
+             // Default behavior creates a duplicate block with the same classes.
+             // We want to revert the new block to a standard P.
              setTimeout(() => {
                  const selection = document.getSelection();
                  if (!selection || selection.rangeCount === 0) return;
@@ -203,6 +248,13 @@ const Editor: React.FC<EditorProps> = ({
                      // We created a duplicate block! Convert it to a paragraph
                      const p = document.createElement('p');
                      p.innerHTML = '<br>'; // Placeholder to allow caret
+                     
+                     // Move content if any (unlikely for immediate Enter, but safe to check)
+                     while (newBlock.firstChild) {
+                         p.appendChild(newBlock.firstChild);
+                     }
+                     if (p.innerHTML === '') p.innerHTML = '<br>';
+
                      newBlock.parentNode?.replaceChild(p, newBlock);
                      
                      // Move caret to new P

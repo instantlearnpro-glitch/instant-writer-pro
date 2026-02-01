@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
+import { FontDefinition } from '../utils/fontUtils';
 
 interface ToolbarProps {
   isSidebarOpen: boolean;
@@ -38,6 +39,7 @@ interface ToolbarProps {
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  availableFonts: FontDefinition[];
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -68,7 +70,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onUndo,
   onRedo,
   canUndo,
-  canRedo
+  canRedo,
+  availableFonts
 }) => {
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
     `p-2 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-700 ' + (isActive ? 'bg-blue-100 text-blue-600' : '')}`;
@@ -82,6 +85,28 @@ const Toolbar: React.FC<ToolbarProps> = ({
       }
       onBlockStyleUpdate({ [prop]: value, ...extraStyles });
   };
+
+  // Determine which fonts to show
+  // If the current selection has a font that isn't in our list, add it temporarily to the dropdown
+  // so the user can see what it is (with a warning if it's missing)
+  const currentFontName = selectionState.fontName ? selectionState.fontName.replace(/['"]/g, '') : 'inherit';
+  
+  // Create a display list
+  let displayFonts = [...availableFonts];
+  
+  // Check if current font is in the list (relaxed check)
+  const fontExists = displayFonts.some(f => 
+      f.name.toLowerCase() === currentFontName.toLowerCase() || 
+      f.value.toLowerCase().includes(currentFontName.toLowerCase())
+  );
+
+  if (!fontExists && currentFontName !== 'inherit') {
+      displayFonts.unshift({
+          name: currentFontName,
+          value: currentFontName,
+          available: false // Assume unavailable if not found in our rigorous list
+      });
+  }
 
   return (
     <div className="flex flex-col border-b border-gray-200 shadow-sm z-10 sticky top-0 bg-white">
@@ -172,6 +197,19 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             <option value="h3">Heading 3</option>
                             <option value="blockquote">Quote</option>
                             <option value="pre">Code</option>
+                        </select>
+
+                        <select 
+                            className="h-6 border-none bg-transparent text-xs text-gray-800 focus:outline-none w-28"
+                            onChange={(e) => onFormat('fontName', e.target.value)}
+                            value={selectionState.fontName || 'inherit'}
+                            title="Font Family"
+                        >
+                            {displayFonts.map((font, idx) => (
+                                <option key={idx} value={font.value}>
+                                    {font.name} {font.available === false ? '⚠️' : ''}
+                                </option>
+                            ))}
                         </select>
 
                             <select 
