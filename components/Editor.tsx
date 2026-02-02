@@ -27,6 +27,8 @@ interface EditorProps {
   onMarginChange: (key: 'top' | 'bottom' | 'left' | 'right', value: number) => void;
   selectionMode?: { active: boolean; level: string | null; selectedIds: string[] };
   onBlockSelection?: (id: string) => void;
+  zoom: number;
+  viewMode: 'single' | 'double';
 }
 
 // Helper to convert RGB/RGBA to Hex
@@ -61,7 +63,9 @@ const Editor: React.FC<EditorProps> = ({
   imageProperties,
   onCropComplete,
   onCancelCrop,
-  onPageBreak
+  onPageBreak,
+  zoom,
+  viewMode
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [pageRects, setPageRects] = useState<{ top: number; left: number; width: number; height: number }[]>([]);
@@ -270,10 +274,19 @@ const Editor: React.FC<EditorProps> = ({
       };
   }, [handleSelectionChange, onImageSelect, onContentChange, selectionMode, onBlockSelection]);
 
+  const zoomStyle = {
+    transform: `scale(${zoom / 100})`,
+    transformOrigin: 'top center',
+  };
+
+  const workspaceClasses = viewMode === 'double' 
+    ? 'editor-workspace flex flex-row flex-wrap justify-center gap-4 outline-none relative'
+    : 'editor-workspace w-full flex flex-col items-center outline-none relative';
+
   return (
     <div 
         ref={containerRef}
-        className="flex-1 bg-gray-200 overflow-y-auto h-[calc(100vh-64px)] relative p-8 flex flex-col items-center"
+        className="flex-1 bg-gray-200 overflow-auto h-[calc(100vh-64px)] relative p-8 flex flex-col items-center"
     >
         <style dangerouslySetInnerHTML={{ __html: cssContent }} />
         <style>{selectionStyle}</style>
@@ -289,11 +302,28 @@ const Editor: React.FC<EditorProps> = ({
             .cursor-crosshair, .cursor-crosshair * {
                 cursor: crosshair !important;
             }
+            ${viewMode === 'double' ? `
+            .editor-workspace {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: wrap !important;
+                justify-content: center !important;
+                align-items: flex-start !important;
+                gap: 1.5rem !important;
+            }
+            .editor-workspace .page {
+                display: inline-block !important;
+                flex-shrink: 0 !important;
+                margin: 0 !important;
+                vertical-align: top;
+            }
+            ` : ''}
         `}</style>
 
         <div 
             ref={contentRef}
-            className={`editor-workspace w-full flex flex-col items-center outline-none relative ${selectionMode?.active ? 'cursor-crosshair' : ''}`}
+            className={`${workspaceClasses} ${selectionMode?.active ? 'cursor-crosshair' : ''}`}
+            style={zoomStyle}
             contentEditable={!imageProperties.isCropping && !selectionMode?.active}
             onKeyDown={handleKeyDown}
             onDrop={handleDrop}

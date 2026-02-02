@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
 import TOCModal from './components/TOCModal';
 import PageNumberModal from './components/PageNumberModal';
+import ZoomControls from './components/ZoomControls';
 import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry } from './types';
 import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
 import { getSystemFonts, FontDefinition } from './utils/fontUtils';
@@ -108,6 +109,10 @@ const App: React.FC = () => {
   const [pageAnchors, setPageAnchors] = useState<PageAnchor[]>([]);
   
   const [showFrameTools, setShowFrameTools] = useState(false);
+  
+  // Zoom and View Mode
+  const [zoom, setZoom] = useState(100);
+  const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
   
   const editorContainerRef = useRef<HTMLDivElement>(null);
 
@@ -1793,6 +1798,14 @@ ${markerEnd}
                 onMarginChange={handleMarginChange}
                 selectionMode={selectionMode}
                 onBlockSelection={handleBlockSelection}
+                zoom={zoom}
+                viewMode={viewMode}
+            />
+            <ZoomControls
+                zoom={zoom}
+                viewMode={viewMode}
+                onZoomChange={setZoom}
+                onViewModeChange={setViewMode}
             />
         </div>
       </div>
