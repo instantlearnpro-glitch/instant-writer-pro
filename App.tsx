@@ -1702,62 +1702,183 @@ ${workspace.innerHTML}
   };
 
   const handleExportPDF = async (fileName: string) => {
-    const workspace = getCleanWorkspace();
-    if (!workspace || !window.html2pdf) {
-        alert('PDF export non disponibile');
+    // Create a new window with just the pages for printing
+    const workspace = document.querySelector('.editor-workspace');
+    if (!workspace) {
+        alert('Nessun contenuto da esportare');
         return;
     }
 
-    // Create container with computed styles inlined for accurate rendering
-    const container = document.createElement('div');
-    container.style.backgroundColor = '#fff';
-    
-    // Process each page separately for accurate page breaks
-    const pages = workspace.querySelectorAll('.page');
-    pages.forEach((page, index) => {
-        const pageClone = page.cloneNode(true) as HTMLElement;
-        
-        // Inline all computed styles for accurate reproduction
-        inlineComputedStyles(pageClone);
-        
-        // Set explicit page dimensions
-        pageClone.style.width = '8.5in';
-        pageClone.style.minHeight = '11in';
-        pageClone.style.padding = '0.6in';
-        pageClone.style.margin = '0';
-        pageClone.style.boxSizing = 'border-box';
-        pageClone.style.backgroundColor = '#fff';
-        pageClone.style.position = 'relative';
-        pageClone.style.boxShadow = 'none';
-        
-        // Add page break after each page except the last
-        if (index < pages.length - 1) {
-            pageClone.style.pageBreakAfter = 'always';
+    // Create print window
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        alert('Popup bloccato. Abilita i popup per esportare il PDF.');
+        return;
+    }
+
+    // Build the HTML for printing - clone and process each page
+    const pagesHTML = Array.from(workspace.querySelectorAll('.page'))
+        .map((page, pageIndex) => {
+            const clone = page.cloneNode(true) as HTMLElement;
+            
+            // Remove selection attributes
+            clone.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
+            
+            // Inline styles for tracing-line elements
+            clone.querySelectorAll('.tracing-line').forEach((el, i) => {
+                const htmlEl = el as HTMLElement;
+                const originalEl = (page as HTMLElement).querySelectorAll('.tracing-line')[i] as HTMLElement;
+                if (originalEl) {
+                    const computed = window.getComputedStyle(originalEl);
+                    htmlEl.style.backgroundImage = computed.backgroundImage;
+                    htmlEl.style.backgroundSize = computed.backgroundSize;
+                    htmlEl.style.backgroundPosition = computed.backgroundPosition;
+                    htmlEl.style.backgroundRepeat = computed.backgroundRepeat;
+                    htmlEl.style.height = computed.height;
+                    htmlEl.style.minHeight = computed.minHeight;
+                    htmlEl.style.lineHeight = computed.lineHeight;
+                    htmlEl.style.setProperty('-webkit-print-color-adjust', 'exact', 'important');
+                    htmlEl.style.setProperty('print-color-adjust', 'exact', 'important');
+                }
+            });
+            
+            // Inline styles for writing-lines elements
+            clone.querySelectorAll('.writing-lines').forEach((el, i) => {
+                const htmlEl = el as HTMLElement;
+                const originalEl = (page as HTMLElement).querySelectorAll('.writing-lines')[i] as HTMLElement;
+                if (originalEl) {
+                    const computed = window.getComputedStyle(originalEl);
+                    htmlEl.style.backgroundImage = computed.backgroundImage;
+                    htmlEl.style.backgroundSize = computed.backgroundSize;
+                    htmlEl.style.backgroundPosition = computed.backgroundPosition;
+                    htmlEl.style.backgroundRepeat = computed.backgroundRepeat;
+                    htmlEl.style.height = computed.height;
+                    htmlEl.style.minHeight = computed.minHeight;
+                    htmlEl.style.lineHeight = computed.lineHeight;
+                    htmlEl.style.setProperty('-webkit-print-color-adjust', 'exact', 'important');
+                    htmlEl.style.setProperty('print-color-adjust', 'exact', 'important');
+                }
+            });
+            
+            // Convert textareas to divs to preserve content in print
+            clone.querySelectorAll('textarea').forEach((textarea, i) => {
+                const div = document.createElement('div');
+                div.className = textarea.className;
+                div.style.cssText = textarea.style.cssText;
+                div.textContent = textarea.value || '';
+                // Copy computed styles from original
+                const originalTextareas = (page as HTMLElement).querySelectorAll('textarea');
+                const original = originalTextareas[i] as HTMLTextAreaElement;
+                if (original) {
+                    const computed = window.getComputedStyle(original);
+                    div.style.height = computed.height;
+                    div.style.minHeight = computed.minHeight;
+                    div.style.backgroundImage = computed.backgroundImage;
+                    div.style.backgroundSize = computed.backgroundSize;
+                    div.style.backgroundPosition = computed.backgroundPosition;
+                    div.style.lineHeight = computed.lineHeight;
+                    div.style.fontFamily = computed.fontFamily;
+                    div.style.fontSize = computed.fontSize;
+                    div.style.setProperty('-webkit-print-color-adjust', 'exact', 'important');
+                    div.style.setProperty('print-color-adjust', 'exact', 'important');
+                }
+                textarea.parentNode?.replaceChild(div, textarea);
+            });
+            
+            return clone.outerHTML;
+        })
+        .join('\n');
+
+    printWindow.document.write(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>${fileName}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto:wght@400;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Force print backgrounds */
+        * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
         }
         
-        container.appendChild(pageClone);
+        @media print {
+            @page {
+                size: 8.5in 11in;
+                margin: 0;
+            }
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            .page {
+                page-break-after: always;
+                page-break-inside: avoid;
+            }
+            .page:last-child {
+                page-break-after: auto;
+            }
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background: white;
+        }
+        
+        ${docState.cssContent}
+        
+        .page {
+            width: 8.5in;
+            height: 11in;
+            padding: 0.6in;
+            margin: 0;
+            background: white;
+            position: relative;
+            overflow: hidden;
+            box-shadow: none;
+        }
+        
+        /* Ensure writing-lines show their background */
+        .writing-lines, textarea.writing-lines, div.writing-lines {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            background-image: linear-gradient(#000 1px, transparent 1px), linear-gradient(#ccc 1px, transparent 1px) !important;
+            background-size: 100% 50px !important;
+            background-position: 0 48px, 0 24px !important;
+        }
+        
+        /* Ensure tracing-lines show their background */
+        .tracing-line {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            background-image: linear-gradient(#000 1px, transparent 1px) !important;
+            background-size: 100% 50px !important;
+            background-position: 0 48px !important;
+        }
+    </style>
+</head>
+<body>
+${pagesHTML}
+<script>
+    // Wait for fonts to load, then print
+    document.fonts.ready.then(() => {
+        setTimeout(() => {
+            window.print();
+            window.onafterprint = () => window.close();
+        }, 500);
     });
-
-    const opt = {
-        margin: 0,
-        filename: `${fileName}.pdf`,
-        image: { type: 'png', quality: 1 },
-        html2canvas: { 
-            scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            letterRendering: true,
-            logging: false
-        },
-        jsPDF: { 
-            unit: 'in', 
-            format: 'letter', 
-            orientation: 'portrait' 
-        },
-        pagebreak: { mode: ['css', 'legacy'], before: '.page', avoid: ['img', 'tr'] }
-    };
-
-    await window.html2pdf().set(opt).from(container).save();
+</script>
+</body>
+</html>
+    `);
+    
+    printWindow.document.close();
   };
   
   // Helper function to inline computed styles for export
