@@ -215,7 +215,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         value={pageFormatId}
                     >
                         <option value={PAGE_FORMATS.LETTER.id}>{PAGE_FORMATS.LETTER.name}</option>
+                        <option value={PAGE_FORMATS.LETTER_THICK.id}>{PAGE_FORMATS.LETTER_THICK.name}</option>
                         <option value={PAGE_FORMATS.TRADE.id}>{PAGE_FORMATS.TRADE.name}</option>
+                        <option value={PAGE_FORMATS.TRADE_THICK.id}>{PAGE_FORMATS.TRADE_THICK.name}</option>
                         <option value={PAGE_FORMATS.CUSTOM.id}>{PAGE_FORMATS.CUSTOM.name}</option>
                     </select>
                     

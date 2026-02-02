@@ -97,7 +97,7 @@ const App: React.FC = () => {
 
   const [pageFormatId, setPageFormatId] = useState<string>('letter');
   const [customPageSize, setCustomPageSize] = useState<{ width: string, height: string }>({ width: '8.5in', height: '11in' });
-  const [pageMargins, setPageMargins] = useState<{ top: number, bottom: number, left: number, right: number }>({ top: 1, bottom: 1, left: 1, right: 1 });
+  const [pageMargins, setPageMargins] = useState<{ top: number, bottom: number, left: number, right: number }>({ top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 });
   const [showMarginGuides, setShowMarginGuides] = useState(false);
 
   const [pageCount, setPageCount] = useState(0);
@@ -300,6 +300,32 @@ const App: React.FC = () => {
                 // Wrap in page if needed
                 const tempDiv = document.createElement('div');
                 tempDiv.innerHTML = bodyContent;
+                
+                // Remove contenteditable attributes that might block editing
+                tempDiv.querySelectorAll('[contenteditable]').forEach(el => {
+                    el.removeAttribute('contenteditable');
+                });
+                
+                // Remove any readonly or disabled attributes
+                tempDiv.querySelectorAll('[readonly], [disabled]').forEach(el => {
+                    el.removeAttribute('readonly');
+                    el.removeAttribute('disabled');
+                });
+                
+                // Remove user-select: none styles
+                tempDiv.querySelectorAll('[style*="user-select"]').forEach(el => {
+                    (el as HTMLElement).style.userSelect = '';
+                });
+                
+                // Convert any non-editable elements to editable ones
+                tempDiv.querySelectorAll('input, textarea').forEach(el => {
+                    const span = document.createElement('span');
+                    span.textContent = (el as HTMLInputElement).value || (el as HTMLTextAreaElement).value || '';
+                    el.replaceWith(span);
+                });
+                
+                bodyContent = tempDiv.innerHTML;
+                
                 if (!tempDiv.querySelector('.page')) {
                     bodyContent = `<div class="page">${bodyContent}</div>`;
                 }
@@ -1793,6 +1819,8 @@ ${markerEnd}
                 onCropComplete={handleCropComplete}
                 onCancelCrop={handleCancelCrop}
                 onPageBreak={handlePageBreak}
+                onInsertHorizontalRule={handleInsertHorizontalRule}
+                onInsertImage={handleInsertImage}
                 showMarginGuides={showMarginGuides}
                 pageMargins={pageMargins}
                 onMarginChange={handleMarginChange}

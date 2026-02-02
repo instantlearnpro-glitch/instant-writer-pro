@@ -308,27 +308,49 @@ export const DEFAULT_HTML = `
 </div>
 `;
 
+// Official margin values based on page count
+// Pages 110-150: gutter (inside) values
+// Pages 151-200: larger gutter values
+// Format: { top, bottom, left (gutter/inside), right (outside) }
 export const PAGE_FORMATS = {
   LETTER: {
     id: 'letter',
     name: 'US Letter (8.5" x 11")',
     width: '8.5in',
     height: '11in',
-    margins: { top: 1, bottom: 1, left: 1, right: 1 }
+    // 110-150 pages: gutter 0.375", outside 0.5", top/bottom 0.5"
+    margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 }
+  },
+  LETTER_THICK: {
+    id: 'letter-thick',
+    name: 'US Letter 151-200pp (8.5" x 11")',
+    width: '8.5in',
+    height: '11in',
+    // 151-200 pages: gutter 0.5", outside 0.5", top/bottom 0.5"
+    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
   },
   TRADE: {
     id: '6x9',
-    name: 'Trade (6" x 9")',
+    name: 'Trade 110-150pp (6" x 9")',
     width: '6in',
     height: '9in',
-    margins: { top: 0.75, bottom: 0.75, left: 0.75, right: 0.625 }
+    // 110-150 pages: gutter 0.375", outside 0.25", top/bottom 0.5"
+    margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.25 }
+  },
+  TRADE_THICK: {
+    id: '6x9-thick',
+    name: 'Trade 151-200pp (6" x 9")',
+    width: '6in',
+    height: '9in',
+    // 151-200 pages: gutter 0.5", outside 0.25", top/bottom 0.5"
+    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.25 }
   },
   CUSTOM: {
     id: 'custom',
     name: 'Custom Size',
     width: '8.5in',
     height: '11in',
-    margins: { top: 1, bottom: 1, left: 1, right: 1 }
+    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
   }
 };  
   export const FONTS = [

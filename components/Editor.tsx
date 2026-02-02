@@ -4,6 +4,8 @@ import ImageOverlay from './ImageOverlay';
 import { reflowPages } from '../utils/pagination';
 import MarginGuides from './MarginGuides';
 import PageRuler from './PageRuler';
+import BlockContextMenu from './BlockContextMenu';
+import DragHandle from './DragHandle';
 
 interface EditorProps {
   htmlContent: string;
@@ -22,6 +24,8 @@ interface EditorProps {
   onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
   onPageBreak: () => void;
+  onInsertHorizontalRule: () => void;
+  onInsertImage: () => void;
   showMarginGuides: boolean;
   pageMargins: { top: number, bottom: number, left: number, right: number };
   onMarginChange: (key: 'top' | 'bottom' | 'left' | 'right', value: number) => void;
@@ -64,11 +68,15 @@ const Editor: React.FC<EditorProps> = ({
   onCropComplete,
   onCancelCrop,
   onPageBreak,
+  onInsertHorizontalRule,
+  onInsertImage,
   zoom,
   viewMode
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [pageRects, setPageRects] = useState<{ top: number; left: number; width: number; height: number }[]>([]);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; block: HTMLElement | null } | null>(null);
+  const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
 
   // Generate dynamic CSS for selection highlights
   const selectionStyle = selectionMode?.active && selectionMode.selectedIds.length > 0
@@ -206,6 +214,108 @@ const Editor: React.FC<EditorProps> = ({
       }
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+      e.preventDefault();
+      const target = e.target as HTMLElement;
+      
+      // Try to find any selectable block element
+      let block = target.closest('hr') as HTMLElement | null;
+      if (!block) {
+          block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, img, table, tr, td, th, span, a') as HTMLElement | null;
+      }
+      
+      // If we're on the target itself and it's selectable, use it
+      if (!block && (target.tagName === 'HR' || target.tagName === 'IMG')) {
+          block = target;
+      }
+      
+      // Clear previous selection
+      if (activeBlock) {
+          activeBlock.removeAttribute('data-selected');
+      }
+      
+      // Set new selection with visual feedback
+      if (block) {
+          block.setAttribute('data-selected', 'true');
+      }
+      
+      setActiveBlock(block);
+      setContextMenu({ x: e.clientX, y: e.clientY, block });
+  };
+
+  const insertAtCursor = (html: string) => {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          const fragment = document.createRange().createContextualFragment(html);
+          range.insertNode(fragment);
+          range.collapse(false);
+      } else if (activeBlock) {
+          activeBlock.insertAdjacentHTML('afterend', html);
+      } else if (contentRef.current) {
+          const firstPage = contentRef.current.querySelector('.page');
+          if (firstPage) {
+              firstPage.insertAdjacentHTML('beforeend', html);
+          }
+      }
+      if (contentRef.current) {
+          reflowPages(contentRef.current);
+          onContentChange(contentRef.current.innerHTML);
+      }
+  };
+
+  const handleInsertSpace = (size: 'small' | 'medium' | 'large') => {
+      const heights = { small: '0.5in', medium: '1in', large: '2in' };
+      insertAtCursor(`<div class="spacer" style="height: ${heights[size]}; width: 100%;"></div>`);
+  };
+
+  const handleInsertParagraph = () => {
+      insertAtCursor('<p>Nuovo paragrafo...</p>');
+  };
+
+  const handleMoveUp = () => {
+      if (!activeBlock || !activeBlock.previousElementSibling) return;
+      const prev = activeBlock.previousElementSibling;
+      activeBlock.parentNode?.insertBefore(activeBlock, prev);
+      if (contentRef.current) {
+          reflowPages(contentRef.current);
+          onContentChange(contentRef.current.innerHTML);
+      }
+  };
+
+  const handleMoveDown = () => {
+      if (!activeBlock || !activeBlock.nextElementSibling) return;
+      const next = activeBlock.nextElementSibling;
+      activeBlock.parentNode?.insertBefore(next, activeBlock);
+      if (contentRef.current) {
+          reflowPages(contentRef.current);
+          onContentChange(contentRef.current.innerHTML);
+      }
+  };
+
+  const handleDeleteBlock = () => {
+      if (!activeBlock) return;
+      activeBlock.remove();
+      setActiveBlock(null);
+      if (contentRef.current) {
+          reflowPages(contentRef.current);
+          onContentChange(contentRef.current.innerHTML);
+      }
+  };
+
+  const handleDuplicateBlock = () => {
+      if (!activeBlock) return;
+      const clone = activeBlock.cloneNode(true) as HTMLElement;
+      if (clone.id) {
+          clone.id = `dup-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      }
+      activeBlock.parentNode?.insertBefore(clone, activeBlock.nextSibling);
+      if (contentRef.current) {
+          reflowPages(contentRef.current);
+          onContentChange(contentRef.current.innerHTML);
+      }
+  };
+
   useEffect(() => {
       const container = contentRef.current;
       if (!container) return;
@@ -237,13 +347,30 @@ const Editor: React.FC<EditorProps> = ({
               return;
           }
 
+          // Clear previous block selection
+          if (activeBlock) {
+              activeBlock.removeAttribute('data-selected');
+          }
+
           if (target.tagName === 'IMG') {
               onImageSelect(target as HTMLImageElement);
+              target.setAttribute('data-selected', 'true');
+              setActiveBlock(target);
           } else {
               onImageSelect(null);
           }
 
-          const block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle') as HTMLElement | null;
+          // Find and select block elements
+          let block = target.closest('hr') as HTMLElement | null;
+          if (!block) {
+              block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img') as HTMLElement | null;
+          }
+          
+          if (block) {
+              block.setAttribute('data-selected', 'true');
+              setActiveBlock(block);
+          }
+          
           if (onBlockClick) {
               onBlockClick(block);
           }
@@ -251,6 +378,8 @@ const Editor: React.FC<EditorProps> = ({
           const hr = target.closest('hr') as HTMLHRElement | null;
           if (hr) {
               onHRSelect(hr);
+              hr.setAttribute('data-selected', 'true');
+              setActiveBlock(hr);
           } else {
               onHRSelect(null);
           }
@@ -302,6 +431,81 @@ const Editor: React.FC<EditorProps> = ({
             .cursor-crosshair, .cursor-crosshair * {
                 cursor: crosshair !important;
             }
+            .editor-workspace * {
+                user-select: text !important;
+                -webkit-user-select: text !important;
+            }
+            .editor-workspace p, 
+            .editor-workspace h1, 
+            .editor-workspace h2, 
+            .editor-workspace h3, 
+            .editor-workspace h4, 
+            .editor-workspace h5, 
+            .editor-workspace h6,
+            .editor-workspace div:not(.page),
+            .editor-workspace span,
+            .editor-workspace li,
+            .editor-workspace blockquote {
+                cursor: text;
+            }
+            .editor-workspace .spacer {
+                cursor: pointer;
+                min-height: 20px;
+                border: 1px dashed transparent;
+                transition: border-color 0.2s;
+            }
+            .editor-workspace .spacer:hover {
+                border-color: #9ca3af;
+            }
+            .editor-workspace hr {
+                cursor: pointer;
+                transition: outline 0.2s;
+            }
+            .editor-workspace hr:hover {
+                outline: 2px dashed #3b82f6;
+                outline-offset: 2px;
+            }
+            .editor-workspace hr[data-selected="true"] {
+                outline: 2px solid #3b82f6;
+                outline-offset: 2px;
+            }
+            .editor-workspace [data-selected="true"] {
+                outline: 2px solid #3b82f6 !important;
+                outline-offset: 2px !important;
+            }
+            .editor-workspace p,
+            .editor-workspace h1,
+            .editor-workspace h2,
+            .editor-workspace h3,
+            .editor-workspace h4,
+            .editor-workspace h5,
+            .editor-workspace h6,
+            .editor-workspace div:not(.page):not(.editor-workspace),
+            .editor-workspace blockquote,
+            .editor-workspace li,
+            .editor-workspace table,
+            .editor-workspace img,
+            .editor-workspace hr {
+                cursor: grab;
+                transition: outline 0.15s, background-color 0.15s;
+            }
+            .editor-workspace p:hover,
+            .editor-workspace h1:hover,
+            .editor-workspace h2:hover,
+            .editor-workspace h3:hover,
+            .editor-workspace h4:hover,
+            .editor-workspace h5:hover,
+            .editor-workspace h6:hover,
+            .editor-workspace div:not(.page):not(.editor-workspace):hover,
+            .editor-workspace blockquote:hover,
+            .editor-workspace li:hover,
+            .editor-workspace table:hover,
+            .editor-workspace img:hover,
+            .editor-workspace hr:hover {
+                outline: 2px dashed #3b82f6;
+                outline-offset: 2px;
+                background-color: rgba(59, 130, 246, 0.05);
+            }
             ${viewMode === 'double' ? `
             .editor-workspace {
                 display: flex !important;
@@ -328,6 +532,7 @@ const Editor: React.FC<EditorProps> = ({
             onKeyDown={handleKeyDown}
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
+            onContextMenu={handleContextMenu}
             suppressContentEditableWarning={true}
         />
         
@@ -355,6 +560,39 @@ const Editor: React.FC<EditorProps> = ({
                 isCropping={imageProperties.isCropping}
                 onCropComplete={onCropComplete}
                 onCancelCrop={onCancelCrop}
+            />
+        )}
+
+        {contextMenu && (
+            <BlockContextMenu
+                x={contextMenu.x}
+                y={contextMenu.y}
+                onClose={() => setContextMenu(null)}
+                onInsertPageBreak={onPageBreak}
+                onInsertSpace={handleInsertSpace}
+                onInsertHR={onInsertHorizontalRule}
+                onInsertImage={onInsertImage}
+                onInsertParagraph={handleInsertParagraph}
+                onMoveUp={handleMoveUp}
+                onMoveDown={handleMoveDown}
+                onDelete={handleDeleteBlock}
+                onDuplicate={handleDuplicateBlock}
+                hasBlock={!!contextMenu.block}
+                isHR={contextMenu.block?.tagName === 'HR'}
+            />
+        )}
+
+        {activeBlock && !contextMenu && (
+            <DragHandle
+                element={activeBlock}
+                containerRef={containerRef}
+                onUpdate={() => {
+                    if (contentRef.current) {
+                        reflowPages(contentRef.current);
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                    setActiveBlock(null);
+                }}
             />
         )}
     </div>
