@@ -10,6 +10,7 @@ interface EditorProps {
   cssContent: string;
   onContentChange: (html: string) => void;
   onSelectionChange: (state: SelectionState, activeBlock: HTMLElement | null) => void;
+  onBlockClick?: (block: HTMLElement | null) => void;
   onImageSelect: (img: HTMLImageElement | null) => void;
   onHRSelect: (hr: HTMLHRElement | null) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -45,6 +46,7 @@ const Editor: React.FC<EditorProps> = ({
   cssContent, 
   onContentChange,
   onSelectionChange,
+  onBlockClick,
   onImageSelect,
   onHRSelect,
   selectedFooter,
@@ -235,6 +237,18 @@ const Editor: React.FC<EditorProps> = ({
               onImageSelect(target as HTMLImageElement);
           } else {
               onImageSelect(null);
+          }
+
+          const block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle') as HTMLElement | null;
+          if (onBlockClick) {
+              onBlockClick(block);
+          }
+
+          const hr = target.closest('hr') as HTMLHRElement | null;
+          if (hr) {
+              onHRSelect(hr);
+          } else {
+              onHRSelect(null);
           }
       };
 

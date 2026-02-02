@@ -610,28 +610,132 @@ const App: React.FC = () => {
   };
 
   const handleUpdateStyle = (targetTagName?: string) => {
-    // Find any styled element to get the current style from
+    const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
     const styledElement = activeBlock?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)');
-    
-    
-    if (!styledElement) {
-        alert("Select text inside a paragraph or heading first.");
-        return;
+    const headingTags = ['h1', 'h2', 'h3'];
+
+    const inferHeadingFromHR = () => {
+      if (!selectedHR) return null;
+      let prev = selectedHR.previousElementSibling as HTMLElement | null;
+      while (prev && prev.tagName === 'BR') prev = prev.previousElementSibling as HTMLElement | null;
+      const tag = prev?.tagName.toLowerCase();
+      return tag && headingTags.includes(tag) ? tag : null;
+    };
+
+    const selector = targetTagName?.toLowerCase() || styledElement?.nodeName.toLowerCase() || inferHeadingFromHR();
+    const normalizedSelector = selector && headingTags.includes(selector) ? selector : null;
+
+    if (!selector) {
+      alert("Select text inside a paragraph or heading first.");
+      return;
     }
 
-    // Use the targetTagName passed from the menu (e.g., "h1")
-    const selector = targetTagName?.toLowerCase() || styledElement.nodeName.toLowerCase();
+    let htmlModified = false;
+
+    const applyShapeToHeadings = (tagName: string, sourceShape: HTMLElement) => {
+      if (!workspace) return false;
+      const shapeClasses = ['shape-circle', 'shape-pill', 'shape-speech', 'shape-cloud', 'shape-rectangle'];
+      const sourceShapeClass = shapeClasses.find(cls => sourceShape.classList.contains(cls));
+      const sourceBorderVar = sourceShape.style.getPropertyValue('--shape-border');
+      const sourceBgVar = sourceShape.style.getPropertyValue('--shape-bg');
+      const sourceComputed = window.getComputedStyle(sourceShape);
+
+      const headings = Array.from(workspace.querySelectorAll(tagName)) as HTMLElement[];
+      let changed = false;
+
+      headings.forEach(heading => {
+        let shapeEl = heading.querySelector('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle') as HTMLElement | null;
+
+        if (!shapeEl) {
+          shapeEl = document.createElement('span');
+          while (heading.firstChild) {
+            shapeEl.appendChild(heading.firstChild);
+          }
+          heading.appendChild(shapeEl);
+        }
+
+        shapeEl.classList.remove('mission-box', ...shapeClasses);
+        shapeEl.classList.add('mission-box');
+        if (sourceShapeClass) shapeEl.classList.add(sourceShapeClass);
+
+        const styleProps: Array<keyof CSSStyleDeclaration> = ['borderColor', 'backgroundColor', 'borderWidth', 'borderStyle', 'padding', 'borderRadius', 'width', 'maxWidth'];
+        styleProps.forEach(prop => {
+          const inlineValue = (sourceShape.style as any)[prop] as string;
+          if (inlineValue) {
+            (shapeEl!.style as any)[prop] = inlineValue;
+            return;
+          }
+
+          const computedValue = (sourceComputed as any)[prop] as string;
+          if (computedValue && computedValue !== 'none' && computedValue !== 'auto') {
+            (shapeEl!.style as any)[prop] = computedValue;
+          }
+        });
+
+        if (sourceBorderVar) shapeEl.style.setProperty('--shape-border', sourceBorderVar);
+        if (sourceBgVar) shapeEl.style.setProperty('--shape-bg', sourceBgVar);
+
+        changed = true;
+      });
+
+      return changed;
+    };
+
+    const applyHrToHeadings = (tagName: string, sourceHr: HTMLHRElement) => {
+      if (!workspace) return false;
+      const headings = Array.from(workspace.querySelectorAll(tagName)) as HTMLElement[];
+      let changed = false;
+
+      headings.forEach(heading => {
+        let next = heading.nextElementSibling as HTMLElement | null;
+        while (next && next.tagName === 'BR') next = next.nextElementSibling as HTMLElement | null;
+
+        let hrEl: HTMLHRElement;
+        if (next && next.tagName === 'HR') {
+          hrEl = next as HTMLHRElement;
+        } else {
+          hrEl = document.createElement('hr');
+          heading.parentNode?.insertBefore(hrEl, heading.nextSibling);
+        }
+
+        hrEl.style.cssText = sourceHr.style.cssText;
+        hrEl.removeAttribute('data-selected');
+        changed = true;
+      });
+
+      return changed;
+    };
+
+    if (normalizedSelector) {
+      const sourceShape = activeBlock?.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle') as HTMLElement | null;
+      if (sourceShape) {
+        htmlModified = applyShapeToHeadings(normalizedSelector, sourceShape) || htmlModified;
+      }
+
+      if (selectedHR) {
+        htmlModified = applyHrToHeadings(normalizedSelector, selectedHR) || htmlModified;
+      }
+    }
+
+    if (!styledElement) {
+      if (htmlModified && workspace) {
+        updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+      }
+      alert(`Updated style for ${selector}. All matching elements will now use this style.`);
+      return;
+    }
+
     const computed = window.getComputedStyle(styledElement as Element);
-    
+
     // Get inline styles from selection (font, color etc are applied via execCommand to inner elements)
     const color = selectionState.foreColor || computed.color;
     const fontFamily = selectionState.fontName || computed.fontFamily;
     const fontWeight = selectionState.bold ? 'bold' : computed.fontWeight;
     const fontStyle = selectionState.italic ? 'italic' : computed.fontStyle;
     const textDecoration = selectionState.underline ? 'underline' : computed.textDecoration;
-    
+
     const newRule = `
-${selector} {
+ ${selector} {
     font-family: ${fontFamily} !important;
     font-size: ${computed.fontSize} !important;
     color: ${color} !important;
@@ -642,11 +746,14 @@ ${selector} {
     margin-top: ${computed.marginTop} !important;
     margin-bottom: ${computed.marginBottom} !important;
     line-height: ${computed.lineHeight} !important;
-}
-`;
-    // Styles are a major change, save immediately
+ }
+ `;
+
+    const nextHtml = htmlModified && workspace ? workspace.innerHTML : docState.htmlContent;
+
     updateDocState({
         ...docState,
+        htmlContent: nextHtml,
         cssContent: docState.cssContent + '\n' + newRule
     }, true);
     
@@ -1669,6 +1776,7 @@ ${markerEnd}
                 cssContent={docState.cssContent}
                 onContentChange={handleContentChange}
                 onSelectionChange={onSelectionChange}
+                onBlockClick={(block) => setActiveBlock(block)}
                 onImageSelect={handleImageSelect}
                 onHRSelect={handleHRSelect}
                 onFooterSelect={handleFooterSelect}
