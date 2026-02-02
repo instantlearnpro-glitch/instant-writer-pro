@@ -11,7 +11,15 @@ import { getSystemFonts, FontDefinition } from './utils/fontUtils';
 import { scanStructure } from './utils/structureScanner';
 import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from './utils/patternDetector';
 import PatternModal from './components/PatternModal';
+import ExportModal from './components/ExportModal';
 import { reflowPages } from './utils/pagination';
+
+declare global {
+  interface Window {
+    html2pdf: any;
+    html2canvas: (element: HTMLElement, options?: any) => Promise<HTMLCanvasElement>;
+  }
+}
 
 const App: React.FC = () => {
   const [docState, setDocState] = useState<DocumentState>({
@@ -112,6 +120,7 @@ const App: React.FC = () => {
   const [pageAnchors, setPageAnchors] = useState<PageAnchor[]>([]);
   
   const [showFrameTools, setShowFrameTools] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   
   // Zoom and View Mode
   const [zoom, setZoom] = useState(100);
@@ -1613,30 +1622,41 @@ ${markerEnd}
       setPatternModal({ isOpen: false, actionType: '', matches: [] });
   };
 
-  const handleSave = () => {
+  // Clean workspace before export
+  const getCleanWorkspace = () => {
     const workspace = document.querySelector('.editor-workspace');
-    if (workspace) {
-        workspace.querySelectorAll('img[data-selected]').forEach(img => {
-            img.removeAttribute('data-selected');
-        });
-        workspace.querySelectorAll('hr[data-selected]').forEach(hr => {
-            hr.removeAttribute('data-selected');
-        });
-    }
+    if (!workspace) return null;
+    
+    // Clone to avoid modifying the actual DOM
+    const clone = workspace.cloneNode(true) as HTMLElement;
+    
+    // Remove selection attributes
+    clone.querySelectorAll('[data-selected]').forEach(el => {
+        el.removeAttribute('data-selected');
+    });
+    clone.querySelectorAll('[data-structure-status]').forEach(el => {
+        el.removeAttribute('data-structure-status');
+    });
+    
+    return clone;
+  };
 
-    const fullHtml = `
-<!DOCTYPE html>
+  const handleSave = () => {
+    const workspace = getCleanWorkspace();
+    if (!workspace) return;
+
+    const fullHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${docState.fileName}</title>
     <style>
-        ${docState.cssContent}
+${docState.cssContent}
     </style>
 </head>
 <body>
-    ${workspace?.innerHTML || ''}
+${workspace.innerHTML}
 </body>
 </html>`;
     
@@ -1644,7 +1664,382 @@ ${markerEnd}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = docState.fileName;
+    a.download = docState.fileName.endsWith('.html') ? docState.fileName : `${docState.fileName}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportHTML = (fileName: string) => {
+    const workspace = getCleanWorkspace();
+    if (!workspace) return;
+
+    const fullHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${fileName}</title>
+    <style>
+${docState.cssContent}
+    </style>
+</head>
+<body>
+${workspace.innerHTML}
+</body>
+</html>`;
+    
+    const blob = new Blob([fullHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async (fileName: string) => {
+    const workspace = getCleanWorkspace();
+    if (!workspace || !window.html2pdf) {
+        alert('PDF export non disponibile');
+        return;
+    }
+
+    // Create container with computed styles inlined for accurate rendering
+    const container = document.createElement('div');
+    container.style.backgroundColor = '#fff';
+    
+    // Process each page separately for accurate page breaks
+    const pages = workspace.querySelectorAll('.page');
+    pages.forEach((page, index) => {
+        const pageClone = page.cloneNode(true) as HTMLElement;
+        
+        // Inline all computed styles for accurate reproduction
+        inlineComputedStyles(pageClone);
+        
+        // Set explicit page dimensions
+        pageClone.style.width = '8.5in';
+        pageClone.style.minHeight = '11in';
+        pageClone.style.padding = '0.6in';
+        pageClone.style.margin = '0';
+        pageClone.style.boxSizing = 'border-box';
+        pageClone.style.backgroundColor = '#fff';
+        pageClone.style.position = 'relative';
+        pageClone.style.boxShadow = 'none';
+        
+        // Add page break after each page except the last
+        if (index < pages.length - 1) {
+            pageClone.style.pageBreakAfter = 'always';
+        }
+        
+        container.appendChild(pageClone);
+    });
+
+    const opt = {
+        margin: 0,
+        filename: `${fileName}.pdf`,
+        image: { type: 'png', quality: 1 },
+        html2canvas: { 
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            letterRendering: true,
+            logging: false
+        },
+        jsPDF: { 
+            unit: 'in', 
+            format: 'letter', 
+            orientation: 'portrait' 
+        },
+        pagebreak: { mode: ['css', 'legacy'], before: '.page', avoid: ['img', 'tr'] }
+    };
+
+    await window.html2pdf().set(opt).from(container).save();
+  };
+  
+  // Helper function to inline computed styles for export
+  const inlineComputedStyles = (element: HTMLElement) => {
+    const allElements = element.querySelectorAll('*');
+    
+    allElements.forEach((el) => {
+        if (el instanceof HTMLElement) {
+            const computed = window.getComputedStyle(el);
+            const originalEl = document.querySelector(`.editor-workspace ${el.tagName.toLowerCase()}[class="${el.className}"]`) as HTMLElement;
+            
+            // Copy key style properties
+            const propsToInline = [
+                'font-family', 'font-size', 'font-weight', 'font-style',
+                'color', 'background-color', 'text-align', 'line-height',
+                'margin', 'padding', 'border', 'border-radius',
+                'width', 'height', 'max-width', 'min-width',
+                'display', 'position', 'top', 'bottom', 'left', 'right',
+                'text-transform', 'letter-spacing', 'text-decoration'
+            ];
+            
+            propsToInline.forEach(prop => {
+                const value = computed.getPropertyValue(prop);
+                if (value && value !== 'initial' && value !== 'normal') {
+                    el.style.setProperty(prop, value);
+                }
+            });
+            
+            // Handle images specifically
+            if (el.tagName === 'IMG') {
+                const img = el as HTMLImageElement;
+                if (originalEl) {
+                    const origImg = originalEl as HTMLImageElement;
+                    img.style.width = `${origImg.offsetWidth}px`;
+                    img.style.height = `${origImg.offsetHeight}px`;
+                }
+                img.style.maxWidth = '100%';
+                img.style.height = 'auto';
+            }
+        }
+    });
+  };
+
+  const handleExportDOCX = async (fileName: string) => {
+    const originalWorkspace = document.querySelector('.editor-workspace');
+    if (!originalWorkspace) return;
+
+    // Helper: RGB to Hex
+    const rgbToHex = (rgb: string): string => {
+        if (!rgb || rgb === 'transparent' || rgb.includes('rgba(0, 0, 0, 0)')) return '';
+        const match = rgb.match(/\d+/g);
+        if (!match || match.length < 3) return rgb;
+        return `#${parseInt(match[0]).toString(16).padStart(2, '0')}${parseInt(match[1]).toString(16).padStart(2, '0')}${parseInt(match[2]).toString(16).padStart(2, '0')}`;
+    };
+
+    // Helper: px to pt
+    const pxToPt = (px: string): string => {
+        const num = parseFloat(px);
+        return isNaN(num) ? px : `${Math.round(num * 0.75)}pt`;
+    };
+
+    // Check if element is "complex" and needs to be rendered as image
+    const isComplexElement = (el: HTMLElement): boolean => {
+        const classList = el.classList;
+        // Complex elements: boxes with backgrounds, shapes, tracing lines, tables
+        if (classList.contains('mission-box') || 
+            classList.contains('shape-rectangle') ||
+            classList.contains('shape-circle') ||
+            classList.contains('shape-pill') ||
+            classList.contains('shape-speech') ||
+            classList.contains('shape-cloud') ||
+            classList.contains('tracing-line') ||
+            classList.contains('toc-container')) {
+            return true;
+        }
+        // Tables
+        if (el.tagName === 'TABLE') return true;
+        // Elements with non-white/transparent background
+        const bg = window.getComputedStyle(el).backgroundColor;
+        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') {
+            // Check if it has significant content
+            if (el.textContent && el.textContent.trim().length > 0) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Render element as image
+    const renderAsImage = async (el: HTMLElement): Promise<string> => {
+        if (!window.html2canvas) return '';
+        try {
+            const canvas = await window.html2canvas(el, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: null,
+                logging: false
+            });
+            const imgData = canvas.toDataURL('image/png', 1.0);
+            const width = Math.min(el.offsetWidth, 500);
+            const aspectRatio = el.offsetHeight / el.offsetWidth;
+            const height = Math.round(width * aspectRatio);
+            return `<p style="margin: 10pt 0; text-align: center;"><img src="${imgData}" width="${width}" height="${height}"></p>`;
+        } catch (e) {
+            console.error('Error rendering element as image:', e);
+            return `<p>${el.textContent || ''}</p>`;
+        }
+    };
+
+    // Get text style for element
+    const getTextStyle = (el: HTMLElement): string => {
+        const computed = window.getComputedStyle(el);
+        const styles: string[] = [];
+        
+        // Font
+        let fontFamily = computed.fontFamily;
+        if (fontFamily.includes('Black Ops')) fontFamily = "'Arial Black', sans-serif";
+        else if (fontFamily.includes('Courier')) fontFamily = "'Courier New', monospace";
+        else if (fontFamily.includes('Roboto')) fontFamily = "Arial, sans-serif";
+        else fontFamily = "'Times New Roman', serif";
+        
+        styles.push(`font-family: ${fontFamily}`);
+        styles.push(`font-size: ${pxToPt(computed.fontSize)}`);
+        styles.push(`font-weight: ${computed.fontWeight}`);
+        if (computed.fontStyle !== 'normal') styles.push(`font-style: ${computed.fontStyle}`);
+        
+        const color = rgbToHex(computed.color);
+        if (color) styles.push(`color: ${color}`);
+        
+        const textAlign = computed.textAlign === 'start' ? 'left' : computed.textAlign;
+        styles.push(`text-align: ${textAlign}`);
+        
+        if (computed.textTransform !== 'none') styles.push(`text-transform: ${computed.textTransform}`);
+        styles.push(`line-height: 1.5`);
+        styles.push(`margin: ${pxToPt(computed.marginTop)} 0 ${pxToPt(computed.marginBottom)} 0`);
+        
+        return styles.join('; ');
+    };
+
+    // Process element - returns HTML string
+    const processElement = async (el: Element): Promise<string> => {
+        if (el.nodeType === Node.TEXT_NODE) {
+            return el.textContent || '';
+        }
+        if (!(el instanceof HTMLElement)) return '';
+        
+        const tagName = el.tagName.toLowerCase();
+        if (tagName === 'style' || tagName === 'script') return '';
+
+        // Check if this is a complex element → render as image
+        if (isComplexElement(el)) {
+            return await renderAsImage(el);
+        }
+
+        // Handle images
+        if (tagName === 'img') {
+            const img = el as HTMLImageElement;
+            let src = img.src;
+            if (img.complete && img.naturalWidth > 0 && !src.startsWith('data:')) {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.drawImage(img, 0, 0);
+                        src = canvas.toDataURL('image/png');
+                    }
+                } catch (e) { }
+            }
+            const w = Math.min(img.offsetWidth || img.naturalWidth || 300, 480);
+            const h = Math.round(w * ((img.naturalHeight || 200) / (img.naturalWidth || 200)));
+            return `<p style="text-align: center; margin: 10pt 0;"><img src="${src}" width="${w}" height="${h}"></p>`;
+        }
+
+        // Handle HR
+        if (tagName === 'hr') {
+            return `<hr style="border: none; border-top: 1pt solid #000; margin: 10pt 0;">`;
+        }
+
+        // Process children
+        let childrenHtml = '';
+        for (const child of Array.from(el.childNodes)) {
+            if (child.nodeType === Node.TEXT_NODE) {
+                childrenHtml += child.textContent || '';
+            } else {
+                childrenHtml += await processElement(child as Element);
+            }
+        }
+
+        // Handle page divs
+        if (el.classList.contains('page')) {
+            return childrenHtml;
+        }
+        
+        // Handle page footer (page numbers)
+        if (el.classList.contains('page-footer')) {
+            return `<p style="text-align: center; font-size: 10pt; margin-top: 20pt;">${childrenHtml}</p>`;
+        }
+
+        const style = getTextStyle(el);
+
+        // Handle different tags
+        switch (tagName) {
+            case 'h1':
+                return `<h1 style="${style}">${childrenHtml}</h1>`;
+            case 'h2':
+                return `<h2 style="${style}">${childrenHtml}</h2>`;
+            case 'h3':
+                return `<h3 style="${style}">${childrenHtml}</h3>`;
+            case 'p':
+                return `<p style="${style}">${childrenHtml}</p>`;
+            case 'ul':
+                return `<ul style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ul>`;
+            case 'ol':
+                return `<ol style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ol>`;
+            case 'li':
+                return `<li style="${style}">${childrenHtml}</li>`;
+            case 'strong':
+            case 'b':
+                return `<b>${childrenHtml}</b>`;
+            case 'em':
+            case 'i':
+                return `<i>${childrenHtml}</i>`;
+            case 'u':
+                return `<u>${childrenHtml}</u>`;
+            case 'br':
+                return '<br>';
+            case 'div':
+            case 'span':
+                if (childrenHtml.trim()) {
+                    return `<${tagName} style="${style}">${childrenHtml}</${tagName}>`;
+                }
+                return childrenHtml;
+            default:
+                return childrenHtml;
+        }
+    };
+
+    // Process all pages
+    const pages = originalWorkspace.querySelectorAll('.page');
+    let contentHtml = '';
+    
+    for (let i = 0; i < pages.length; i++) {
+        if (i > 0) {
+            contentHtml += `<br clear="all" style="page-break-before: always;">`;
+        }
+        contentHtml += await processElement(pages[i]);
+    }
+
+    const htmlContent = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="ProgId" content="Word.Document">
+<!--[if gte mso 9]>
+<xml>
+<w:WordDocument>
+<w:View>Print</w:View>
+<w:Zoom>100</w:Zoom>
+</w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+@page { size: 8.5in 11in; margin: 0.6in; }
+body { font-family: 'Times New Roman', serif; font-size: 12pt; margin: 0; padding: 0; line-height: 1.5; }
+h1, h2, h3, p, div { display: block; }
+ul, ol { margin-left: 20pt; }
+img { max-width: 100%; }
+</style>
+</head>
+<body>
+${contentHtml}
+</body>
+</html>`;
+
+    const blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName}.doc`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1834,6 +2229,7 @@ ${markerEnd}
         onFileUpload={handleFileUpload}
         onInsertImage={handleInsertImage}
         onSave={handleSave}
+        onExport={() => setIsExportModalOpen(true)}
         onPageSizeChange={handlePageSizeChange}
         pageFormatId={pageFormatId}
         customPageSize={customPageSize}
@@ -1939,6 +2335,15 @@ ${markerEnd}
         matches={patternModal.matches}
         onConfirm={handlePatternConfirmApp}
         onCancel={handlePatternCancelApp}
+      />
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        currentFileName={docState.fileName}
+        onClose={() => setIsExportModalOpen(false)}
+        onExportPDF={handleExportPDF}
+        onExportHTML={handleExportHTML}
+        onExportDOCX={handleExportDOCX}
       />
     </div>
   );

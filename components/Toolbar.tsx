@@ -17,6 +17,7 @@ interface ToolbarProps {
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onInsertImage: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSave: () => void;
+  onExport: () => void;
   onPageSizeChange: (formatId: string) => void;
   pageFormatId: string;
   customPageSize: { width: string, height: string };
@@ -54,7 +55,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onFormat,
   onFileUpload, 
   onInsertImage,
-  onSave, 
+  onSave,
+  onExport,
   onPageSizeChange,
   pageFormatId,
   customPageSize,
@@ -170,14 +172,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1 border-r border-gray-200 pr-2">
-                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Open File (Select HTML + Images to link)">
+                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Apri File">
                         <input type="file" multiple accept=".html,.htm,.docx,image/*" onChange={onFileUpload} className="hidden" />
                         <FileUp size={18} />
                     </label>
-                    <button onClick={onSave} className={ButtonClass(false)} title="Save HTML">
-                        <Save size={18} />
-                    </button>
-                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Insert Image">
+                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Inserisci Immagine">
                         <input type="file" accept="image/*" onChange={onInsertImage} className="hidden" />
                         <ImagePlus size={18} />
                     </label>
@@ -368,8 +367,12 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         <AlignRight size={16} />
                     </button>
                 </div>
-                <button className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 shadow-sm flex items-center gap-2">
-                <Download size={16} /> PDF
+                <button 
+                    onClick={onExport}
+                    className="bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 shadow-sm"
+                    title="Esporta"
+                >
+                    <Download size={18} />
                 </button>
             </div>
         </div>

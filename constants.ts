@@ -11,13 +11,15 @@ export const DEFAULT_CSS = `
 
 .page {
     width: 8.5in;
+    height: 11in;
     min-height: 11in;
+    max-height: 11in;
     padding: 0.6in;
     margin: 0 auto 0.5in auto;
     position: relative;
     background: #fff;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    /* overflow: hidden; Removed to allow image bleed */
+    overflow: hidden;
 }
 
 /* Ensure images fit within the page */

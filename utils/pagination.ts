@@ -11,11 +11,38 @@ export const isPageOverflowing = (page: HTMLElement): boolean => {
 };
 
 /**
+ * Gets the actual content height by measuring the last child's bottom position
+ */
+const getContentHeight = (page: HTMLElement): number => {
+    const children = Array.from(page.children);
+    if (children.length === 0) return 0;
+    
+    const pageRect = page.getBoundingClientRect();
+    const computed = window.getComputedStyle(page);
+    const paddingTop = parseFloat(computed.paddingTop) || 0;
+    
+    let maxBottom = 0;
+    children.forEach(child => {
+        const childRect = child.getBoundingClientRect();
+        const relativeBottom = childRect.bottom - pageRect.top;
+        if (relativeBottom > maxBottom) {
+            maxBottom = relativeBottom;
+        }
+    });
+    
+    return maxBottom;
+};
+
+/**
  * Checks if a page has significant empty space at the bottom.
  * Returns true if we can likely fit content from the next page.
  */
 export const hasPageSpace = (page: HTMLElement, threshold: number = 20): boolean => {
-    return (page.scrollHeight + threshold) < page.clientHeight;
+    const contentHeight = getContentHeight(page);
+    const pageHeight = page.clientHeight;
+    const availableSpace = pageHeight - contentHeight;
+    
+    return availableSpace > threshold;
 };
 
 /**

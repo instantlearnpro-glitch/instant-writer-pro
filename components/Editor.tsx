@@ -708,10 +708,8 @@ const Editor: React.FC<EditorProps> = ({
                 gap: 1.5rem !important;
             }
             .editor-workspace .page {
-                display: inline-block !important;
                 flex-shrink: 0 !important;
-                margin: 0 !important;
-                vertical-align: top;
+                margin-bottom: 0 !important;
             }
             ` : ''}
         `}</style>
@@ -752,6 +750,12 @@ const Editor: React.FC<EditorProps> = ({
                 isCropping={imageProperties.isCropping}
                 onCropComplete={onCropComplete}
                 onCancelCrop={onCancelCrop}
+                onResize={() => {
+                    if (contentRef.current) {
+                        reflowPages(contentRef.current);
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                }}
             />
         )}
 

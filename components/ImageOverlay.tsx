@@ -6,6 +6,7 @@ interface ImageOverlayProps {
   isCropping: boolean;
   onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
+  onResize?: () => void;
 }
 
 const ImageOverlay: React.FC<ImageOverlayProps> = ({ 
@@ -13,7 +14,8 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   containerRef, 
   isCropping,
   onCropComplete,
-  onCancelCrop
+  onCancelCrop,
+  onResize
 }) => {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [cropRect, setCropRect] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
@@ -119,8 +121,10 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     const onUp = () => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
-        // Re-enable max-width to 100% to fit page layout flow if desired?
-        // No, user explicitly resized it, keep fixed pixel size.
+        // Trigger reflow after resize to handle page overflow
+        if (onResize) {
+            onResize();
+        }
     };
 
     document.addEventListener('mousemove', onMove);
