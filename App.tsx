@@ -7,6 +7,7 @@ import PageNumberModal from './components/PageNumberModal';
 import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry } from './types';
 import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
 import { getSystemFonts, FontDefinition } from './utils/fontUtils';
+import { scanStructure } from './utils/structureScanner';
 
 const App: React.FC = () => {
   const [docState, setDocState] = useState<DocumentState>({
@@ -181,6 +182,20 @@ const App: React.FC = () => {
     const doc = parser.parseFromString(docState.htmlContent, 'text/html');
     const pages = doc.querySelectorAll('.page');
     setPageCount(pages.length || 1);
+  }, [docState.htmlContent]);
+
+  // Scan headings (H1/H2/H3) for Structure panel
+  useEffect(() => {
+    const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+    if (!workspace) return;
+
+    const { entries, modifiedHtml } = scanStructure(workspace);
+
+    if (modifiedHtml && modifiedHtml !== docState.htmlContent) {
+      updateDocState({ ...docState, htmlContent: modifiedHtml }, false);
+    }
+
+    setStructureEntries(entries);
   }, [docState.htmlContent]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1491,6 +1506,11 @@ ${markerEnd}
                   newElement.innerHTML = element.innerHTML;
                   element.parentNode?.replaceChild(newElement, element);
                   domModified = true;
+              }
+
+              const updatedElement = document.getElementById(id);
+              if (updatedElement) {
+                updatedElement.setAttribute('data-structure-status', 'approved');
               }
 
               // 2. Add to Structure List (avoid duplicates)

@@ -135,14 +135,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <div className="flex-1 overflow-y-auto p-2">
                     <div className="text-[10px] font-bold text-gray-400 uppercase mb-2 mt-1">Table of Contents</div>
                     
-                    {structureEntries.filter(e => e.status === 'approved').length === 0 ? (
+                    {structureEntries.filter(e => e.status !== 'rejected').length === 0 ? (
                         <div className="text-center text-gray-400 py-8 text-xs italic">
                             No entries yet.<br/>Use the buttons above to add titles.
                         </div>
                     ) : (
                         <div className="space-y-1">
                             {structureEntries
-                                .filter(e => e.status === 'approved')
+                                .filter(e => e.status !== 'rejected')
                                 .sort((a, b) => a.page - b.page) // Sort by page number
                                 .map(entry => {
                                     // Determine indent based on type
