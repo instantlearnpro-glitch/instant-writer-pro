@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { ActionType } from '../utils/patternDetector';
 
 interface DragHandleProps {
   element: HTMLElement;
   containerRef: React.RefObject<HTMLDivElement | null>;
   onUpdate: () => void;
+  onAction?: (type: ActionType, element: HTMLElement) => void;
 }
 
-const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate }) => {
+const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate, onAction }) => {
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
   const startPos = useRef({ x: 0, y: 0, elementTop: 0, elementLeft: 0, width: 0, height: 0 });
   const isDraggingRef = useRef(false);
@@ -123,6 +125,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
           } else {
             target.parentNode?.insertBefore(element, target.nextSibling);
           }
+          onAction?.('move', element);
           onUpdate();
         }
       }
@@ -170,6 +173,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
     const handleResizeEnd = () => {
       document.removeEventListener('mousemove', handleResizeMove);
       document.removeEventListener('mouseup', handleResizeEnd);
+      onAction?.('resize', element);
       onUpdate();
     };
     
@@ -281,6 +285,15 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
       {/* Delete button */}
       <div
         onClick={() => {
+          // SAFETY: Never delete structural elements
+          if (element.classList.contains('page') || 
+              element.classList.contains('editor-workspace') ||
+              element.tagName === 'BODY' ||
+              element.tagName === 'HTML') {
+              console.warn('Cannot delete structural element');
+              return;
+          }
+          onAction?.('delete', element);
           element.remove();
           onUpdate();
         }}

@@ -6,6 +6,8 @@ import MarginGuides from './MarginGuides';
 import PageRuler from './PageRuler';
 import BlockContextMenu from './BlockContextMenu';
 import DragHandle from './DragHandle';
+import PatternModal from './PatternModal';
+import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from '../utils/patternDetector';
 
 interface EditorProps {
   htmlContent: string;
@@ -77,6 +79,17 @@ const Editor: React.FC<EditorProps> = ({
   const [pageRects, setPageRects] = useState<{ top: number; left: number; width: number; height: number }[]>([]);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; block: HTMLElement | null } | null>(null);
   const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
+  
+  // Pattern detection
+  const patternTrackerRef = useRef(new PatternTracker());
+  const [patternModal, setPatternModal] = useState<{
+    isOpen: boolean;
+    actionType: string;
+    signature: string;
+    matches: PatternMatch[];
+    command?: string;
+    value?: string;
+  }>({ isOpen: false, actionType: '', signature: '', matches: [] });
 
   // Generate dynamic CSS for selection highlights
   const selectionStyle = selectionMode?.active && selectionMode.selectedIds.length > 0
@@ -221,12 +234,22 @@ const Editor: React.FC<EditorProps> = ({
       // Try to find any selectable block element
       let block = target.closest('hr') as HTMLElement | null;
       if (!block) {
-          block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, img, table, tr, td, th, span, a') as HTMLElement | null;
+          block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, img, table, tr, td, th, span:not(.editor-workspace), a') as HTMLElement | null;
       }
       
       // If we're on the target itself and it's selectable, use it
       if (!block && (target.tagName === 'HR' || target.tagName === 'IMG')) {
           block = target;
+      }
+      
+      // SAFETY: Never select structural elements
+      if (block && (
+          block.classList.contains('page') || 
+          block.classList.contains('editor-workspace') ||
+          block.tagName === 'BODY' ||
+          block.tagName === 'HTML'
+      )) {
+          block = null;
       }
       
       // Clear previous selection
@@ -273,6 +296,28 @@ const Editor: React.FC<EditorProps> = ({
       insertAtCursor('<p>Nuovo paragrafo...</p>');
   };
 
+  // Handle action and check for patterns - MUST be defined before handleDeleteBlock
+  const handleAction = (type: ActionType, element: HTMLElement, command?: string, value?: string) => {
+      patternTrackerRef.current.recordAction(type, element, command, value);
+      
+      const pattern = patternTrackerRef.current.detectPattern();
+      if (pattern && contentRef.current) {
+          const signature = getElementSignature(element);
+          const matches = findSimilarElements(signature, element, contentRef.current);
+          
+          if (matches.length > 0) {
+              setPatternModal({
+                  isOpen: true,
+                  actionType: pattern.actionType,
+                  signature: signature,
+                  matches: matches,
+                  command: pattern.command,
+                  value: pattern.value
+              });
+          }
+      }
+  };
+
   const handleMoveUp = () => {
       if (!activeBlock || !activeBlock.previousElementSibling) return;
       const prev = activeBlock.previousElementSibling;
@@ -295,6 +340,32 @@ const Editor: React.FC<EditorProps> = ({
 
   const handleDeleteBlock = () => {
       if (!activeBlock) return;
+      
+      // SAFETY: Never delete structural elements
+      if (activeBlock.classList.contains('page') || 
+          activeBlock.classList.contains('editor-workspace') ||
+          activeBlock.tagName === 'BODY' ||
+          activeBlock.tagName === 'HTML') {
+          console.warn('Cannot delete structural element');
+          return;
+      }
+      
+      // SAFETY: Don't delete if it's the only content in the document
+      if (contentRef.current) {
+          const pages = contentRef.current.querySelectorAll('.page');
+          if (pages.length === 1) {
+              const firstPage = pages[0];
+              const children = firstPage.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div:not(.page), img, hr, table, blockquote, li');
+              if (children.length <= 1 && firstPage.contains(activeBlock)) {
+                  console.warn('Cannot delete last element in document');
+                  return;
+              }
+          }
+      }
+      
+      // Track action for pattern detection BEFORE removing
+      handleAction('delete', activeBlock);
+      
       activeBlock.remove();
       setActiveBlock(null);
       if (contentRef.current) {
@@ -314,6 +385,127 @@ const Editor: React.FC<EditorProps> = ({
           reflowPages(contentRef.current);
           onContentChange(contentRef.current.innerHTML);
       }
+  };
+
+  // Clipboard operations
+  const handleCopy = () => {
+      document.execCommand('copy');
+  };
+
+  const handleCut = () => {
+      document.execCommand('cut');
+      if (contentRef.current) {
+          reflowPages(contentRef.current);
+          onContentChange(contentRef.current.innerHTML);
+      }
+  };
+
+  const handlePaste = async () => {
+      try {
+          const clipboardData = await navigator.clipboard.readText();
+          document.execCommand('insertText', false, clipboardData);
+          if (contentRef.current) {
+              reflowPages(contentRef.current);
+              onContentChange(contentRef.current.innerHTML);
+          }
+      } catch {
+          document.execCommand('paste');
+      }
+  };
+
+  // Track formatting commands
+  const trackFormatAction = useCallback(() => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return null;
+      
+      const range = selection.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      const element = container.nodeType === Node.TEXT_NODE 
+          ? container.parentElement 
+          : container as HTMLElement;
+      
+      if (element && contentRef.current?.contains(element)) {
+          const block = element.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote, span') as HTMLElement;
+          return block;
+      }
+      return null;
+  }, []);
+
+  // Intercept execCommand for pattern tracking
+  useEffect(() => {
+      const originalExecCommand = document.execCommand.bind(document);
+      
+      document.execCommand = (command: string, showUI?: boolean, value?: string): boolean => {
+          const result = originalExecCommand(command, showUI, value);
+          
+          if (result) {
+              const formatCommands: Record<string, ActionType> = {
+                  'bold': 'bold',
+                  'italic': 'italic',
+                  'underline': 'underline',
+                  'insertUnorderedList': 'list',
+                  'insertOrderedList': 'list',
+                  'indent': 'indent',
+                  'outdent': 'indent',
+                  'justifyLeft': 'align',
+                  'justifyCenter': 'align',
+                  'justifyRight': 'align',
+                  'justifyFull': 'align',
+                  'fontSize': 'fontSize',
+                  'foreColor': 'fontColor',
+                  'hiliteColor': 'fontColor'
+              };
+              
+              const actionType = formatCommands[command];
+              if (actionType) {
+                  const block = trackFormatAction();
+                  if (block) {
+                      handleAction(actionType, block, command, value);
+                  }
+              }
+          }
+          
+          return result;
+      };
+      
+      return () => {
+          document.execCommand = originalExecCommand;
+      };
+  }, [trackFormatAction]);
+
+  const handlePatternConfirm = (selectedIds: string[]) => {
+      const { actionType, command, value } = patternModal;
+      
+      selectedIds.forEach(id => {
+          const element = document.getElementById(id);
+          if (element) {
+              if (actionType === 'Elimina') {
+                  element.remove();
+              } else if (command) {
+                  // Apply formatting to element
+                  const selection = window.getSelection();
+                  const range = document.createRange();
+                  range.selectNodeContents(element);
+                  selection?.removeAllRanges();
+                  selection?.addRange(range);
+                  document.execCommand(command, false, value || undefined);
+                  selection?.removeAllRanges();
+              }
+          }
+      });
+      
+      if (contentRef.current) {
+          reflowPages(contentRef.current);
+          onContentChange(contentRef.current.innerHTML);
+      }
+      
+      patternTrackerRef.current.clear();
+      setPatternModal({ isOpen: false, actionType: '', signature: '', matches: [] });
+  };
+
+  const handlePatternCancel = () => {
+      patternTrackerRef.current.clear();
+      setPatternModal({ isOpen: false, actionType: '', signature: '', matches: [] });
   };
 
   useEffect(() => {
@@ -568,6 +760,9 @@ const Editor: React.FC<EditorProps> = ({
                 x={contextMenu.x}
                 y={contextMenu.y}
                 onClose={() => setContextMenu(null)}
+                onCopy={handleCopy}
+                onCut={handleCut}
+                onPaste={handlePaste}
                 onInsertPageBreak={onPageBreak}
                 onInsertSpace={handleInsertSpace}
                 onInsertHR={onInsertHorizontalRule}
@@ -593,8 +788,17 @@ const Editor: React.FC<EditorProps> = ({
                     }
                     setActiveBlock(null);
                 }}
+                onAction={handleAction}
             />
         )}
+
+        <PatternModal
+            isOpen={patternModal.isOpen}
+            actionType={patternModal.actionType}
+            matches={patternModal.matches}
+            onConfirm={handlePatternConfirm}
+            onCancel={handlePatternCancel}
+        />
     </div>
   );
 };

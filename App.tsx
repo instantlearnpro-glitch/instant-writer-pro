@@ -9,6 +9,9 @@ import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, 
 import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
 import { getSystemFonts, FontDefinition } from './utils/fontUtils';
 import { scanStructure } from './utils/structureScanner';
+import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from './utils/patternDetector';
+import PatternModal from './components/PatternModal';
+import { reflowPages } from './utils/pagination';
 
 const App: React.FC = () => {
   const [docState, setDocState] = useState<DocumentState>({
@@ -116,6 +119,15 @@ const App: React.FC = () => {
   
   const editorContainerRef = useRef<HTMLDivElement>(null);
 
+  // Pattern detection for image/style changes
+  const patternTrackerRef = useRef(new PatternTracker());
+  const [patternModal, setPatternModal] = useState<{
+    isOpen: boolean;
+    actionType: string;
+    matches: PatternMatch[];
+    applyStyle?: (el: HTMLElement) => void;
+  }>({ isOpen: false, actionType: '', matches: [] });
+
   // --- HISTORY MANAGEMENT ---
 
   // Unified function to update state and manage history
@@ -154,6 +166,27 @@ const App: React.FC = () => {
           setDocState(history[newIndex]);
       }
   };
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+              e.preventDefault();
+              if (e.shiftKey) {
+                  handleRedo();
+              } else {
+                  handleUndo();
+              }
+          }
+          if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+              e.preventDefault();
+              handleRedo();
+          }
+      };
+      
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [historyIndex, history]);
 
   // Helper for text input (debounced history)
   const handleContentChange = (html: string) => {
@@ -1456,48 +1489,88 @@ ${markerEnd}
       setImageProperties(prev => ({ ...prev, isCropping: false }));
   };
 
+  // Helper to apply image style
+  const applyImageStyle = (img: HTMLElement, prop: keyof ImageProperties, value: any, props: ImageProperties) => {
+      if (prop === 'brightness' || prop === 'contrast') {
+          const filterString = `brightness(${props.brightness}%) contrast(${props.contrast}%)`;
+          img.style.filter = filterString;
+      }
+      if (prop === 'width') {
+          img.style.width = `${value}%`;
+      }
+      if (prop === 'alignment') {
+          img.style.float = 'none';
+          img.style.display = 'inline-block';
+          img.style.margin = '0';
+          switch (value) {
+              case 'center':
+                  img.style.display = 'block';
+                  img.style.margin = '0 auto';
+                  break;
+              case 'left':
+                  img.style.display = 'inline-block';
+                  break;
+              case 'right':
+                  img.style.display = 'block';
+                  img.style.marginLeft = 'auto';
+                  break;
+              case 'float-left':
+                  img.style.float = 'left';
+                  img.style.marginRight = '15px';
+                  img.style.marginBottom = '10px';
+                  break;
+              case 'float-right':
+                  img.style.float = 'right';
+                  img.style.marginLeft = '15px';
+                  img.style.marginBottom = '10px';
+                  break;
+          }
+      }
+  };
+
+  // Track image pattern and check for similar
+  const trackImagePattern = (type: ActionType, img: HTMLElement, prop: keyof ImageProperties, value: any, props: ImageProperties) => {
+      patternTrackerRef.current.recordAction(type, img, prop, String(value));
+      
+      const pattern = patternTrackerRef.current.detectPattern();
+      if (pattern) {
+          const workspace = document.querySelector('.editor-workspace') as HTMLElement;
+          if (workspace) {
+              const signature = getElementSignature(img);
+              const matches = findSimilarElements(signature, img, workspace);
+              
+              if (matches.length > 0) {
+                  setPatternModal({
+                      isOpen: true,
+                      actionType: pattern.actionType,
+                      matches: matches,
+                      applyStyle: (el: HTMLElement) => {
+                          applyImageStyle(el, prop, value, props);
+                      }
+                  });
+              }
+          }
+      }
+  };
+
   const handleImagePropertyChange = (prop: keyof ImageProperties, value: any) => {
       if (!selectedImage) return;
 
       const newProps = { ...imageProperties, [prop]: value };
       setImageProperties(newProps);
 
-      const filterString = `brightness(${newProps.brightness}%) contrast(${newProps.contrast}%)`;
-      selectedImage.style.filter = filterString;
+      // Apply style to current image
+      applyImageStyle(selectedImage, prop, value, newProps);
 
-      if (prop === 'width') {
-           selectedImage.style.width = `${newProps.width}%`;
-      }
-
-      if (prop === 'alignment') {
-        selectedImage.style.float = 'none';
-        selectedImage.style.display = 'inline-block';
-        selectedImage.style.margin = '0';
-
-        switch (newProps.alignment) {
-            case 'center':
-                selectedImage.style.display = 'block';
-                selectedImage.style.margin = '0 auto';
-                break;
-            case 'left':
-                selectedImage.style.display = 'inline-block';
-                break;
-            case 'right':
-                selectedImage.style.display = 'block';
-                selectedImage.style.marginLeft = 'auto';
-                break;
-            case 'float-left':
-                selectedImage.style.float = 'left';
-                selectedImage.style.marginRight = '15px';
-                selectedImage.style.marginBottom = '10px';
-                break;
-            case 'float-right':
-                selectedImage.style.float = 'right';
-                selectedImage.style.marginLeft = '15px';
-                selectedImage.style.marginBottom = '10px';
-                break;
-        }
-      }
+      // Track for pattern detection
+      const actionTypes: Record<string, ActionType> = {
+          'width': 'imageWidth',
+          'alignment': 'imageAlign',
+          'brightness': 'imageBrightness',
+          'contrast': 'imageContrast'
+      };
+      const actionType = actionTypes[prop] || 'imageStyle';
+      trackImagePattern(actionType, selectedImage, prop, value, newProps);
 
       // Debounce history for sliders
       if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
@@ -1512,6 +1585,32 @@ ${markerEnd}
              setDocState(newState);
           }
       }, 500);
+  };
+
+  // Pattern modal handlers
+  const handlePatternConfirmApp = (selectedIds: string[]) => {
+      const { applyStyle } = patternModal;
+      
+      selectedIds.forEach(id => {
+          const element = document.getElementById(id);
+          if (element && applyStyle) {
+              applyStyle(element);
+          }
+      });
+      
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement;
+      if (workspace) {
+          reflowPages(workspace);
+          updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+      }
+      
+      patternTrackerRef.current.clear();
+      setPatternModal({ isOpen: false, actionType: '', matches: [] });
+  };
+
+  const handlePatternCancelApp = () => {
+      patternTrackerRef.current.clear();
+      setPatternModal({ isOpen: false, actionType: '', matches: [] });
   };
 
   const handleSave = () => {
@@ -1832,6 +1931,14 @@ ${markerEnd}
         onApply={handleInsertPageNumbers}
         onPreview={handlePageNumberPreview}
         anchors={pageAnchors}
+      />
+
+      <PatternModal
+        isOpen={patternModal.isOpen}
+        actionType={patternModal.actionType}
+        matches={patternModal.matches}
+        onConfirm={handlePatternConfirmApp}
+        onCancel={handlePatternCancelApp}
       />
     </div>
   );
