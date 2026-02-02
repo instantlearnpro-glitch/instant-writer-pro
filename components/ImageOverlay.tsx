@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 
 interface ImageOverlayProps {
-  image: HTMLImageElement;
+  image: HTMLImageElement | HTMLElement; // Can be image or other elements like textarea
   containerRef: React.RefObject<HTMLDivElement | null>;
   isCropping: boolean;
   onCropComplete: (newSrc: string, width: number, height: number) => void;
@@ -17,6 +17,8 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   onCancelCrop,
   onResize
 }) => {
+  const isImage = image.tagName === 'IMG';
+  const element = image; // Generic element reference
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [cropRect, setCropRect] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
   
@@ -125,6 +127,48 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
         if (onResize) {
             onResize();
         }
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  // --- DRAG (FREE POSITION) LOGIC ---
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const startX = e.clientX;
+    const startY = e.clientY;
+    
+    // Get current position or initialize
+    const computedStyle = window.getComputedStyle(image);
+    const currentLeft = parseFloat(image.style.marginLeft) || 0;
+    const currentTop = parseFloat(image.style.marginTop) || 0;
+    
+    // Make image relatively positioned if not already
+    if (computedStyle.position === 'static') {
+      image.style.position = 'relative';
+    }
+    
+    const startLeft = parseFloat(image.style.left) || 0;
+    const startTop = parseFloat(image.style.top) || 0;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      
+      image.style.position = 'relative';
+      image.style.left = `${startLeft + dx}px`;
+      image.style.top = `${startTop + dy}px`;
+      
+      updatePosition();
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (onResize) onResize();
     };
 
     document.addEventListener('mousemove', onMove);
@@ -273,7 +317,8 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
 
   // --- RENDER ---
 
-  if (isCropping && cropRect) {
+  // Only show crop UI for actual images
+  if (isCropping && cropRect && isImage) {
       return (
         <div 
             style={{ 
@@ -341,6 +386,32 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             zIndex: 40
         }}
     >
+        {/* Drag handle in center */}
+        <div 
+            style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                width: '32px',
+                height: '32px',
+                backgroundColor: 'rgba(59, 130, 246, 0.9)',
+                borderRadius: '50%',
+                cursor: 'move',
+                pointerEvents: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+            }}
+            onMouseDown={handleDragStart}
+            title="Drag to move"
+        >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M12 12L5 12M12 12L12 5M12 12L19 12M12 12L12 19"/>
+            </svg>
+        </div>
+        
         {/* Resize Handles (8 directions) */}
         <div style={{ pointerEvents: 'auto' }}>
             <Handle dir="nw" cursor="nw-resize" onStart={handleResizeStart} />

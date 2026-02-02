@@ -231,8 +231,11 @@ const Editor: React.FC<EditorProps> = ({
       e.preventDefault();
       const target = e.target as HTMLElement;
       
-      // Try to find any selectable block element
-      let block = target.closest('hr') as HTMLElement | null;
+      // Try to find any selectable block element - prioritize special elements
+      let block = target.closest('.tracing-line, .writing-lines, .mission-box, .shape-rectangle, .shape-circle, .shape-pill, textarea') as HTMLElement | null;
+      if (!block) {
+          block = target.closest('hr') as HTMLElement | null;
+      }
       if (!block) {
           block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, img, table, tr, td, th, span:not(.editor-workspace), a') as HTMLElement | null;
       }
@@ -546,6 +549,11 @@ const Editor: React.FC<EditorProps> = ({
 
           if (target.tagName === 'IMG') {
               onImageSelect(target as HTMLImageElement);
+              target.setAttribute('data-selected', 'true');
+              setActiveBlock(target);
+          } else if (target.tagName === 'TEXTAREA' || target.classList.contains('writing-lines')) {
+              // Treat writing-lines like images for selection overlay
+              onImageSelect(target as unknown as HTMLImageElement);
               target.setAttribute('data-selected', 'true');
               setActiveBlock(target);
           } else {

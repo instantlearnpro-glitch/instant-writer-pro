@@ -80,6 +80,26 @@ p {
     margin-bottom: 10px;
 }
 
+/* Horizontal rules - make them interactive */
+hr {
+    border: none;
+    border-top: 1px solid #000;
+    margin: 15px 0;
+    cursor: pointer;
+    min-height: 10px;
+    padding: 5px 0;
+    background: transparent;
+}
+
+hr:hover {
+    background-color: rgba(59, 130, 246, 0.1);
+}
+
+hr:focus, hr[data-selected="true"] {
+    outline: 2px dashed #3b82f6;
+    outline-offset: 2px;
+}
+
 /* --- Shapes --- */
 .shape-circle {
     border-radius: 50%;
@@ -199,14 +219,48 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
     font-size: 20pt;
     color: #aaa;
     letter-spacing: 6px;
-    height: 50px;
+    min-height: 50px;
     line-height: 50px;
     background-image: linear-gradient(#000 1px, transparent 1px);
     background-size: 100% 50px;
     background-position: 0 48px;
     background-repeat: repeat-y;
     margin-bottom: 10px;
-    cursor: pointer;
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.tracing-line:empty::before {
+    content: '\\00a0';
+    color: transparent;
+}
+
+/* Writing lines (textarea for handwriting practice) */
+.writing-lines, textarea.writing-lines {
+    width: 100%;
+    min-height: 50px;
+    font-family: 'Courier Prime', monospace;
+    font-size: 20pt;
+    color: #333;
+    border: none;
+    outline: none;
+    resize: vertical;
+    background-image: linear-gradient(#000 1px, transparent 1px), linear-gradient(#ccc 1px, transparent 1px);
+    background-size: 100% 50px;
+    background-position: 0 48px, 0 24px;
+    line-height: 50px;
+    padding: 0;
+    cursor: text;
+}
+
+.writing-lines:focus, textarea.writing-lines:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+.writing-lines:hover, textarea.writing-lines:hover {
+    background-color: rgba(59, 130, 246, 0.02);
 }
 
 /* --- Table of Contents Styles --- */
