@@ -301,27 +301,9 @@ const App: React.FC = () => {
                 const tempDiv = document.createElement('div');
                 tempDiv.innerHTML = bodyContent;
                 
-                // Remove contenteditable attributes that might block editing
-                tempDiv.querySelectorAll('[contenteditable]').forEach(el => {
+                // Only remove contenteditable="false" attributes that block editing
+                tempDiv.querySelectorAll('[contenteditable="false"]').forEach(el => {
                     el.removeAttribute('contenteditable');
-                });
-                
-                // Remove any readonly or disabled attributes
-                tempDiv.querySelectorAll('[readonly], [disabled]').forEach(el => {
-                    el.removeAttribute('readonly');
-                    el.removeAttribute('disabled');
-                });
-                
-                // Remove user-select: none styles
-                tempDiv.querySelectorAll('[style*="user-select"]').forEach(el => {
-                    (el as HTMLElement).style.userSelect = '';
-                });
-                
-                // Convert any non-editable elements to editable ones
-                tempDiv.querySelectorAll('input, textarea').forEach(el => {
-                    const span = document.createElement('span');
-                    span.textContent = (el as HTMLInputElement).value || (el as HTMLTextAreaElement).value || '';
-                    el.replaceWith(span);
                 });
                 
                 bodyContent = tempDiv.innerHTML;

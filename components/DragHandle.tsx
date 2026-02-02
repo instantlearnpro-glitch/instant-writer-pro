@@ -7,10 +7,10 @@ interface DragHandleProps {
 }
 
 const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
   const startPos = useRef({ x: 0, y: 0, elementTop: 0, elementLeft: 0, width: 0, height: 0 });
+  const isDraggingRef = useRef(false);
+  const dropTargetRef = useRef<{ element: HTMLElement; isAbove: boolean } | null>(null);
 
   useEffect(() => {
     updatePosition();
@@ -42,7 +42,8 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(true);
+    isDraggingRef.current = true;
+    dropTargetRef.current = null;
     startPos.current = {
       x: e.clientX,
       y: e.clientY,
@@ -52,85 +53,91 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
       height: position.height
     };
     
-    document.addEventListener('mousemove', handleDragMove);
-    document.addEventListener('mouseup', handleDragEnd);
-  };
-
-  const handleDragMove = (e: MouseEvent) => {
-    if (!isDragging) return;
+    // Add visual feedback to dragged element
+    element.style.opacity = '0.5';
     
-    const deltaY = e.clientY - startPos.current.y;
-    
-    // Find the element we're dragging over
-    const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
-    const targetBlock = elementsAtPoint.find(el => 
-      el !== element && 
-      !el.classList.contains('drag-handle') &&
-      (el.matches('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, hr, img, table') ||
-       el.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, hr, img, table'))
-    );
-    
-    if (targetBlock) {
-      const targetRect = targetBlock.getBoundingClientRect();
-      const isAbove = e.clientY < targetRect.top + targetRect.height / 2;
+    const onMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current) return;
       
-      // Visual indicator
+      // Find the element we're dragging over
+      const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
+      let targetBlock: Element | undefined;
+      
+      for (const el of elementsAtPoint) {
+        if (el === element) continue;
+        if (el.classList.contains('drag-handle')) continue;
+        if (el.closest('.drag-handle')) continue;
+        
+        const match = el.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, hr, img, table');
+        if (match && match !== element) {
+          targetBlock = match;
+          break;
+        }
+      }
+      
+      // Remove old indicator
       document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
-      const indicator = document.createElement('div');
-      indicator.className = 'drop-indicator';
-      indicator.style.cssText = `
-        position: absolute;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: #3b82f6;
-        pointer-events: none;
-        z-index: 1000;
-      `;
       
-      if (isAbove) {
-        targetBlock.parentNode?.insertBefore(indicator, targetBlock);
+      if (targetBlock) {
+        const targetRect = targetBlock.getBoundingClientRect();
+        const isAbove = e.clientY < targetRect.top + targetRect.height / 2;
+        
+        dropTargetRef.current = { element: targetBlock as HTMLElement, isAbove };
+        
+        // Visual indicator
+        const indicator = document.createElement('div');
+        indicator.className = 'drop-indicator';
+        indicator.style.cssText = `
+          height: 4px;
+          background: #3b82f6;
+          margin: 4px 0;
+          border-radius: 2px;
+        `;
+        
+        if (isAbove) {
+          targetBlock.parentNode?.insertBefore(indicator, targetBlock);
+        } else {
+          targetBlock.parentNode?.insertBefore(indicator, targetBlock.nextSibling);
+        }
       } else {
-        targetBlock.parentNode?.insertBefore(indicator, targetBlock.nextSibling);
+        dropTargetRef.current = null;
       }
-    }
-  };
+    };
 
-  const handleDragEnd = (e: MouseEvent) => {
-    setIsDragging(false);
-    document.removeEventListener('mousemove', handleDragMove);
-    document.removeEventListener('mouseup', handleDragEnd);
-    
-    // Remove indicators
-    document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
-    
-    // Find drop target
-    const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
-    const targetBlock = elementsAtPoint.find(el => 
-      el !== element && 
-      !el.classList.contains('drag-handle') &&
-      el.matches('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, hr, img, table')
-    ) as HTMLElement;
-    
-    if (targetBlock && targetBlock !== element) {
-      const targetRect = targetBlock.getBoundingClientRect();
-      const isAbove = e.clientY < targetRect.top + targetRect.height / 2;
+    const onEnd = () => {
+      isDraggingRef.current = false;
+      element.style.opacity = '';
       
-      if (isAbove) {
-        targetBlock.parentNode?.insertBefore(element, targetBlock);
-      } else {
-        targetBlock.parentNode?.insertBefore(element, targetBlock.nextSibling);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onEnd);
+      
+      // Remove indicators
+      document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+      
+      // Move element to drop target
+      if (dropTargetRef.current) {
+        const { element: target, isAbove } = dropTargetRef.current;
+        if (target !== element) {
+          if (isAbove) {
+            target.parentNode?.insertBefore(element, target);
+          } else {
+            target.parentNode?.insertBefore(element, target.nextSibling);
+          }
+          onUpdate();
+        }
       }
-      onUpdate();
-    }
+      
+      dropTargetRef.current = null;
+      updatePosition();
+    };
     
-    updatePosition();
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
   };
 
   const handleResizeStart = (e: React.MouseEvent, direction: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsResizing(true);
     startPos.current = {
       x: e.clientX,
       y: e.clientY,
@@ -161,7 +168,6 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
     };
     
     const handleResizeEnd = () => {
-      setIsResizing(false);
       document.removeEventListener('mousemove', handleResizeMove);
       document.removeEventListener('mouseup', handleResizeEnd);
       onUpdate();
