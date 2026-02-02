@@ -577,20 +577,31 @@ const Editor: React.FC<EditorProps> = ({
           }
       };
 
+      let reflowTimeout: number | null = null;
+      
       const handleInput = () => {
           if (contentRef.current) {
-              reflowPages(contentRef.current);
-              onContentChange(contentRef.current.innerHTML);
+              // Debounce reflow to avoid excessive calls
+              if (reflowTimeout) clearTimeout(reflowTimeout);
+              reflowTimeout = window.setTimeout(() => {
+                  if (contentRef.current) {
+                      reflowPages(contentRef.current);
+                      onContentChange(contentRef.current.innerHTML);
+                  }
+              }, 50);
           }
       };
 
       container.addEventListener('click', handleClick);
       container.addEventListener('input', handleInput);
+      container.addEventListener('keyup', handleInput);
       document.addEventListener('selectionchange', handleSelectionChange);
       
       return () => {
+          if (reflowTimeout) clearTimeout(reflowTimeout);
           container.removeEventListener('click', handleClick);
           container.removeEventListener('input', handleInput);
+          container.removeEventListener('keyup', handleInput);
           document.removeEventListener('selectionchange', handleSelectionChange);
       };
   }, [handleSelectionChange, onImageSelect, onContentChange, selectionMode, onBlockSelection]);

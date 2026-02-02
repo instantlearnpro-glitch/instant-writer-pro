@@ -2,12 +2,53 @@
 // utils/pagination.ts
 
 /**
+ * Get the scale factor applied to an element (e.g., from zoom transform)
+ */
+const getScale = (el: HTMLElement): number => {
+    const rect = el.getBoundingClientRect();
+    const h = el.offsetHeight || 1;
+    return rect.height / h || 1;
+};
+
+/**
+ * Check if an element is in normal document flow (not absolute/fixed positioned)
+ */
+const isFlowElement = (el: HTMLElement): boolean => {
+    if (el.classList.contains('page-footer')) return false;
+    if (el.classList.contains('image-overlay')) return false;
+    if (el.classList.contains('resize-handle')) return false;
+    const pos = window.getComputedStyle(el).position;
+    return pos !== 'absolute' && pos !== 'fixed';
+};
+
+/**
  * Checks if the content of a page is overflowing its fixed height.
+ * Temporarily removes constraints to measure true content height.
  */
 export const isPageOverflowing = (page: HTMLElement): boolean => {
-    // We check if scrollHeight (total content height) is greater than clientHeight (visible fixed height)
-    // We add a small buffer (1px) to avoid precision errors
-    return page.scrollHeight > page.clientHeight + 1;
+    // Save original styles
+    const originalHeight = page.style.height;
+    const originalMaxHeight = page.style.maxHeight;
+    const originalOverflow = page.style.overflow;
+    
+    // Remove constraints to measure true content height
+    page.style.height = 'auto';
+    page.style.maxHeight = 'none';
+    page.style.overflow = 'visible';
+    
+    // Get the natural content height
+    const contentHeight = page.scrollHeight;
+    
+    // Restore original styles
+    page.style.height = originalHeight;
+    page.style.maxHeight = originalMaxHeight;
+    page.style.overflow = originalOverflow;
+    
+    // Get the fixed page height from computed style (the CSS value)
+    const computed = window.getComputedStyle(page);
+    const pageHeight = parseFloat(computed.height) || page.clientHeight;
+    
+    return contentHeight > pageHeight + 1;
 };
 
 /**
@@ -36,11 +77,23 @@ const getContentHeight = (page: HTMLElement): number => {
 /**
  * Checks if a page has significant empty space at the bottom.
  * Returns true if we can likely fit content from the next page.
+ * Accounts for padding (margins) when calculating available space.
  */
 export const hasPageSpace = (page: HTMLElement, threshold: number = 20): boolean => {
+    const pageRect = page.getBoundingClientRect();
+    const computed = window.getComputedStyle(page);
+    const paddingTop = parseFloat(computed.paddingTop) || 0;
+    const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+    
+    // Calculate the actual content area height (excluding padding)
+    const contentAreaHeight = pageRect.height - paddingTop - paddingBottom;
+    
+    // Get the actual content height within the page
     const contentHeight = getContentHeight(page);
-    const pageHeight = page.clientHeight;
-    const availableSpace = pageHeight - contentHeight;
+    // Adjust content height to be relative to content area (subtract padding top)
+    const adjustedContentHeight = contentHeight - paddingTop;
+    
+    const availableSpace = contentAreaHeight - adjustedContentHeight;
     
     return availableSpace > threshold;
 };
@@ -223,9 +276,21 @@ const splitElement = (element: HTMLElement, pageBottom: number): HTMLElement | n
 };
 
 /**
+ * Get the last flow element (in normal document flow) from a page
+ */
+const getLastFlowChild = (page: HTMLElement): HTMLElement | null => {
+    const els = Array.from(page.children) as HTMLElement[];
+    for (let i = els.length - 1; i >= 0; i--) {
+        if (isFlowElement(els[i])) return els[i];
+    }
+    return null;
+};
+
+/**
  * The core reflow logic.
- * Iterates through pages and pushes overflowing content to the next page,
- * or pulls content up if there is space.
+ * CONSERVATIVE: Only moves WHOLE elements to next page when they overflow.
+ * Never splits elements, never pulls content up, never removes pages.
+ * This preserves the original document structure and spacing.
  */
 export const reflowPages = (editor: HTMLElement) => {
     // 1. Sanitize first
@@ -233,116 +298,37 @@ export const reflowPages = (editor: HTMLElement) => {
 
     const pages = Array.from(editor.querySelectorAll('.page')) as HTMLElement[];
     let changesMade = false;
-
-    // Helper to get bounding rect relative to viewport
-    // We use this to detect strict visual overflow
+    let iterations = 0;
+    const maxIterations = 100; // Safety limit
     
-    for (let i = 0; i < pages.length; i++) {
+    for (let i = 0; i < pages.length && iterations < maxIterations; i++) {
         const page = pages[i];
-        const pageRect = page.getBoundingClientRect();
-        // The visible 'bottom' of the page content area (minus padding)
-        // We assume standard padding, but getComputedStyle is safer.
-        const computed = window.getComputedStyle(page);
-        const paddingBottom = parseFloat(computed.paddingBottom) || 0;
-        const pageBottom = pageRect.bottom - paddingBottom; 
-
-        // --- 1. HANDLE OVERFLOW (Push Down) ---
-        // We check visual overflow relative to the page bottom limit
-        while (isPageOverflowing(page)) {
-            changesMade = true;
+        
+        // Only handle overflow - push elements to next page
+        while (isPageOverflowing(page) && iterations < maxIterations) {
+            iterations++;
             
-            // Get the next page, or create it if it doesn't exist
+            // Get the last flow element (skip non-flow elements like footers)
+            const lastEl = getLastFlowChild(page);
+            if (!lastEl) break;
+            
+            // Get or create next page
             let nextPage = pages[i + 1];
             if (!nextPage) {
                 nextPage = document.createElement('div');
                 nextPage.className = 'page';
                 editor.appendChild(nextPage);
-                pages.push(nextPage); 
+                pages.push(nextPage);
             }
-
-            // Find the LAST child.
-            // If it's fully below, move it.
-            // If it's straddling, SPLIT it.
-            const lastChild = page.lastChild as HTMLElement;
             
-            if (lastChild) {
-                // If it's a text node (orphan text directly in page), wrap it? 
-                // ensureContentIsPaginated mostly prevents this, but let's handle Element only for split.
-                if (lastChild.nodeType === Node.ELEMENT_NODE) {
-                     const splitResult = splitElement(lastChild, pageBottom);
-                     
-                     if (splitResult === lastChild) {
-                         // Move the WHOLE node
-                         if (nextPage.firstChild) {
-                             nextPage.insertBefore(lastChild, nextPage.firstChild);
-                         } else {
-                             nextPage.appendChild(lastChild);
-                         }
-                     } else if (splitResult) {
-                         // We have a new "overflow" part.
-                         if (nextPage.firstChild) {
-                             nextPage.insertBefore(splitResult, nextPage.firstChild);
-                         } else {
-                             nextPage.appendChild(splitResult);
-                         }
-                         // The original 'lastChild' stays, but shorter.
-                     } else {
-                         // splitElement returned null, meaning it thought it fit?
-                         // But isPageOverflowing is true. 
-                         // This implies we have many small elements and the last one just barely crosses?
-                         // Or precision issues.
-                         // Fallback: Just move the last node entirely to avoid infinite loop.
-                         if (nextPage.firstChild) {
-                             nextPage.insertBefore(lastChild, nextPage.firstChild);
-                         } else {
-                             nextPage.appendChild(lastChild);
-                         }
-                     }
-                } else {
-                    // Text node or other -> just move it
-                    if (nextPage.firstChild) {
-                        nextPage.insertBefore(lastChild, nextPage.firstChild);
-                    } else {
-                        nextPage.appendChild(lastChild);
-                    }
-                }
+            // Move the WHOLE element to the beginning of next page
+            if (nextPage.firstChild) {
+                nextPage.insertBefore(lastEl, nextPage.firstChild);
             } else {
-                break;
+                nextPage.appendChild(lastEl);
             }
-        }
-
-        // --- 2. HANDLE UNDERFLOW (Pull Up) ---
-        // Only pull up if we are not the last page
-        if (i < pages.length - 1) {
-            const nextPage = pages[i + 1];
             
-            // Try to move nodes from next page to current page until full
-            while (nextPage.firstChild && hasPageSpace(page, 10)) {
-                const firstChild = nextPage.firstChild;
-                
-                // Tentatively move
-                page.appendChild(firstChild);
-                
-                // Check if we caused overflow
-                if (isPageOverflowing(page)) {
-                    // Oops, too big. Put it back.
-                    if (nextPage.firstChild) {
-                        nextPage.insertBefore(firstChild, nextPage.firstChild);
-                    } else {
-                        nextPage.appendChild(firstChild);
-                    }
-                    break; // Stop pulling
-                }
-                changesMade = true;
-            }
-
-            // If next page is now empty, remove it
-            if (!nextPage.hasChildNodes() || (nextPage.childNodes.length === 1 && nextPage.firstChild?.nodeType === Node.TEXT_NODE && !nextPage.textContent?.trim())) {
-                nextPage.remove();
-                pages.splice(i + 1, 1); 
-                i--; 
-                changesMade = true;
-            }
+            changesMade = true;
         }
     }
 
