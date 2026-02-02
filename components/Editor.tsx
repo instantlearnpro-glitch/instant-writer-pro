@@ -142,10 +142,11 @@ const Editor: React.FC<EditorProps> = ({
       borderStyle: 'none',
       textAlign: 'left',
       shape: 'none',
-      range: range
+      range: range.cloneRange()
     };
 
-    const element = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer as HTMLElement : range.commonAncestorContainer.parentElement;
+    const startNode = range.startContainer;
+    const element = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode as HTMLElement;
     const block = element?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, .page-footer');
     
     if (block) {

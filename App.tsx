@@ -560,7 +560,30 @@ const App: React.FC = () => {
         }
     }
 
-    // 2. Standard Text Command (if not inside a shape)
+    // 2. Handle formatBlock for divs with special classes
+    if (command === 'formatBlock' && activeBlock) {
+        const targetDiv = activeBlock.closest('div[class]:not(.page):not(.editor-workspace)') as HTMLElement;
+        if (targetDiv) {
+            const divClass = targetDiv.className.split(' ')[0];
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace && divClass) {
+                const newTag = value?.replace(/[<>]/g, '') || 'p';
+                const divsToConvert = workspace.querySelectorAll(`div.${divClass}`);
+                divsToConvert.forEach(div => {
+                    const newEl = document.createElement(newTag);
+                    newEl.innerHTML = div.innerHTML;
+                    newEl.className = div.className;
+                    const oldStyle = (div as HTMLElement).getAttribute('style');
+                    if (oldStyle) newEl.setAttribute('style', oldStyle);
+                    div.replaceWith(newEl);
+                });
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+                return;
+            }
+        }
+    }
+
+    // 3. Standard Text Command (if not inside a shape)
     document.execCommand(command, false, value);
     
     // For font size, ensure we force focus back if dropdown was used
@@ -572,30 +595,35 @@ const App: React.FC = () => {
   };
 
   const handleUpdateStyle = (targetTagName?: string) => {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-
-    const range = selection.getRangeAt(0);
-    const parentBlock = range.commonAncestorContainer.parentElement?.closest('h1, h2, h3, h4, h5, h6, p, blockquote');
+    // Find any styled element to get the current style from
+    const styledElement = activeBlock?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)');
     
-    if (!parentBlock) {
+    
+    if (!styledElement) {
         alert("Select text inside a paragraph or heading first.");
         return;
     }
 
-    // Determine which tag to update: the one passed explicitly, or the one we are sitting in.
-    const tagName = targetTagName ? targetTagName.toLowerCase() : parentBlock.nodeName.toLowerCase();
-    const computed = window.getComputedStyle(parentBlock as Element);
+    // Use the targetTagName passed from the menu (e.g., "h1")
+    const selector = targetTagName?.toLowerCase() || styledElement.nodeName.toLowerCase();
+    const computed = window.getComputedStyle(styledElement as Element);
+    
+    // Get inline styles from selection (font, color etc are applied via execCommand to inner elements)
+    const color = selectionState.foreColor || computed.color;
+    const fontFamily = selectionState.fontName || computed.fontFamily;
+    const fontWeight = selectionState.bold ? 'bold' : computed.fontWeight;
+    const fontStyle = selectionState.italic ? 'italic' : computed.fontStyle;
+    const textDecoration = selectionState.underline ? 'underline' : computed.textDecoration;
     
     const newRule = `
-${tagName} {
-    font-family: ${computed.fontFamily} !important;
+${selector} {
+    font-family: ${fontFamily} !important;
     font-size: ${computed.fontSize} !important;
-    color: ${computed.color} !important;
-    font-weight: ${computed.fontWeight} !important;
+    color: ${color} !important;
+    font-weight: ${fontWeight} !important;
     text-align: ${computed.textAlign} !important;
-    font-style: ${computed.fontStyle} !important;
-    text-decoration: ${computed.textDecoration} !important;
+    font-style: ${fontStyle} !important;
+    text-decoration: ${textDecoration} !important;
     margin-top: ${computed.marginTop} !important;
     margin-bottom: ${computed.marginBottom} !important;
     line-height: ${computed.lineHeight} !important;
@@ -607,7 +635,7 @@ ${tagName} {
         cssContent: docState.cssContent + '\n' + newRule
     }, true);
     
-    alert(`Updated style for <${tagName.toUpperCase()}>. All <${tagName.toUpperCase()}> elements in the document will now match this style.`);
+    alert(`Updated style for ${selector}. All matching elements will now use this style.`);
   };
 
   // --- Feature: Real-time Block Styling (Frames & Pudding & Shapes) ---
