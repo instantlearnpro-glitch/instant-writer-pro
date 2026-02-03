@@ -4,7 +4,8 @@ import {
   Image as ImageIcon, FileUp, Download, Save, Sun, Contrast, Settings, ImagePlus,
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
-  RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown
+  RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
+  ArrowUpDown, Type
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -88,7 +89,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onToggleMarginGuides
 }) => {
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
+  const [isLineHeightMenuOpen, setIsLineHeightMenuOpen] = useState(false);
+  const [isTextCaseMenuOpen, setIsTextCaseMenuOpen] = useState(false);
   const styleMenuRef = useRef<HTMLDivElement>(null);
+  const lineHeightMenuRef = useRef<HTMLDivElement>(null);
+  const textCaseMenuRef = useRef<HTMLDivElement>(null);
 
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
     `p-2 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-700 ' + (isActive ? 'bg-blue-100 text-blue-600' : '')}`;
@@ -96,8 +101,15 @@ const Toolbar: React.FC<ToolbarProps> = ({
   // Close menu when clicking outside
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
-          if (styleMenuRef.current && !styleMenuRef.current.contains(event.target as Node)) {
+          const target = event.target as Node;
+          if (styleMenuRef.current && !styleMenuRef.current.contains(target)) {
               setIsStyleMenuOpen(false);
+          }
+          if (lineHeightMenuRef.current && !lineHeightMenuRef.current.contains(target)) {
+              setIsLineHeightMenuOpen(false);
+          }
+          if (textCaseMenuRef.current && !textCaseMenuRef.current.contains(target)) {
+              setIsTextCaseMenuOpen(false);
           }
       };
       document.addEventListener('mousedown', handleClickOutside);
@@ -352,6 +364,58 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             />
                             <div className="absolute bottom-0.5 w-3 h-0.5 rounded-full" style={{ backgroundColor: selectionState.foreColor || '#000000' }}></div>
                         </div>
+
+                        <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
+
+                        {/* Line Height */}
+                        <div className="relative flex items-center" ref={lineHeightMenuRef}>
+                            <button 
+                                onClick={() => setIsLineHeightMenuOpen(!isLineHeightMenuOpen)}
+                                className={`${ButtonClass(isLineHeightMenuOpen)} !p-1`} 
+                                title="Line Height"
+                            >
+                                <ArrowUpDown size={14} />
+                            </button>
+                            {isLineHeightMenuOpen && (
+                                <div className="absolute top-7 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-28 animate-in fade-in zoom-in duration-150">
+                                    <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Spacing</div>
+                                    {[1.0, 1.15, 1.5, 2.0, 2.5, 3.0].map(val => (
+                                        <button 
+                                            key={val}
+                                            onClick={() => {
+                                                onFormat('lineHeight', val.toString());
+                                                setIsLineHeightMenuOpen(false);
+                                            }} 
+                                            className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left transition-colors flex justify-between items-center"
+                                        >
+                                            {val === 1.0 ? 'Single (1.0)' : val === 2.0 ? 'Double (2.0)' : val.toFixed(2)}
+                                            {selectionState.lineHeight === val.toString() && <div className="w-1 h-1 bg-blue-600 rounded-full"></div>}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Text Case */}
+                        <div className="relative flex items-center" ref={textCaseMenuRef}>
+                            <button 
+                                onClick={() => setIsTextCaseMenuOpen(!isTextCaseMenuOpen)}
+                                className={`${ButtonClass(isTextCaseMenuOpen)} !p-1`} 
+                                title="Text Case"
+                            >
+                                <Type size={14} />
+                            </button>
+                            {isTextCaseMenuOpen && (
+                                <div className="absolute top-7 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-32 animate-in fade-in zoom-in duration-150">
+                                    <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Text Case</div>
+                                    <button onClick={() => { onFormat('textTransform', 'uppercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left uppercase">Uppercase</button>
+                                    <button onClick={() => { onFormat('textTransform', 'lowercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left lowercase">Lowercase</button>
+                                    <button onClick={() => { onFormat('textTransform', 'capitalize'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left capitalize">Capitalize</button>
+                                    <div className="h-px bg-gray-100 my-1"></div>
+                                    <button onClick={() => { onFormat('textTransform', 'none'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left">Normal / Reset</button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -605,6 +669,48 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             <button onClick={() => onFormat('justifyCenter')} className={ButtonClass(selectionState.alignCenter)}><AlignCenter size={14} /></button>
                             <button onClick={() => onFormat('justifyRight')} className={ButtonClass(selectionState.alignRight)}><AlignRight size={14} /></button>
                             <button onClick={() => onFormat('justifyFull')} className={ButtonClass(selectionState.alignJustify)}><AlignJustify size={14} /></button>
+                        </div>
+                    </div>
+
+                    {/* Spacing & Case */}
+                    <div className="flex flex-col gap-0.5 border-r border-orange-200 pr-4">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Format</label>
+                        <div className="flex items-center gap-1">
+                             {/* Line Height */}
+                            <div className="relative flex items-center" ref={lineHeightMenuRef}>
+                                <button 
+                                    onClick={() => setIsLineHeightMenuOpen(!isLineHeightMenuOpen)}
+                                    className={`${ButtonClass(isLineHeightMenuOpen)} !p-1`} 
+                                    title="Line Height"
+                                >
+                                    <ArrowUpDown size={14} />
+                                </button>
+                                {isLineHeightMenuOpen && (
+                                    <div className="absolute bottom-6 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded p-1 z-50 w-24">
+                                        <button onClick={() => { onFormat('lineHeight', '1.0'); setIsLineHeightMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left">Single</button>
+                                        <button onClick={() => { onFormat('lineHeight', '1.5'); setIsLineHeightMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left">1.5</button>
+                                        <button onClick={() => { onFormat('lineHeight', '2.0'); setIsLineHeightMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left">Double</button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Text Case */}
+                            <div className="relative flex items-center" ref={textCaseMenuRef}>
+                                <button 
+                                    onClick={() => setIsTextCaseMenuOpen(!isTextCaseMenuOpen)}
+                                    className={`${ButtonClass(isTextCaseMenuOpen)} !p-1`} 
+                                    title="Text Case"
+                                >
+                                    <Type size={14} />
+                                </button>
+                                {isTextCaseMenuOpen && (
+                                    <div className="absolute bottom-6 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded p-1 z-50 w-32">
+                                        <button onClick={() => { onFormat('textTransform', 'uppercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left uppercase">Uppercase</button>
+                                        <button onClick={() => { onFormat('textTransform', 'lowercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left lowercase">Lowercase</button>
+                                        <button onClick={() => { onFormat('textTransform', 'capitalize'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left capitalize">Capitalize</button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 

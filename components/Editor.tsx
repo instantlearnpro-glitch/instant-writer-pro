@@ -161,6 +161,7 @@ const Editor: React.FC<EditorProps> = ({
       alignJustify: document.queryCommandState('justifyFull'),
       fontName: document.queryCommandValue('fontName') || 'sans-serif',
       fontSize: document.queryCommandValue('fontSize') || '3',
+      lineHeight: 'normal',
       foreColor: rgbToHex(document.queryCommandValue('foreColor')),
       borderWidth: '0',
       borderColor: '#000000',
@@ -191,6 +192,7 @@ const Editor: React.FC<EditorProps> = ({
         state.padding = safeParseInt(computed.paddingTop);
         state.backgroundColor = rgbToHex(computed.backgroundColor);
         state.textAlign = computed.textAlign;
+        state.lineHeight = computed.lineHeight;
         state.width = b.style.width || '';
     }
 

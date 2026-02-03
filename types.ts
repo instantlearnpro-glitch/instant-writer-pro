@@ -21,6 +21,7 @@ export interface SelectionState {
   alignJustify: boolean;
   fontName: string;
   fontSize: string;
+  lineHeight: string;
   foreColor: string;
   // Frame/Border props
   borderWidth: string;

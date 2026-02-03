@@ -73,6 +73,7 @@ const App: React.FC = () => {
     alignJustify: false,
     fontName: 'sans-serif',
     fontSize: '3',
+    lineHeight: 'normal',
     foreColor: '#000000',
     // Defaults
     borderWidth: '0',
@@ -572,6 +573,10 @@ const App: React.FC = () => {
                 footer.style.paddingRight = '0.6in';
             } else if (command === 'foreColor') {
                 footer.style.color = value || '#000000';
+            } else if (command === 'lineHeight') {
+                footer.style.lineHeight = value || 'normal';
+            } else if (command === 'textTransform') {
+                footer.style.textTransform = value || 'none';
             }
         });
 
@@ -657,6 +662,95 @@ const App: React.FC = () => {
                 return;
             }
         }
+    }
+
+    if (command === 'lineHeight') {
+        // 1. Recover activeBlock if detached
+        let targetBlock = activeBlock;
+        if (targetBlock && !targetBlock.isConnected) {
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0) {
+                 const node = selection.getRangeAt(0).commonAncestorContainer;
+                 const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+                 targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
+            }
+        }
+
+        // 2. Fallback to current selection if no activeBlock
+        if (!targetBlock) {
+             const selection = window.getSelection();
+             if (selection && selection.rangeCount > 0) {
+                 const node = selection.getRangeAt(0).commonAncestorContainer;
+                 const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+                 targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
+             }
+        }
+
+        if (targetBlock) {
+            targetBlock.style.lineHeight = value || 'normal';
+            
+            // Check if selection spans multiple blocks and apply to all
+            const selection = window.getSelection();
+            if (selection && !selection.isCollapsed) {
+                 const range = selection.getRangeAt(0);
+                 const wrapper = document.createElement('div');
+                 wrapper.appendChild(range.cloneContents());
+                 const blocks = wrapper.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div, li, blockquote');
+                 if (blocks.length > 0) {
+                      // Complex multi-block selection - for now, just apply to the common ancestor if it's a block,
+                      // or iterate through siblings if possible. 
+                      // Simpler approach: Document.execCommand doesn't support lineHeight.
+                      // We will iterate next siblings from start node until end node.
+                      
+                      let current = targetBlock;
+                      const endNode = selection.focusNode?.parentElement?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page), li, blockquote');
+                      
+                      // Safety limit to prevent infinite loops
+                      let loops = 0;
+                      while (current && loops < 50) {
+                          (current as HTMLElement).style.lineHeight = value || 'normal';
+                          if (current === endNode || !current.nextElementSibling) break;
+                          current = current.nextElementSibling as HTMLElement;
+                          loops++;
+                      }
+                 }
+            }
+
+            // Force history update
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            }
+        }
+        return;
+    }
+
+    if (command === 'textTransform') {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+             const range = selection.getRangeAt(0);
+             const content = range.extractContents();
+             
+             // Wrap in span with text-transform
+             const span = document.createElement('span');
+             span.style.textTransform = value || 'none';
+             span.appendChild(content);
+             range.insertNode(span);
+             
+             // Clean up: If we just wrapped a single span that already had transform, merge?
+             // For now, simple wrapping is safer than complex DOM manipulation.
+             
+             selection.removeAllRanges();
+             const newRange = document.createRange();
+             newRange.selectNodeContents(span);
+             selection.addRange(newRange);
+
+             const workspace = document.querySelector('.editor-workspace');
+             if (workspace) {
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+             }
+        }
+        return;
     }
 
     // 3. Standard Text Command (if not inside a shape)
