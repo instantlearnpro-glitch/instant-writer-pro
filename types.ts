@@ -18,6 +18,7 @@ export interface SelectionState {
   alignLeft: boolean;
   alignCenter: boolean;
   alignRight: boolean;
+  alignJustify: boolean;
   fontName: string;
   fontSize: string;
   foreColor: string;

@@ -70,6 +70,7 @@ const App: React.FC = () => {
     alignLeft: false,
     alignCenter: false,
     alignRight: false,
+    alignJustify: false,
     fontName: 'sans-serif',
     fontSize: '3',
     foreColor: '#000000',
@@ -494,7 +495,8 @@ const App: React.FC = () => {
               underline: computed.textDecoration.includes('underline'),
               alignLeft: computed.textAlign === 'left',
               alignCenter: computed.textAlign === 'center',
-              alignRight: computed.textAlign === 'right'
+              alignRight: computed.textAlign === 'right',
+              alignJustify: computed.textAlign === 'justify'
           }));
       }
 
@@ -564,6 +566,10 @@ const App: React.FC = () => {
                 footer.style.textAlign = 'right';
                 footer.style.paddingRight = '0.6in';
                 footer.style.paddingLeft = '0';
+            } else if (command === 'justifyFull') {
+                footer.style.textAlign = 'justify';
+                footer.style.paddingLeft = '0.6in';
+                footer.style.paddingRight = '0.6in';
             } else if (command === 'foreColor') {
                 footer.style.color = value || '#000000';
             }

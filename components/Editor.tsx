@@ -158,6 +158,7 @@ const Editor: React.FC<EditorProps> = ({
       alignLeft: document.queryCommandState('justifyLeft'),
       alignCenter: document.queryCommandState('justifyCenter'),
       alignRight: document.queryCommandState('justifyRight'),
+      alignJustify: document.queryCommandState('justifyFull'),
       fontName: document.queryCommandValue('fontName') || 'sans-serif',
       fontSize: document.queryCommandValue('fontSize') || '3',
       foreColor: rgbToHex(document.queryCommandValue('foreColor')),

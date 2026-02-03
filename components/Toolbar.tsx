@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, 
+  Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Image as ImageIcon, FileUp, Download, Save, Sun, Contrast, Settings, ImagePlus,
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
@@ -366,6 +366,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     <button onClick={() => onFormat('justifyRight')} className={`${ButtonClass(selectionState.alignRight)} !p-1.5`} title="Align Right">
                         <AlignRight size={16} />
                     </button>
+                    <button onClick={() => onFormat('justifyFull')} className={`${ButtonClass(selectionState.alignJustify)} !p-1.5`} title="Justify">
+                        <AlignJustify size={16} />
+                    </button>
                 </div>
                 <button 
                     onClick={onExport}
@@ -601,6 +604,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             <button onClick={() => onFormat('justifyLeft')} className={ButtonClass(selectionState.alignLeft)}><AlignLeft size={14} /></button>
                             <button onClick={() => onFormat('justifyCenter')} className={ButtonClass(selectionState.alignCenter)}><AlignCenter size={14} /></button>
                             <button onClick={() => onFormat('justifyRight')} className={ButtonClass(selectionState.alignRight)}><AlignRight size={14} /></button>
+                            <button onClick={() => onFormat('justifyFull')} className={ButtonClass(selectionState.alignJustify)}><AlignJustify size={14} /></button>
                         </div>
                     </div>
 
@@ -730,6 +734,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     <button onClick={() => handleBorderUpdate('textAlign', 'left')} className={ButtonClass(selectionState.textAlign === 'left')}><AlignLeft size={14} /></button>
                     <button onClick={() => handleBorderUpdate('textAlign', 'center')} className={ButtonClass(selectionState.textAlign === 'center')}><AlignCenter size={14} /></button>
                     <button onClick={() => handleBorderUpdate('textAlign', 'right')} className={ButtonClass(selectionState.textAlign === 'right')}><AlignRight size={14} /></button>
+                    <button onClick={() => handleBorderUpdate('textAlign', 'justify')} className={ButtonClass(selectionState.textAlign === 'justify')}><AlignJustify size={14} /></button>
                 </div>
 
                 <div className="w-px h-4 bg-gray-300"></div>
