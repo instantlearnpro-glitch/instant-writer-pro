@@ -201,6 +201,7 @@ const App: React.FC = () => {
   const [customPageSize, setCustomPageSize] = useState<{ width: string, height: string }>({ width: '8.5in', height: '11in' });
   const [pageMargins, setPageMargins] = useState<{ top: number, bottom: number, left: number, right: number }>({ top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 });
   const [showMarginGuides, setShowMarginGuides] = useState(false);
+  const [showSmartGuides, setShowSmartGuides] = useState(false);
 
   const [pageCount, setPageCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
@@ -2572,6 +2573,8 @@ ${contentHtml}
         onMarginChange={handleMarginChange}
         showMarginGuides={showMarginGuides}
         onToggleMarginGuides={() => setShowMarginGuides(!showMarginGuides)}
+        showSmartGuides={showSmartGuides}
+        onToggleSmartGuides={() => setShowSmartGuides(!showSmartGuides)}
       />
       
       <div className="flex flex-1 overflow-hidden">
@@ -2612,6 +2615,7 @@ ${contentHtml}
                 onInsertHorizontalRule={handleInsertHorizontalRule}
                 onInsertImage={handleInsertImage}
                 showMarginGuides={showMarginGuides}
+                showSmartGuides={showSmartGuides}
                 pageMargins={pageMargins}
                 onMarginChange={handleMarginChange}
                 selectionMode={selectionMode}

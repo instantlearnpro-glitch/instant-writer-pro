@@ -4,11 +4,12 @@ import { ActionType } from '../utils/patternDetector';
 interface DragHandleProps {
   element: HTMLElement;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  showSmartGuides?: boolean;
   onUpdate: () => void;
   onAction?: (type: ActionType, element: HTMLElement) => void;
 }
 
-const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate, onAction }) => {
+const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmartGuides, onUpdate, onAction }) => {
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
   const startPos = useRef({ x: 0, y: 0, elementTop: 0, elementLeft: 0, width: 0, height: 0 });
   const isDraggingRef = useRef(false);

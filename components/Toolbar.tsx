@@ -48,6 +48,8 @@ interface ToolbarProps {
   availableFonts: FontDefinition[];
   showMarginGuides: boolean;
   onToggleMarginGuides: () => void;
+  showSmartGuides: boolean;
+  onToggleSmartGuides: () => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -86,7 +88,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
   canRedo,
   availableFonts,
   showMarginGuides,
-  onToggleMarginGuides
+  onToggleMarginGuides,
+  showSmartGuides,
+  onToggleSmartGuides
 }) => {
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const [isLineHeightMenuOpen, setIsLineHeightMenuOpen] = useState(false);
@@ -227,13 +231,22 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 <div className="flex flex-col justify-center items-start border-r border-gray-200 pr-1 mr-1 pl-1 gap-0.5">
                     <div className="flex items-center justify-between text-gray-500 w-full pl-0.5">
                         <span className="text-[9px] uppercase font-bold">Format</span>
-                        <button
-                            onClick={onToggleMarginGuides}
-                            className={`${ButtonClass(showMarginGuides)} !p-1`}
-                            title="Mostra margini e righello"
-                        >
-                            <Ruler size={12} />
-                        </button>
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                onClick={onToggleSmartGuides}
+                                className={`${ButtonClass(showSmartGuides)} !p-1`}
+                                title="Guide Intelligenti (Allineamento)"
+                            >
+                                <LayoutTemplate size={12} />
+                            </button>
+                            <button
+                                onClick={onToggleMarginGuides}
+                                className={`${ButtonClass(showMarginGuides)} !p-1`}
+                                title="Mostra margini e righello"
+                            >
+                                <Ruler size={12} />
+                            </button>
+                        </div>
                     </div>
                     <select 
                         className="h-6 border border-gray-300 rounded px-1 text-[10px] text-gray-700 focus:outline-none focus:border-brand-500 bg-white w-20"

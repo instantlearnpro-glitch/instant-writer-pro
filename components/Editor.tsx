@@ -29,6 +29,7 @@ interface EditorProps {
   onInsertHorizontalRule: () => void;
   onInsertImage: () => void;
   showMarginGuides: boolean;
+  showSmartGuides: boolean;
   pageMargins: { top: number, bottom: number, left: number, right: number };
   onMarginChange: (key: 'top' | 'bottom' | 'left' | 'right', value: number) => void;
   selectionMode?: { active: boolean; level: string | null; selectedIds: string[] };
@@ -89,6 +90,7 @@ const Editor: React.FC<EditorProps> = ({
   containerRef,
   selectedImage,
   showMarginGuides,
+  showSmartGuides,
   pageMargins,
   onMarginChange,
   selectionMode,
@@ -894,6 +896,7 @@ const Editor: React.FC<EditorProps> = ({
                 image={selectedImage}
                 containerRef={containerRef}
                 isCropping={imageProperties.isCropping}
+                showSmartGuides={showSmartGuides}
                 onCropComplete={onCropComplete}
                 onCancelCrop={onCancelCrop}
                 onResize={() => {
@@ -931,6 +934,7 @@ const Editor: React.FC<EditorProps> = ({
             <DragHandle
                 element={activeBlock}
                 containerRef={containerRef}
+                showSmartGuides={showSmartGuides}
                 onUpdate={() => {
                     if (contentRef.current) {
                         reflowPages(contentRef.current);

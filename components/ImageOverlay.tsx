@@ -4,6 +4,7 @@ interface ImageOverlayProps {
   image: HTMLImageElement | HTMLElement; // Can be image or other elements like textarea
   containerRef: React.RefObject<HTMLDivElement | null>;
   isCropping: boolean;
+  showSmartGuides?: boolean;
   onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
   onResize?: () => void;
@@ -13,14 +14,15 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   image, 
   containerRef, 
   isCropping,
+  showSmartGuides,
   onCropComplete,
   onCancelCrop,
   onResize
 }) => {
   const isImage = image.tagName === 'IMG';
-  const element = image; // Generic element reference
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [cropRect, setCropRect] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
+  const [guides, setGuides] = useState<{ type: 'horizontal' | 'vertical', x?: number, y?: number, length?: number }[]>([]);
   
   // Sync overlay position with image
   const updatePosition = () => {
@@ -80,16 +82,12 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     const startWidth = startRect.width;
     const startHeight = startRect.height;
 
-    // Remove max-width constraint to allow free resizing
-    // Use setProperty with 'important' to override any potential CSS conflicts
     image.style.setProperty('max-width', 'none', 'important');
     image.style.setProperty('max-height', 'none', 'important');
     image.style.setProperty('min-width', '0', 'important');
     image.style.setProperty('min-height', '0', 'important');
     image.style.setProperty('aspect-ratio', 'auto', 'important');
     image.style.setProperty('object-fit', 'fill', 'important');
-    
-    // Set initial size
     image.style.setProperty('width', `${startWidth}px`);
     image.style.setProperty('height', `${startHeight}px`);
 
@@ -100,33 +98,25 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
         let newWidth = startWidth;
         let newHeight = startHeight;
 
-        // Horizontal
         if (direction.includes('e')) newWidth = startWidth + dx;
         else if (direction.includes('w')) newWidth = startWidth - dx;
 
-        // Vertical
         if (direction.includes('s')) newHeight = startHeight + dy;
         else if (direction.includes('n')) newHeight = startHeight - dy;
 
-        // Minimum size constraint
         if (newWidth < 20) newWidth = 20;
         if (newHeight < 20) newHeight = 20;
 
-        // Apply BOTH dimensions always to allow deformation (break aspect ratio)
         image.style.setProperty('width', `${newWidth}px`, 'important');
         image.style.setProperty('height', `${newHeight}px`, 'important');
         
-        // Force update overlay
         updatePosition();
     };
 
     const onUp = () => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
-        // Trigger reflow after resize to handle page overflow
-        if (onResize) {
-            onResize();
-        }
+        if (onResize) onResize();
     };
 
     document.addEventListener('mousemove', onMove);
@@ -141,23 +131,168 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     const startX = e.clientX;
     const startY = e.clientY;
     
-    // Get current position or initialize
     const computedStyle = window.getComputedStyle(image);
-    const currentLeft = parseFloat(image.style.marginLeft) || 0;
-    const currentTop = parseFloat(image.style.marginTop) || 0;
-    
-    // Make image relatively positioned if not already
     if (computedStyle.position === 'static') {
       image.style.position = 'relative';
     }
     
+    // We rely on relative positioning offsets
     const startLeft = parseFloat(image.style.left) || 0;
     const startTop = parseFloat(image.style.top) || 0;
 
+    // Smart Guides Setup: Pre-calculate snap targets
+    let snapTargets: { x: number[], y: number[] } = { x: [], y: [] };
+    let containerRect: DOMRect | null = null;
+    let initialRect: DOMRect | null = null;
+    
+    if (showSmartGuides && containerRef.current) {
+        initialRect = image.getBoundingClientRect();
+        const page = image.closest('.page');
+        if (page) {
+            const pageRect = page.getBoundingClientRect();
+            // Page Edges & Center
+            snapTargets.x.push(pageRect.left + pageRect.width / 2); // Center
+            // Optional: Page Margins? For now just Center as requested before, plus edges logic below for siblings.
+            
+            // Siblings
+            const siblings = Array.from(page.querySelectorAll('img, .mission-box, h1, h2, h3, p')); // Added 'p' for text lines
+            siblings.forEach(sib => {
+                if (sib === image) return;
+                const r = sib.getBoundingClientRect();
+                // Vertical Lines (X)
+                snapTargets.x.push(r.left); // Start
+                snapTargets.x.push(r.left + r.width / 2); // Center
+                snapTargets.x.push(r.right); // End
+                
+                // Horizontal Lines (Y)
+                snapTargets.y.push(r.top); // Top
+                snapTargets.y.push(r.top + r.height / 2); // Middle
+                snapTargets.y.push(r.bottom); // Bottom
+            });
+        }
+        containerRect = containerRef.current.getBoundingClientRect();
+    }
+
     const onMove = (moveEvent: MouseEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
+      let dx = moveEvent.clientX - startX;
+      let dy = moveEvent.clientY - startY;
       
+      const activeGuides: typeof guides = [];
+      const THRESHOLD = 5;
+      
+      if (showSmartGuides && initialRect && containerRect && containerRef.current) {
+          // Calculate current projected edges
+          const curLeft = initialRect.left + dx;
+          const curRight = initialRect.right + dx;
+          const curCX = initialRect.left + initialRect.width / 2 + dx;
+          
+          const curTop = initialRect.top + dy;
+          const curBottom = initialRect.bottom + dy;
+          const curCY = initialRect.top + initialRect.height / 2 + dy;
+
+          // Check X Snaps (Prioritize Center, then Left, then Right)
+          let snappedX = false;
+          
+          // Check Center alignment first
+          for (const targetX of snapTargets.x) {
+              if (Math.abs(curCX - targetX) < THRESHOLD) {
+                  dx += (targetX - curCX);
+                  activeGuides.push({
+                      type: 'vertical',
+                      x: targetX - (initialRect.left + dx),
+                      y: -2000,
+                      length: 4000
+                  });
+                  snappedX = true;
+                  break; 
+              }
+          }
+          
+          if (!snappedX) {
+              // Check Left alignment
+              for (const targetX of snapTargets.x) {
+                  if (Math.abs(curLeft - targetX) < THRESHOLD) {
+                      dx += (targetX - curLeft);
+                      activeGuides.push({
+                          type: 'vertical',
+                          x: targetX - (initialRect.left + dx),
+                          y: -2000,
+                          length: 4000
+                      });
+                      snappedX = true;
+                      break; 
+                  }
+              }
+          }
+
+          if (!snappedX) {
+              // Check Right alignment
+              for (const targetX of snapTargets.x) {
+                  if (Math.abs(curRight - targetX) < THRESHOLD) {
+                      dx += (targetX - curRight);
+                      activeGuides.push({
+                          type: 'vertical',
+                          x: targetX - (initialRect.left + dx),
+                          y: -2000,
+                          length: 4000
+                      });
+                      break; 
+                  }
+              }
+          }
+
+          // Check Y Snaps
+          let snappedY = false;
+          
+          for (const targetY of snapTargets.y) {
+              if (Math.abs(curCY - targetY) < THRESHOLD) {
+                  dy += (targetY - curCY);
+                  activeGuides.push({
+                      type: 'horizontal',
+                      y: targetY - (initialRect.top + dy),
+                      x: -2000,
+                      length: 4000
+                  });
+                  snappedY = true;
+                  break;
+              }
+          }
+          
+          if (!snappedY) {
+              for (const targetY of snapTargets.y) {
+                  if (Math.abs(curTop - targetY) < THRESHOLD) {
+                      dy += (targetY - curTop);
+                      activeGuides.push({
+                          type: 'horizontal',
+                          y: targetY - (initialRect.top + dy),
+                          x: -2000,
+                          length: 4000
+                      });
+                      snappedY = true;
+                      break;
+                  }
+              }
+          }
+          
+          if (!snappedY) {
+              for (const targetY of snapTargets.y) {
+                  if (Math.abs(curBottom - targetY) < THRESHOLD) {
+                      dy += (targetY - curBottom);
+                      activeGuides.push({
+                          type: 'horizontal',
+                          y: targetY - (initialRect.top + dy),
+                          x: -2000,
+                          length: 4000
+                      });
+                      break;
+                  }
+              }
+          }
+      }
+
+      setGuides(activeGuides);
+
+      // Always apply movement
       image.style.position = 'relative';
       image.style.left = `${startLeft + dx}px`;
       image.style.top = `${startTop + dy}px`;
@@ -166,6 +301,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     };
 
     const onUp = () => {
+      setGuides([]);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       if (onResize) onResize();
@@ -204,22 +340,18 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
              if (type.includes('n')) { newY += dy; newH -= dy; }
           }
           
-          // Constrain to image bounds (rect is the displayed size)
           const maxX = rect.width;
           const maxY = rect.height;
 
-          // Normalize negative width/height (flipping)
           if (newW < 0) { newX += newW; newW = Math.abs(newW); }
           if (newH < 0) { newY += newH; newH = Math.abs(newH); }
 
-          // Hard bounds check
-          if (newX < 0) { newW += newX; newX = 0; } // Grow width if pushed left out
+          if (newX < 0) { newW += newX; newX = 0; } 
           if (newY < 0) { newH += newY; newY = 0; }
           
           if (newX + newW > maxX) newW = maxX - newX;
           if (newY + newH > maxY) newH = maxY - newY;
 
-          // Min size
           if (newW < 10) newW = 10;
           if (newH < 10) newH = 10;
 
@@ -242,22 +374,17 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // 1. Get Borders
       const style = window.getComputedStyle(image);
       const borderLeft = parseFloat(style.borderLeftWidth) || 0;
       const borderTop = parseFloat(style.borderTopWidth) || 0;
       const borderRight = parseFloat(style.borderRightWidth) || 0;
       const borderBottom = parseFloat(style.borderBottomWidth) || 0;
 
-      // 2. Define Content Rect (relative to overlay/rect)
-      // rect.width is full border-box width.
       const contentX = borderLeft;
       const contentY = borderTop;
       const contentW = rect.width - borderLeft - borderRight;
       const contentH = rect.height - borderTop - borderBottom;
 
-      // 3. Intersect Selection with Content
-      // cropRect is relative to rect (0,0 is top-left of border-box)
       const iX = Math.max(cropRect.x, contentX);
       const iY = Math.max(cropRect.y, contentY);
       const iR = Math.min(cropRect.x + cropRect.w, contentX + contentW);
@@ -271,7 +398,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
           return;
       }
 
-      // 4. Calculate Source Coords (Natural Scale)
       const scaleX = image.naturalWidth / contentW;
       const scaleY = image.naturalHeight / contentH;
 
@@ -280,16 +406,12 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
       const sw = iW * scaleX;
       const sh = iH * scaleY;
 
-      // 5. Draw
       canvas.width = sw;
       canvas.height = sh;
 
       try {
         ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
         
-        // 6. Calculate Final Display Size
-        // We want the new element's *content box* to equal iW x iH.
-        // So we add the borders back to get the required border-box size.
         const finalWidth = iW + borderLeft + borderRight;
         const finalHeight = iH + borderTop + borderBottom;
 
@@ -301,7 +423,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   };
 
   const Handle = ({ dir, cursor, onStart }: { dir: string, cursor: string, onStart: any }) => {
-      // Position logic
       const style: React.CSSProperties = { position: 'absolute', width: '10px', height: '10px', backgroundColor: 'white', border: '1px solid #8d55f1', zIndex: 50, cursor };
       
       if (dir.includes('n')) style.top = '-5px';
@@ -317,7 +438,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
 
   // --- RENDER ---
 
-  // Only show crop UI for actual images
   if (isCropping && cropRect && isImage) {
       return (
         <div 
@@ -328,10 +448,8 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                 pointerEvents: 'none'
             }}
         >
-            {/* Dimmed Overlay */}
             <div className="absolute inset-0 bg-black/60 pointer-events-auto"></div>
             
-            {/* Crop Selection */}
             <div 
                 style={{
                     position: 'absolute',
@@ -343,7 +461,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                 }}
                 onMouseDown={(e) => handleCropStart(e, 'move')}
             >
-                {/* Rule of Thirds Grid */}
                 <div className="absolute inset-0 flex flex-col">
                     <div className="flex-1 border-b border-white/30"></div>
                     <div className="flex-1 border-b border-white/30"></div>
@@ -355,7 +472,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                     <div className="flex-1"></div>
                 </div>
 
-                {/* Handles */}
                 <Handle dir="nw" cursor="nw-resize" onStart={handleCropStart} />
                 <Handle dir="n" cursor="n-resize" onStart={handleCropStart} />
                 <Handle dir="ne" cursor="ne-resize" onStart={handleCropStart} />
@@ -366,7 +482,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                 <Handle dir="w" cursor="w-resize" onStart={handleCropStart} />
             </div>
 
-            {/* Toolbar */}
             <div className="absolute top-full left-0 mt-2 flex gap-2 pointer-events-auto bg-white p-1 rounded shadow-xl border border-gray-200">
                 <button onClick={applyCrop} className="bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs font-bold uppercase tracking-wide">Apply</button>
                 <button onClick={onCancelCrop} className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded text-xs font-bold uppercase tracking-wide">Cancel</button>
@@ -375,7 +490,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
       );
   }
 
-  // Standard Resize Overlay
   return (
     <div 
         style={{ 
@@ -386,7 +500,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             zIndex: 40
         }}
     >
-        {/* Drag handle in center */}
         <div 
             style={{
                 position: 'absolute',
@@ -412,7 +525,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             </svg>
         </div>
         
-        {/* Resize Handles (8 directions) */}
         <div style={{ pointerEvents: 'auto' }}>
             <Handle dir="nw" cursor="nw-resize" onStart={handleResizeStart} />
             <Handle dir="n" cursor="n-resize" onStart={handleResizeStart} />
@@ -423,6 +535,29 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             <Handle dir="sw" cursor="sw-resize" onStart={handleResizeStart} />
             <Handle dir="w" cursor="w-resize" onStart={handleResizeStart} />
         </div>
+
+        {guides.map((g, i) => (
+            <div
+                key={i}
+                style={{
+                    position: 'absolute',
+                    backgroundColor: '#ec4899', // Pink-500
+                    zIndex: 60,
+                    pointerEvents: 'none',
+                    ...(g.type === 'horizontal' ? {
+                        top: g.y,
+                        left: g.x,
+                        width: g.length,
+                        height: '1px'
+                    } : {
+                        top: g.y,
+                        left: g.x,
+                        width: '1px',
+                        height: g.length
+                    })
+                }}
+            />
+        ))}
     </div>
   );
 };
