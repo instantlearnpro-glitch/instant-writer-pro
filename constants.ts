@@ -349,6 +349,23 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
     outline: 2px dashed #f97316;
     cursor: pointer;
 }
+
+/* List Styles - Override Tailwind Reset */
+ul {
+    list-style: disc outside none !important;
+    margin-left: 0 !important;
+    padding-left: 40px !important;
+}
+ol {
+    list-style: decimal outside none !important;
+    margin-left: 0 !important;
+    padding-left: 40px !important;
+}
+li {
+    display: list-item !important;
+    margin-bottom: 5px;
+    padding-left: 5px;
+}
 `;
 
 export const DEFAULT_HTML = `

@@ -14,6 +14,8 @@ export interface SelectionState {
   bold: boolean;
   italic: boolean;
   underline: boolean;
+  ul: boolean;
+  ol: boolean;
   blockType: string;
   alignLeft: boolean;
   alignCenter: boolean;

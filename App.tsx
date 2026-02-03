@@ -155,6 +155,8 @@ const App: React.FC = () => {
     bold: false,
     italic: false,
     underline: false,
+    ul: false,
+    ol: false,
     blockType: 'p',
     alignLeft: false,
     alignCenter: false,

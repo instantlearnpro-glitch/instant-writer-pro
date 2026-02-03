@@ -5,7 +5,7 @@ import {
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
   RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
-  ArrowUpDown, Type, Ruler
+  ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -95,9 +95,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const [isLineHeightMenuOpen, setIsLineHeightMenuOpen] = useState(false);
   const [isTextCaseMenuOpen, setIsTextCaseMenuOpen] = useState(false);
+  const [isListMenuOpen, setIsListMenuOpen] = useState(false);
   const styleMenuRef = useRef<HTMLDivElement>(null);
   const lineHeightMenuRef = useRef<HTMLDivElement>(null);
   const textCaseMenuRef = useRef<HTMLDivElement>(null);
+  const listMenuRef = useRef<HTMLDivElement>(null);
 
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
     `p-2.5 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-[#efe5ff] hover:text-[#7539d3] ' + (isActive ? 'bg-[#efe5ff] text-[#7539d3]' : 'text-gray-700')}`;
@@ -114,6 +116,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
           }
           if (textCaseMenuRef.current && !textCaseMenuRef.current.contains(target)) {
               setIsTextCaseMenuOpen(false);
+          }
+          if (listMenuRef.current && !listMenuRef.current.contains(target)) {
+              setIsListMenuOpen(false);
           }
       };
       document.addEventListener('mousedown', handleClickOutside);
@@ -210,7 +215,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         <FilePlus size={18} />
                     </button>
                     <button onClick={onOpenTOCModal} className={ButtonClass(false)} title="Insert Table of Contents">
-                        <List size={18} />
+                        <TableOfContents size={18} />
                     </button>
                     <button onClick={onOpenPageNumberModal} className={ButtonClass(false)} title="Insert Page Numbers">
                         <Hash size={18} />
@@ -453,6 +458,31 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         <button onClick={() => onFormat('justifyFull')} className={`${ButtonClass(selectionState.alignJustify)} !p-2`} title="Justify">
                             <AlignJustify size={16} />
                         </button>
+                    </div>
+
+                    <div className="w-px h-8 bg-gray-200"></div>
+
+                    {/* Lists */}
+                    <div className="relative flex items-center" ref={listMenuRef}>
+                        <button 
+                            onClick={() => setIsListMenuOpen(!isListMenuOpen)}
+                            className={`${ButtonClass(selectionState.ul || selectionState.ol)} !p-2 flex items-center`} 
+                            title="Elenchi"
+                        >
+                            {selectionState.ol ? <ListOrdered size={16} /> : <List size={16} />}
+                            <ChevronDown size={10} className="ml-1 -mr-1 opacity-50" />
+                        </button>
+                        {isListMenuOpen && (
+                            <div className="absolute top-10 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-36">
+                                <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Elenchi</div>
+                                <button onClick={() => { onFormat('insertUnorderedList'); setIsListMenuOpen(false); }} className={`text-xs p-2 rounded text-left flex items-center gap-2 hover:bg-brand-50 ${selectionState.ul ? 'bg-brand-50 text-brand-600' : ''}`}>
+                                    <List size={14} /> Puntato
+                                </button>
+                                <button onClick={() => { onFormat('insertOrderedList'); setIsListMenuOpen(false); }} className={`text-xs p-2 rounded text-left flex items-center gap-2 hover:bg-brand-50 ${selectionState.ol ? 'bg-brand-50 text-brand-600' : ''}`}>
+                                    <ListOrdered size={14} /> Numerato
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
                 <button 

@@ -197,6 +197,8 @@ const Editor: React.FC<EditorProps> = ({
     const boldTag = hasAncestorTag(range.startContainer, ['B', 'STRONG'], block) || hasAncestorTag(range.endContainer, ['B', 'STRONG'], block);
     const italicTag = hasAncestorTag(range.startContainer, ['I', 'EM'], block) || hasAncestorTag(range.endContainer, ['I', 'EM'], block);
     const underlineTag = hasAncestorTag(range.startContainer, ['U'], block) || hasAncestorTag(range.endContainer, ['U'], block);
+    const ulTag = block.tagName === 'LI' && block.parentElement?.tagName === 'UL';
+    const olTag = block.tagName === 'LI' && block.parentElement?.tagName === 'OL';
     const textAlign = computedBlock.textAlign || 'left';
 
     const shapeClass = block.classList.contains('shape-circle')
@@ -222,6 +224,8 @@ const Editor: React.FC<EditorProps> = ({
       bold: computedBold || boldTag,
       italic: computedItalic || italicTag,
       underline: computedUnderline || underlineTag,
+      ul: ulTag,
+      ol: olTag,
       blockType: block.tagName.toLowerCase(),
       alignLeft: textAlign === 'left' || textAlign === 'start',
       alignCenter: textAlign === 'center',
@@ -288,11 +292,15 @@ const Editor: React.FC<EditorProps> = ({
     const boldTag = hasAncestorTag(range?.startContainer || null, ['B', 'STRONG'], element) || hasAncestorTag(range?.endContainer || null, ['B', 'STRONG'], element);
     const italicTag = hasAncestorTag(range?.startContainer || null, ['I', 'EM'], element) || hasAncestorTag(range?.endContainer || null, ['I', 'EM'], element);
     const underlineTag = hasAncestorTag(range?.startContainer || null, ['U'], element) || hasAncestorTag(range?.endContainer || null, ['U'], element);
+    const ulTag = element.tagName === 'LI' && element.parentElement?.tagName === 'UL';
+    const olTag = element.tagName === 'LI' && element.parentElement?.tagName === 'OL';
 
     return {
       bold: isBold || boldTag,
       italic: (fontStyle === 'italic' || fontStyle === 'oblique') || italicTag,
       underline: isUnderline || underlineTag,
+      ul: ulTag,
+      ol: olTag,
       blockType: element.tagName.toLowerCase(),
       alignLeft: textAlign === 'left' || textAlign === 'start',
       alignCenter: textAlign === 'center',
