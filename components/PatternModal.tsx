@@ -73,7 +73,7 @@ const PatternModal: React.FC<PatternModalProps> = ({
           <div className="flex gap-2 mb-3">
             <button
               onClick={selectAll}
-              className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+              className="text-xs px-2 py-1 bg-brand-100 text-brand-700 rounded hover:bg-brand-200"
             >
               Seleziona tutti
             </button>
@@ -95,8 +95,8 @@ const PatternModal: React.FC<PatternModalProps> = ({
                   key={id}
                   className={`flex items-center gap-3 p-2 rounded border cursor-pointer transition-colors ${
                     isSelected 
-                      ? 'bg-blue-50 border-blue-300' 
-                      : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                      ? 'bg-brand-50 border-brand-300' 
+                      : 'bg-gray-50 border-gray-200 hover:bg-brand-50'
                   }`}
                   onClick={() => toggleSelection(id)}
                 >
@@ -104,7 +104,7 @@ const PatternModal: React.FC<PatternModalProps> = ({
                     type="checkbox"
                     checked={isSelected}
                     onChange={() => toggleSelection(id)}
-                    className="w-4 h-4 text-blue-600 rounded"
+                    className="w-4 h-4 text-brand-600 rounded"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-mono text-gray-700 truncate">
@@ -136,14 +136,14 @@ const PatternModal: React.FC<PatternModalProps> = ({
           <div className="flex gap-2">
             <button
               onClick={onCancel}
-              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-brand-50 hover:text-brand-700"
             >
               Annulla
             </button>
             <button
               onClick={handleConfirm}
               disabled={selectedIds.size === 0}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Applica a {selectedIds.size} elementi
             </button>

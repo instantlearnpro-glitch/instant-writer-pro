@@ -39,7 +39,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({
       <button
         onClick={handleZoomOut}
         disabled={zoom <= 50}
-        className="p-1.5 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+        className="p-1.5 hover:bg-brand-50 hover:text-brand-600 rounded disabled:opacity-40 disabled:cursor-not-allowed"
         title="Riduci zoom"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -62,7 +62,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({
       <button
         onClick={handleZoomIn}
         disabled={zoom >= 200}
-        className="p-1.5 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+        className="p-1.5 hover:bg-brand-50 hover:text-brand-600 rounded disabled:opacity-40 disabled:cursor-not-allowed"
         title="Aumenta zoom"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -75,7 +75,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({
       {/* Single Page View */}
       <button
         onClick={() => onViewModeChange('single')}
-        className={`p-1.5 rounded ${viewMode === 'single' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100 text-gray-600'}`}
+        className={`p-1.5 rounded ${viewMode === 'single' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50 hover:text-brand-600 text-gray-600'}`}
         title="Vista pagina singola"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,7 +86,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({
       {/* Double Page View */}
       <button
         onClick={() => onViewModeChange('double')}
-        className={`p-1.5 rounded ${viewMode === 'double' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100 text-gray-600'}`}
+        className={`p-1.5 rounded ${viewMode === 'double' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50 hover:text-brand-600 text-gray-600'}`}
         title="Vista doppia pagina"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

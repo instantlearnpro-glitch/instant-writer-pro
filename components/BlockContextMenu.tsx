@@ -49,7 +49,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
         {/* Clipboard actions */}
         <button
           onClick={() => { onCopy(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -60,7 +60,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
         <button
           onClick={() => { onCut(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
@@ -71,7 +71,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
         <button
           onClick={() => { onPaste(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -98,7 +98,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
         
         <button
           onClick={() => { onInsertParagraph(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
@@ -108,7 +108,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
         <button
           onClick={() => { onInsertImage(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -118,7 +118,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
         <button
           onClick={() => { onInsertHR(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
@@ -131,7 +131,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
         <button
           onClick={() => { onInsertSpace('small'); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <div className="w-4 h-4 flex items-center justify-center">
             <div className="w-3 h-1 bg-gray-300" />
@@ -141,7 +141,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
         <button
           onClick={() => { onInsertSpace('medium'); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <div className="w-4 h-4 flex items-center justify-center">
             <div className="w-3 h-2 bg-gray-300" />
@@ -151,7 +151,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
         <button
           onClick={() => { onInsertSpace('large'); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <div className="w-4 h-4 flex items-center justify-center">
             <div className="w-3 h-3 bg-gray-300" />
@@ -163,7 +163,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
         <button
           onClick={() => { onInsertPageBreak(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -180,7 +180,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
             <button
               onClick={() => { onMoveUp(); onClose(); }}
-              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -190,7 +190,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
             <button
               onClick={() => { onMoveDown(); onClose(); }}
-              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -200,7 +200,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
 
             <button
               onClick={() => { onDuplicate(); onClose(); }}
-              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />

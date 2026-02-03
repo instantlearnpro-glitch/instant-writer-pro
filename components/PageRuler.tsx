@@ -14,8 +14,8 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
     
     // We'll render SVG for crispness
     const rulerSize = 20; // Thickness of the ruler bar
-    const tickColor = "#9ca3af";
-    const textColor = "#6b7280";
+    const tickColor = "#c4a7ff";
+    const textColor = "#7539d3";
 
     const renderTicks = (length: number, orientation: 'horizontal' | 'vertical') => {
         const ticks = [];
@@ -69,21 +69,21 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
     return (
         <div className="absolute inset-0 pointer-events-none overflow-visible">
             {/* Top Ruler */}
-            <div className="absolute top-[-20px] left-0 right-0 h-[20px] bg-white border-b border-gray-300">
+            <div className="absolute top-[-20px] left-0 right-0 h-[20px] bg-brand-50 border-b border-brand-200">
                 <svg width={width} height={20} className="overflow-visible">
                     {renderTicks(width, 'horizontal')}
                 </svg>
             </div>
 
             {/* Left Ruler */}
-            <div className="absolute top-0 bottom-0 left-[-20px] w-[20px] bg-white border-r border-gray-300">
+            <div className="absolute top-0 bottom-0 left-[-20px] w-[20px] bg-brand-50 border-r border-brand-200">
                 <svg width={20} height={height} className="overflow-visible">
                     {renderTicks(height, 'vertical')}
                 </svg>
             </div>
             
             {/* Corner box */}
-            <div className="absolute top-[-20px] left-[-20px] w-[20px] h-[20px] bg-gray-100 border-r border-b border-gray-300 z-10" />
+            <div className="absolute top-[-20px] left-[-20px] w-[20px] h-[20px] bg-brand-100 border-r border-b border-brand-200 z-10" />
         </div>
     );
 };

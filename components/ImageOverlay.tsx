@@ -302,7 +302,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
 
   const Handle = ({ dir, cursor, onStart }: { dir: string, cursor: string, onStart: any }) => {
       // Position logic
-      const style: React.CSSProperties = { position: 'absolute', width: '10px', height: '10px', backgroundColor: 'white', border: '1px solid #2563eb', zIndex: 50, cursor };
+      const style: React.CSSProperties = { position: 'absolute', width: '10px', height: '10px', backgroundColor: 'white', border: '1px solid #8d55f1', zIndex: 50, cursor };
       
       if (dir.includes('n')) style.top = '-5px';
       else if (dir.includes('s')) style.bottom = '-5px';
@@ -368,7 +368,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
 
             {/* Toolbar */}
             <div className="absolute top-full left-0 mt-2 flex gap-2 pointer-events-auto bg-white p-1 rounded shadow-xl border border-gray-200">
-                <button onClick={applyCrop} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs font-bold uppercase tracking-wide">Apply</button>
+                <button onClick={applyCrop} className="bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs font-bold uppercase tracking-wide">Apply</button>
                 <button onClick={onCancelCrop} className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded text-xs font-bold uppercase tracking-wide">Cancel</button>
             </div>
         </div>
@@ -382,7 +382,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             position: 'absolute', 
             top: rect.top, left: rect.left, width: rect.width, height: rect.height,
             pointerEvents: 'none', 
-            border: '1px solid #3b82f6',
+            border: '1px solid #8d55f1',
             zIndex: 40
         }}
     >
@@ -395,7 +395,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                 transform: 'translate(-50%, -50%)',
                 width: '32px',
                 height: '32px',
-                backgroundColor: 'rgba(59, 130, 246, 0.9)',
+                backgroundColor: 'rgba(141, 85, 241, 0.9)',
                 borderRadius: '50%',
                 cursor: 'move',
                 pointerEvents: 'auto',

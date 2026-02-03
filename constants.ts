@@ -92,11 +92,11 @@ hr {
 }
 
 hr:hover {
-    background-color: rgba(59, 130, 246, 0.1);
+    background-color: rgba(141, 85, 241, 0.12);
 }
 
 hr:focus, hr[data-selected="true"] {
-    outline: 2px dashed #3b82f6;
+    outline: 2px dashed #8d55f1;
     outline-offset: 2px;
 }
 
@@ -170,7 +170,7 @@ hr:focus, hr[data-selected="true"] {
 
 .shape-cloud {
     clip-path: url(#cloud-shape);
-    background-color: #e0f2f7; /* Light blue for cloud shape */
+    background-color: #efe5ff; /* Light lilac for cloud shape */
     border: none;
     position: relative;
     width: fit-content;
@@ -217,11 +217,11 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
 .tracing-line {
     font-family: 'Courier Prime', monospace;
     font-size: 20pt;
-    color: #aaa;
+    color: #b9a7e6;
     letter-spacing: 6px;
     min-height: 50px;
     line-height: 50px;
-    background-image: linear-gradient(#000 1px, transparent 1px);
+    background-image: linear-gradient(#8d55f1 1px, transparent 1px);
     background-size: 100% 50px;
     background-position: 0 48px;
     background-repeat: repeat-y;
@@ -246,7 +246,7 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
     border: none;
     outline: none;
     resize: vertical;
-    background-image: linear-gradient(#000 1px, transparent 1px), linear-gradient(#ccc 1px, transparent 1px);
+    background-image: linear-gradient(#8d55f1 1px, transparent 1px), linear-gradient(#dbc9ff 1px, transparent 1px);
     background-size: 100% 50px;
     background-position: 0 48px, 0 24px;
     line-height: 50px;
@@ -255,12 +255,12 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
 }
 
 .writing-lines:focus, textarea.writing-lines:focus {
-    outline: 2px solid #3b82f6;
+    outline: 2px solid #8d55f1;
     outline-offset: 2px;
 }
 
 .writing-lines:hover, textarea.writing-lines:hover {
-    background-color: rgba(59, 130, 246, 0.02);
+    background-color: rgba(141, 85, 241, 0.03);
 }
 
 /* --- Table of Contents Styles --- */

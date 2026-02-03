@@ -149,13 +149,13 @@ const BorderModal: React.FC<BorderModalProps> = ({ isOpen, onClose, onApply }) =
         <div className="flex justify-end space-x-3">
            <button 
              onClick={onClose}
-             className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded"
+             className="px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-600 rounded"
            >
              Cancel
            </button>
            <button 
              onClick={() => onApply(settings)}
-             className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded shadow-sm"
+             className="px-4 py-2 text-sm text-white bg-brand-600 hover:bg-brand-700 rounded shadow-sm"
            >
              Apply Frame
            </button>

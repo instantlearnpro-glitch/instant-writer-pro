@@ -4,6 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SpyWriter Pro</title>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                50: '#f8f3ff',
+                100: '#efe5ff',
+                200: '#dbc9ff',
+                300: '#c4a7ff',
+                400: '#a97cff',
+                500: '#8d55f1',
+                600: '#7539d3',
+                700: '#5c2cab',
+                800: '#462184',
+                900: '#32175f'
+              }
+            }
+          }
+        }
+      };
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Google Fonts requested by the user's document structure to ensure correct rendering -->
@@ -23,14 +45,39 @@
         height: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #f1f1f1; 
+        background: #f8f3ff;
       }
       ::-webkit-scrollbar-thumb {
-        background: #c1c1c1; 
+        background: #c4a7ff;
         border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #a8a8a8; 
+        background: #a97cff;
+      }
+      input[type='range']::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 9999px;
+        background: #8d55f1;
+        box-shadow: 0 0 0 3px rgba(141, 85, 241, 0.15);
+        cursor: pointer;
+      }
+      input[type='range']::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border: none;
+        border-radius: 9999px;
+        background: #8d55f1;
+        box-shadow: 0 0 0 3px rgba(141, 85, 241, 0.15);
+        cursor: pointer;
+      }
+      input[type='range']:focus-visible::-webkit-slider-thumb {
+        box-shadow: 0 0 0 4px rgba(141, 85, 241, 0.25);
+      }
+      input[type='range']:focus-visible::-moz-range-thumb {
+        box-shadow: 0 0 0 4px rgba(141, 85, 241, 0.25);
       }
     </style>
 </head>

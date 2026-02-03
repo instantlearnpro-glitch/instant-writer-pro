@@ -52,7 +52,7 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
             <select 
               value={selectedAnchorId}
               onChange={(e) => setSelectedAnchorId(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
             >
                {anchors.map(anchor => (
                    <option key={anchor.id} value={anchor.id}>
@@ -69,14 +69,14 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
                   <div className="flex border border-gray-300 rounded overflow-hidden">
                       <button 
                         onClick={() => setPosition('top')}
-                        className={`flex-1 flex justify-center py-2 ${position === 'top' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                        className={`flex-1 flex justify-center py-2 ${position === 'top' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
                       >
                           <ArrowUpFromLine size={18} />
                       </button>
                       <div className="w-px bg-gray-300"></div>
                       <button 
                         onClick={() => setPosition('bottom')}
-                        className={`flex-1 flex justify-center py-2 ${position === 'bottom' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                        className={`flex-1 flex justify-center py-2 ${position === 'bottom' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
                       >
                           <ArrowDownFromLine size={18} />
                       </button>
@@ -89,21 +89,21 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
                   <div className="flex border border-gray-300 rounded overflow-hidden">
                       <button 
                         onClick={() => setAlign('left')}
-                        className={`flex-1 flex justify-center py-2 ${align === 'left' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                        className={`flex-1 flex justify-center py-2 ${align === 'left' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
                       >
                           <AlignLeft size={18} />
                       </button>
                       <div className="w-px bg-gray-300"></div>
                       <button 
                         onClick={() => setAlign('center')}
-                        className={`flex-1 flex justify-center py-2 ${align === 'center' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                        className={`flex-1 flex justify-center py-2 ${align === 'center' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
                       >
                           <AlignCenter size={18} />
                       </button>
                       <div className="w-px bg-gray-300"></div>
                       <button 
                         onClick={() => setAlign('right')}
-                        className={`flex-1 flex justify-center py-2 ${align === 'right' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-50'}`}
+                        className={`flex-1 flex justify-center py-2 ${align === 'right' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
                       >
                           <AlignRight size={18} />
                       </button>
@@ -117,13 +117,13 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
                 <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
                     <MoveVertical size={14} /> Margin from edge:
                 </label>
-                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{margin.toFixed(2)} in</span>
+                <span className="text-xs font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded">{margin.toFixed(2)} in</span>
             </div>
             <input 
               type="range" min="0.1" max="2.0" step="0.05"
               value={margin} 
               onChange={(e) => setMargin(parseFloat(e.target.value))}
-              className="w-full accent-blue-600 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              className="w-full accent-brand-600 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
             />
             <div className="flex justify-between text-[10px] text-gray-400 mt-1">
                 <span>0.1"</span>
@@ -139,7 +139,7 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
                 <select 
                 value={font}
                 onChange={(e) => setFont(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-brand-500"
                 >
                 <option value="'Roboto', sans-serif">Roboto</option>
                 <option value="'Courier Prime', monospace">Courier Prime</option>
@@ -153,7 +153,7 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
                 <select 
                 value={fontSize}
                 onChange={(e) => setFontSize(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-brand-500"
                 >
                 <option value="9">9pt</option>
                 <option value="10">10pt</option>
@@ -175,7 +175,7 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
           </button>
           <button 
             onClick={() => onApply(selectedAnchorId, font, fontSize, position, align, margin)}
-            className="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-md transition-all active:scale-95"
+            className="px-6 py-2 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded shadow-md transition-all active:scale-95"
           >
             Finish
           </button>

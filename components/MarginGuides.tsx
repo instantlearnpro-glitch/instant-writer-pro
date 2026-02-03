@@ -78,14 +78,14 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
     const leftPx = margins.left * PPI;
     const rightPx = width - (margins.right * PPI);
 
-    const LineStyle = "absolute bg-blue-500 z-50 transition-none";
+    const LineStyle = "absolute bg-brand-500 z-50 transition-none";
     const TooltipStyle = "absolute bg-gray-800 text-white text-[10px] px-2 py-1 rounded shadow-lg pointer-events-none transform -translate-x-1/2 whitespace-nowrap z-[60]";
 
     return (
         <div ref={containerRef} className="absolute inset-0 pointer-events-none">
             {/* Top Line */}
             <div 
-                className={`${LineStyle} w-full h-px cursor-ns-resize pointer-events-auto hover:h-1 hover:bg-blue-600 opacity-50 hover:opacity-100`}
+                className={`${LineStyle} w-full h-px cursor-ns-resize pointer-events-auto hover:h-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
                 style={{ top: topPx }}
                 onMouseDown={(e) => handleMouseDown(e, 'top')}
             />
@@ -97,7 +97,7 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
 
             {/* Left Line */}
             <div 
-                className={`${LineStyle} h-full w-px cursor-ew-resize pointer-events-auto hover:w-1 hover:bg-blue-600 opacity-50 hover:opacity-100`}
+                className={`${LineStyle} h-full w-px cursor-ew-resize pointer-events-auto hover:w-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
                 style={{ left: leftPx }}
                 onMouseDown={(e) => handleMouseDown(e, 'left')}
             />
@@ -109,7 +109,7 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
 
             {/* Right Line */}
             <div 
-                className={`${LineStyle} h-full w-px cursor-ew-resize pointer-events-auto hover:w-1 hover:bg-blue-600 opacity-50 hover:opacity-100`}
+                className={`${LineStyle} h-full w-px cursor-ew-resize pointer-events-auto hover:w-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
                 style={{ left: rightPx }}
                 onMouseDown={(e) => handleMouseDown(e, 'right')}
             />
@@ -121,7 +121,7 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
 
             {/* Bottom Line */}
             <div 
-                className={`${LineStyle} w-full h-px cursor-ns-resize pointer-events-auto hover:h-1 hover:bg-blue-600 opacity-50 hover:opacity-100`}
+                className={`${LineStyle} w-full h-px cursor-ns-resize pointer-events-auto hover:h-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
                 style={{ bottom: margins.bottom * PPI }}
                 onMouseDown={(e) => handleMouseDown(e, 'bottom')}
             />

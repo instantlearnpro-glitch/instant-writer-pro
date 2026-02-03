@@ -37,7 +37,7 @@ const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert }) => {
                   type="checkbox" 
                   checked={settings.includeH1} 
                   onChange={(e) => setSettings({...settings, includeH1: e.target.checked})}
-                  className="rounded text-blue-600 focus:ring-blue-500"
+                  className="rounded text-brand-600 focus:ring-brand-500"
                 />
                 <span className="text-sm">Heading 1 (H1)</span>
               </label>
@@ -46,7 +46,7 @@ const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert }) => {
                   type="checkbox" 
                   checked={settings.includeH2} 
                   onChange={(e) => setSettings({...settings, includeH2: e.target.checked})}
-                  className="rounded text-blue-600 focus:ring-blue-500"
+                  className="rounded text-brand-600 focus:ring-brand-500"
                 />
                 <span className="text-sm">Heading 2 (H2)</span>
               </label>
@@ -55,7 +55,7 @@ const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert }) => {
                   type="checkbox" 
                   checked={settings.includeH3} 
                   onChange={(e) => setSettings({...settings, includeH3: e.target.checked})}
-                  className="rounded text-blue-600 focus:ring-blue-500"
+                  className="rounded text-brand-600 focus:ring-brand-500"
                 />
                 <span className="text-sm">Heading 3 (H3)</span>
               </label>
@@ -67,7 +67,7 @@ const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert }) => {
              <select 
                 value={settings.style}
                 onChange={(e) => setSettings({...settings, style: e.target.value as any})}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
              >
                  <option value="classic">Classic (Simple Links)</option>
                  <option value="dotted">Book Style (Dotted Leaders)</option>
@@ -79,13 +79,13 @@ const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert }) => {
         <div className="mt-6 flex justify-end space-x-3">
            <button 
              onClick={onClose}
-             className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded"
+             className="px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-600 rounded"
            >
              Cancel
            </button>
            <button 
              onClick={() => onInsert(settings)}
-             className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded shadow-sm"
+             className="px-4 py-2 text-sm text-white bg-brand-600 hover:bg-brand-700 rounded shadow-sm"
            >
              Insert Table of Contents
            </button>

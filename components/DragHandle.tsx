@@ -91,7 +91,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
         indicator.className = 'drop-indicator';
         indicator.style.cssText = `
           height: 4px;
-          background: #3b82f6;
+          background: #8d55f1;
           margin: 4px 0;
           border-radius: 2px;
         `;
@@ -193,7 +193,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
         left: position.left - 2,
         width: position.width + 4,
         height: position.height + 4,
-        border: '2px solid #3b82f6',
+        border: '2px solid #8d55f1',
         borderRadius: '2px',
         zIndex: 100,
         pointerEvents: 'none'
@@ -209,7 +209,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
           transform: 'translateX(-50%)',
           width: 60,
           height: 20,
-          background: '#3b82f6',
+          background: '#8d55f1',
           borderRadius: '4px 4px 0 0',
           cursor: 'grab',
           display: 'flex',
@@ -239,7 +239,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
           transform: 'translateY(-50%)',
           width: 12,
           height: 24,
-          background: '#3b82f6',
+          background: '#8d55f1',
           borderRadius: 4,
           cursor: 'ew-resize',
           pointerEvents: 'auto'
@@ -256,7 +256,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
           transform: 'translateY(-50%)',
           width: 12,
           height: 24,
-          background: '#3b82f6',
+          background: '#8d55f1',
           borderRadius: 4,
           cursor: 'ew-resize',
           pointerEvents: 'auto'
@@ -274,7 +274,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, onUpdate
             transform: 'translateX(-50%)',
             width: 24,
             height: 12,
-            background: '#3b82f6',
+            background: '#8d55f1',
             borderRadius: 4,
             cursor: 'ns-resize',
             pointerEvents: 'auto'

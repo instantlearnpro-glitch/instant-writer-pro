@@ -96,7 +96,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const textCaseMenuRef = useRef<HTMLDivElement>(null);
 
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
-    `p-2.5 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-700 ' + (isActive ? 'bg-blue-100 text-blue-600' : '')}`;
+    `p-2.5 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-[#efe5ff] hover:text-[#7539d3] text-gray-700 ' + (isActive ? 'bg-brand-100 text-brand-600' : '')}`;
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -165,8 +165,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
         <div className="h-[68px] flex items-center px-4 justify-between bg-white z-20 relative">
             <div className="flex items-center space-x-2">
                 <div className="mr-4 flex items-center space-x-2 border-r border-gray-200 pr-4">
-                <h1 className="font-bold text-lg text-gray-800 tracking-tight flex items-center gap-2">
-                    <span className="bg-blue-600 text-white p-1 rounded">SW</span>
+                <h1 className="font-bold text-lg text-gray-800 tracking-tight flex items-center gap-2 h-full leading-none">
+                    <div className="h-14 w-14 overflow-hidden rounded flex items-center justify-center">
+                        <img
+                            src="/loghetto.png"
+                            alt="Laghetto"
+                            className="h-full w-full block object-cover object-[50%_55%] translate-y-1"
+                        />
+                    </div>
                 </h1>
                 <button onClick={onToggleSidebar} className={ButtonClass(false)} title="Toggle Sidebar">
                     {isSidebarOpen ? <PanelLeft size={18} /> : <PanelRight size={18} />}
@@ -223,7 +229,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         <span className="text-[9px] uppercase font-bold">Format</span>
                     </div>
                     <select 
-                        className="h-6 border border-gray-300 rounded px-1 text-[10px] text-gray-700 focus:outline-none focus:border-blue-500 bg-white w-20"
+                        className="h-6 border border-gray-300 rounded px-1 text-[10px] text-gray-700 focus:outline-none focus:border-brand-500 bg-white w-20"
                         onChange={(e) => onPageSizeChange(e.target.value)}
                         value={pageFormatId}
                     >
@@ -260,7 +266,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     <div className="relative w-full">
                         <button
                             onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
-                            className="flex items-center justify-between w-56 h-6 px-2 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 text-[11px] font-medium text-gray-700"
+                            className="flex items-center justify-between w-56 h-6 px-2 bg-gray-50 border border-gray-200 rounded hover:bg-brand-50 text-[11px] font-medium text-gray-700"
                         >
                             <span className="truncate">{currentStyleLabel}</span>
                             <ChevronDown size={10} className="ml-2 text-gray-400" />
@@ -272,7 +278,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                     Apply Style
                                 </div>
                                 {styles.map((style) => (
-                                    <div key={style.tag} className="flex items-center justify-between hover:bg-blue-50 rounded px-2 py-1.5 group cursor-pointer">
+                                    <div key={style.tag} className="flex items-center justify-between hover:bg-brand-50 rounded px-2 py-1.5 group cursor-pointer">
                                         <span 
                                             className="flex-1 text-sm text-gray-700"
                                             onClick={() => {
@@ -288,7 +294,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                                 onUpdateStyle(style.tag);
                                                 setIsStyleMenuOpen(false);
                                             }}
-                                            className="text-gray-400 hover:text-blue-600 p-1 rounded hover:bg-blue-100 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px]"
+                                            className="text-gray-400 hover:text-brand-600 p-1 rounded hover:bg-brand-100 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px]"
                                             title="Update style"
                                         >
                                             <RefreshCw size={10} />
@@ -348,7 +354,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </div>
 
                     {/* Color */}
-                    <div className="relative flex items-center justify-center w-9 h-9 rounded hover:bg-gray-100 cursor-pointer border border-transparent hover:border-gray-300" title="Text Color">
+                    <div className="relative flex items-center justify-center w-9 h-9 rounded hover:bg-brand-50 cursor-pointer border border-transparent hover:border-gray-300" title="Text Color">
                         <span className="font-bold text-gray-700 text-xs select-none" style={{ color: selectionState.foreColor }}>A</span>
                         <input 
                             type="color" 
@@ -380,10 +386,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                             onFormat('lineHeight', val.toString());
                                             setIsLineHeightMenuOpen(false);
                                         }} 
-                                        className="hover:bg-blue-50 text-xs p-2 rounded text-left flex justify-between items-center"
+                                        className="hover:bg-brand-50 text-xs p-2 rounded text-left flex justify-between items-center"
                                     >
                                         {val === 1.0 ? 'Single' : val.toFixed(2)}
-                                        {selectionState.lineHeight === val.toString() && <div className="w-1.5 h-1.5 bg-blue-600 rounded-full"></div>}
+                                        {selectionState.lineHeight === val.toString() && <div className="w-1.5 h-1.5 bg-brand-600 rounded-full"></div>}
                                     </button>
                                 ))}
                             </div>
@@ -402,11 +408,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         {isTextCaseMenuOpen && (
                             <div className="absolute top-10 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-36">
                                 <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Case</div>
-                                <button onClick={() => { onFormat('textTransform', 'uppercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-xs p-2 rounded text-left uppercase">Uppercase</button>
-                                <button onClick={() => { onFormat('textTransform', 'lowercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-xs p-2 rounded text-left lowercase">Lowercase</button>
-                                <button onClick={() => { onFormat('textTransform', 'capitalize'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-xs p-2 rounded text-left capitalize">Capitalize</button>
+                                <button onClick={() => { onFormat('textTransform', 'uppercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-brand-50 text-xs p-2 rounded text-left uppercase">Uppercase</button>
+                                <button onClick={() => { onFormat('textTransform', 'lowercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-brand-50 text-xs p-2 rounded text-left lowercase">Lowercase</button>
+                                <button onClick={() => { onFormat('textTransform', 'capitalize'); setIsTextCaseMenuOpen(false); }} className="hover:bg-brand-50 text-xs p-2 rounded text-left capitalize">Capitalize</button>
                                 <div className="h-px bg-gray-100 my-1"></div>
-                                <button onClick={() => { onFormat('textTransform', 'none'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-xs p-2 rounded text-left">Normal</button>
+                                <button onClick={() => { onFormat('textTransform', 'none'); setIsTextCaseMenuOpen(false); }} className="hover:bg-brand-50 text-xs p-2 rounded text-left">Normal</button>
                             </div>
                         )}
                     </div>
@@ -431,7 +437,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
                 <button 
                     onClick={onExport}
-                    className="bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 shadow-sm"
+                    className="bg-brand-600 text-white p-2 rounded-md hover:bg-brand-700 shadow-sm"
                     title="Esporta"
                 >
                     <Download size={18} />
@@ -453,15 +459,15 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     <div>{/* Controls are in overlay */}</div>
                 </div>
             ) : (
-                <div className="h-16 border-b border-gray-200 bg-blue-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
+                <div className="h-16 border-b border-gray-200 bg-brand-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
                     <div className="flex items-center space-x-6">
-                        <div className="flex items-center gap-2 text-blue-800 font-semibold border-r border-blue-200 pr-4">
+                        <div className="flex items-center gap-2 text-brand-800 font-semibold border-r border-brand-200 pr-4">
                             <ImageIcon size={18} />
                             <span className="hidden sm:inline text-sm">Image</span>
                         </div>
                         
                         {/* Image Actions */}
-                        <div className="flex flex-col gap-0.5 border-r border-blue-200 pr-4">
+                        <div className="flex flex-col gap-0.5 border-r border-brand-200 pr-4">
                         <label className="text-[9px] font-bold text-gray-500 uppercase">Actions</label>
                         <div className="flex items-center gap-2">
                             <label className={`${ButtonClass(false)} cursor-pointer`} title="Replace Image">
@@ -477,7 +483,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         </div>
 
                         {/* Adjustments */}
-                        <div className="flex items-center gap-4 border-r border-blue-200 pr-4">
+                        <div className="flex items-center gap-4 border-r border-brand-200 pr-4">
                             <div className="flex flex-col gap-0.5">
                                 <label className="text-[9px] font-bold text-gray-500 uppercase flex items-center gap-1">
                                     <Sun size={9} /> Brightness
@@ -486,7 +492,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                     type="range" min="0" max="200" 
                                     value={imageProperties.brightness} 
                                     onChange={(e) => onImagePropertyChange('brightness', parseInt(e.target.value))}
-                                    className="w-20 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                                    className="w-20 accent-brand-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                                 />
                             </div>
                             <div className="flex flex-col gap-0.5">
@@ -497,7 +503,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                     type="range" min="0" max="200" 
                                     value={imageProperties.contrast} 
                                     onChange={(e) => onImagePropertyChange('contrast', parseInt(e.target.value))}
-                                    className="w-20 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                                    className="w-20 accent-brand-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                                 />
                             </div>
                         </div>
@@ -521,12 +527,12 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 type="range" min="10" max="100" 
                                 value={imageProperties.width} 
                                 onChange={(e) => onImagePropertyChange('width', parseInt(e.target.value))}
-                                className="w-16 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                                className="w-16 accent-brand-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                             />
                         </div>
                     </div>
                     <div>
-                        <button onClick={() => onFormat('removeSelection')} className="text-xs text-blue-600 underline font-medium ml-4">Close Tools</button>
+                        <button onClick={() => onFormat('removeSelection')} className="text-xs text-brand-600 underline font-medium ml-4">Close Tools</button>
                     </div>
                 </div>
             )
@@ -534,9 +540,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
         {/* 2. HR Tools */}
         {selectedHR && (
-             <div className="h-16 border-b border-gray-200 bg-orange-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
+             <div className="h-16 border-b border-gray-200 bg-brand-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
                 <div className="flex items-center space-x-6">
-                   <div className="flex items-center gap-2 text-orange-800 font-semibold border-r border-orange-200 pr-4">
+                   <div className="flex items-center gap-2 text-brand-800 font-semibold border-r border-brand-200 pr-4">
                        <Minus size={18} />
                        <span className="hidden sm:inline text-sm">Line</span>
                    </div>
@@ -559,7 +565,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                            type="range" min="1" max="50" 
                            value={hrProperties.height} 
                            onChange={(e) => onHRPropertyChange('height', parseInt(e.target.value))}
-                           className="w-20 accent-orange-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                            className="w-20 accent-brand-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                        />
                    </div>
    
@@ -570,7 +576,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                            type="range" min="10" max="100" 
                            value={hrProperties.width} 
                            onChange={(e) => onHRPropertyChange('width', parseInt(e.target.value))}
-                           className="w-20 accent-orange-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                            className="w-20 accent-brand-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                        />
                    </div>
    
@@ -584,7 +590,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                       </div>
                    </div>
    
-                   <div className="w-px h-8 bg-orange-200"></div>
+                    <div className="w-px h-8 bg-brand-200"></div>
    
                    {/* Style */}
                    <div className="flex flex-col gap-0.5">
@@ -603,22 +609,22 @@ const Toolbar: React.FC<ToolbarProps> = ({
    
                 </div>
                 <div>
-                    <button onClick={() => onFormat('removeSelection')} className="text-xs text-orange-600 underline font-medium ml-4">Close Tools</button>
+                    <button onClick={() => onFormat('removeSelection')} className="text-xs text-brand-600 underline font-medium ml-4">Close Tools</button>
                 </div>
            </div>
         )}
         
         {/* 3. Footer Tools */}
         {selectedFooter && (
-            <div className="h-16 border-b border-gray-200 bg-orange-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
+            <div className="h-16 border-b border-gray-200 bg-brand-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
                 <div className="flex items-center space-x-6">
-                    <div className="flex items-center gap-2 text-orange-800 font-semibold border-r border-orange-200 pr-4">
+                    <div className="flex items-center gap-2 text-brand-800 font-semibold border-r border-brand-200 pr-4">
                         <Hash size={18} />
                         <span className="hidden sm:inline text-sm">Footer</span>
                     </div>
 
                     {/* Font & Size */}
-                    <div className="flex flex-col gap-0.5 border-r border-orange-200 pr-4">
+                    <div className="flex flex-col gap-0.5 border-r border-brand-200 pr-4">
                         <label className="text-[9px] font-bold text-gray-500 uppercase">Text</label>
                         <div className="flex items-center gap-1">
                             <select 
@@ -647,7 +653,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </div>
 
                     {/* Style */}
-                    <div className="flex flex-col gap-0.5 border-r border-orange-200 pr-4">
+                    <div className="flex flex-col gap-0.5 border-r border-brand-200 pr-4">
                         <label className="text-[9px] font-bold text-gray-500 uppercase">Style</label>
                         <div className="flex items-center gap-1">
                             <button onClick={() => onFormat('bold')} className={ButtonClass(selectionState.bold)}><Bold size={14} /></button>
@@ -657,7 +663,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </div>
 
                     {/* Alignment */}
-                    <div className="flex flex-col gap-0.5 border-r border-orange-200 pr-4">
+                    <div className="flex flex-col gap-0.5 border-r border-brand-200 pr-4">
                         <label className="text-[9px] font-bold text-gray-500 uppercase">Align</label>
                         <div className="flex items-center gap-1">
                             <button onClick={() => onFormat('justifyLeft')} className={ButtonClass(selectionState.alignLeft)}><AlignLeft size={14} /></button>
@@ -668,7 +674,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </div>
 
                     {/* Spacing & Case */}
-                    <div className="flex flex-col gap-0.5 border-r border-orange-200 pr-4">
+                    <div className="flex flex-col gap-0.5 border-r border-brand-200 pr-4">
                         <label className="text-[9px] font-bold text-gray-500 uppercase">Format</label>
                         <div className="flex items-center gap-1">
                              {/* Line Height */}
@@ -682,9 +688,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 </button>
                                 {isLineHeightMenuOpen && (
                                     <div className="absolute bottom-6 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded p-1 z-50 w-24">
-                                        <button onClick={() => { onFormat('lineHeight', '1.0'); setIsLineHeightMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left">Single</button>
-                                        <button onClick={() => { onFormat('lineHeight', '1.5'); setIsLineHeightMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left">1.5</button>
-                                        <button onClick={() => { onFormat('lineHeight', '2.0'); setIsLineHeightMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left">Double</button>
+                                        <button onClick={() => { onFormat('lineHeight', '1.0'); setIsLineHeightMenuOpen(false); }} className="hover:bg-brand-50 text-[10px] p-1 rounded text-left">Single</button>
+                                        <button onClick={() => { onFormat('lineHeight', '1.5'); setIsLineHeightMenuOpen(false); }} className="hover:bg-brand-50 text-[10px] p-1 rounded text-left">1.5</button>
+                                        <button onClick={() => { onFormat('lineHeight', '2.0'); setIsLineHeightMenuOpen(false); }} className="hover:bg-brand-50 text-[10px] p-1 rounded text-left">Double</button>
                                     </div>
                                 )}
                             </div>
@@ -700,9 +706,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 </button>
                                 {isTextCaseMenuOpen && (
                                     <div className="absolute bottom-6 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded p-1 z-50 w-32">
-                                        <button onClick={() => { onFormat('textTransform', 'uppercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left uppercase">Uppercase</button>
-                                        <button onClick={() => { onFormat('textTransform', 'lowercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left lowercase">Lowercase</button>
-                                        <button onClick={() => { onFormat('textTransform', 'capitalize'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[10px] p-1 rounded text-left capitalize">Capitalize</button>
+                                        <button onClick={() => { onFormat('textTransform', 'uppercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-brand-50 text-[10px] p-1 rounded text-left uppercase">Uppercase</button>
+                                        <button onClick={() => { onFormat('textTransform', 'lowercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-brand-50 text-[10px] p-1 rounded text-left lowercase">Lowercase</button>
+                                        <button onClick={() => { onFormat('textTransform', 'capitalize'); setIsTextCaseMenuOpen(false); }} className="hover:bg-brand-50 text-[10px] p-1 rounded text-left capitalize">Capitalize</button>
                                     </div>
                                 )}
                             </div>
@@ -721,7 +727,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </div>
                 </div>
                 <div>
-                    <button onClick={() => onFormat('removeSelection')} className="text-xs text-orange-600 underline font-medium ml-4">Close</button>
+                    <button onClick={() => onFormat('removeSelection')} className="text-xs text-brand-600 underline font-medium ml-4">Close</button>
                 </div>
             </div>
         )}
@@ -758,7 +764,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         type="range" min="0" max="20" step="1"
                         value={parseInt(selectionState.borderWidth || '0') || 0}
                         onChange={(e) => handleBorderUpdate('borderWidth', e.target.value + 'px')}
-                        className="w-20 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                        className="w-20 accent-brand-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                     />
                     <span className="text-xs text-gray-600 w-4">{parseInt(selectionState.borderWidth || '0') || 0}</span>
                 </div>
@@ -823,7 +829,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         type="range" min="10" max="100" step="5"
                         value={parseInt(selectionState.width || '0') || 100}
                         onChange={(e) => handleBorderUpdate('width', e.target.value + '%')}
-                        className="w-20 accent-blue-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                        className="w-20 accent-brand-600 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                     />
                     <span className="text-xs text-gray-600 w-6 text-right">{parseInt(selectionState.width || '0') || 'Auto'}%</span>
                 </div>

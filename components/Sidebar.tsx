@@ -44,13 +44,13 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex border-b border-gray-200">
           <button 
             onClick={() => setActiveTab('pages')}
-            className={`flex-1 py-3 text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'pages' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
+            className={`flex-1 py-3 text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'pages' ? 'text-brand-600 border-b-2 border-brand-600 bg-brand-50/50' : 'text-gray-500 hover:bg-brand-50 hover:text-brand-600'}`}
           >
               <Layers size={14} /> Pages
           </button>
           <button 
             onClick={() => setActiveTab('structure')}
-            className={`flex-1 py-3 text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'structure' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
+            className={`flex-1 py-3 text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'structure' ? 'text-brand-600 border-b-2 border-brand-600 bg-brand-50/50' : 'text-gray-500 hover:bg-brand-50 hover:text-brand-600'}`}
           >
               <ListTree size={14} /> Structure
           </button>
@@ -67,8 +67,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                     onClick={() => onPageSelect(idx)}
                     className={`w-full text-left px-3 py-3 rounded-md text-sm flex items-center gap-3 transition-colors ${
                     currentPage === idx 
-                        ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600' 
-                        : 'text-gray-600 hover:bg-gray-50 border-l-4 border-transparent'
+                        ? 'bg-brand-50 text-brand-700 border-l-4 border-brand-600' 
+                        : 'text-gray-600 hover:bg-brand-50 hover:text-brand-600 border-l-4 border-transparent'
                     }`}
                 >
                     <span className="flex items-center justify-center w-6 h-6 bg-gray-100 rounded text-xs font-bold text-gray-500">
@@ -101,7 +101,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 className={`flex-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors flex items-center justify-center gap-1 ${
                                     selectionMode.active 
                                     ? 'bg-gray-100 text-gray-400 border-gray-200' 
-                                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+                                    : 'bg-white text-gray-700 border-gray-300 hover:border-brand-400 hover:text-brand-600'
                                 }`}
                                 title={`Select ${cat.label} blocks`}
                             >
@@ -113,18 +113,18 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                 {/* Selection Mode Banner (Overlay or pushed) */}
                 {selectionMode.active && (
-                    <div className="bg-blue-50 border-b border-blue-200 p-3 animate-in fade-in slide-in-from-top-2">
-                        <div className="flex items-center gap-2 text-blue-800 font-bold text-xs uppercase mb-1">
+                    <div className="bg-brand-50 border-b border-brand-200 p-3 animate-in fade-in slide-in-from-top-2">
+                        <div className="flex items-center gap-2 text-brand-800 font-bold text-xs uppercase mb-1">
                             <MousePointer size={14} /> Selecting {selectionMode.level?.toUpperCase()}
                         </div>
-                        <p className="text-[10px] text-blue-600 mb-2 leading-tight">
+                        <p className="text-[10px] text-brand-600 mb-2 leading-tight">
                             Click paragraphs in the document to tag them as {selectionMode.level}.
                         </p>
                         <div className="flex gap-2">
-                            <button onClick={onConfirmSelection} className="flex-1 bg-blue-600 text-white text-xs py-1 rounded hover:bg-blue-700 font-bold">
+                            <button onClick={onConfirmSelection} className="flex-1 bg-brand-600 text-white text-xs py-1 rounded hover:bg-brand-700 font-bold">
                                 Done
                             </button>
-                            <button onClick={onCancelSelection} className="flex-1 bg-white text-gray-600 border border-gray-300 text-xs py-1 rounded hover:bg-gray-50">
+                            <button onClick={onCancelSelection} className="flex-1 bg-white text-gray-600 border border-gray-300 text-xs py-1 rounded hover:bg-brand-50">
                                 Cancel
                             </button>
                         </div>
@@ -154,7 +154,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     return (
                                         <div 
                                             key={entry.id}
-                                            className={`group flex items-center justify-between p-1.5 rounded hover:bg-blue-50 cursor-pointer transition-colors ${indent}`}
+                                            className={`group flex items-center justify-between p-1.5 rounded hover:bg-brand-50 cursor-pointer transition-colors ${indent}`}
                                             onClick={() => onNavigateToEntry(entry.elementId)}
                                         >
                                             <div className="flex items-baseline gap-2 overflow-hidden">
