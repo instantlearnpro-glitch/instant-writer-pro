@@ -2,7 +2,7 @@
 export const DEFAULT_CSS = `
 @page {
     size: 8.5in 11in;
-    margin: 0.6in;
+    margin: 0.5in 0.5in 0.5in 0.375in;
 }
 
 * {
@@ -14,7 +14,7 @@ export const DEFAULT_CSS = `
     height: 11in;
     min-height: 11in;
     max-height: 11in;
-    padding: 0.6in;
+    padding: 0.5in 0.5in 0.5in 0.375in;
     margin: 0 auto 0.5in auto;
     position: relative;
     background: #fff;

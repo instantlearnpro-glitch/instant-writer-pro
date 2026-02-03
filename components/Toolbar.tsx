@@ -5,7 +5,7 @@ import {
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
   RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
-  ArrowUpDown, Type
+  ArrowUpDown, Type, Ruler
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -225,18 +225,25 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
                 {/* Page Size Selector (Compact) */}
                 <div className="flex flex-col justify-center items-start border-r border-gray-200 pr-1 mr-1 pl-1 gap-0.5">
-                    <div className="flex items-center text-gray-500 ml-0.5">
+                    <div className="flex items-center justify-between text-gray-500 w-full pl-0.5">
                         <span className="text-[9px] uppercase font-bold">Format</span>
+                        <button
+                            onClick={onToggleMarginGuides}
+                            className={`${ButtonClass(showMarginGuides)} !p-1`}
+                            title="Mostra margini e righello"
+                        >
+                            <Ruler size={12} />
+                        </button>
                     </div>
                     <select 
                         className="h-6 border border-gray-300 rounded px-1 text-[10px] text-gray-700 focus:outline-none focus:border-brand-500 bg-white w-20"
                         onChange={(e) => onPageSizeChange(e.target.value)}
                         value={pageFormatId}
                     >
-                        <option value={PAGE_FORMATS.LETTER.id}>Letter</option>
-                        <option value={PAGE_FORMATS.LETTER_THICK.id}>Letter (T)</option>
-                        <option value={PAGE_FORMATS.TRADE.id}>Trade</option>
-                        <option value={PAGE_FORMATS.TRADE_THICK.id}>Trade (T)</option>
+                        <option value={PAGE_FORMATS.LETTER.id}>8.5x11 (110–150)</option>
+                        <option value={PAGE_FORMATS.LETTER_THICK.id}>8.5x11 (151–200)</option>
+                        <option value={PAGE_FORMATS.TRADE.id}>6x9 (110–150)</option>
+                        <option value={PAGE_FORMATS.TRADE_THICK.id}>6x9 (151–200)</option>
                         <option value={PAGE_FORMATS.CUSTOM.id}>Custom</option>
                     </select>
                     
@@ -437,7 +444,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
                 <button 
                     onClick={onExport}
-                    className="bg-brand-600 text-white p-2 rounded-md hover:bg-brand-700 shadow-sm"
+                    className="bg-[#8d55f1] text-white p-2 rounded-md hover:bg-[#7539d3] shadow-sm"
                     title="Esporta"
                 >
                     <Download size={18} />

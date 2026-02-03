@@ -49,6 +49,33 @@ const rgbToHex = (rgb: string) => {
   return `#${r}${g}${b}`;
 };
 
+const mapFontSizeToCommandValue = (fontSizePx: number) => {
+  const sizes = [10, 13, 16, 18, 24, 32, 48];
+  let closestIndex = 0;
+  let smallestDiff = Infinity;
+  sizes.forEach((size, index) => {
+    const diff = Math.abs(size - fontSizePx);
+    if (diff < smallestDiff) {
+      smallestDiff = diff;
+      closestIndex = index;
+    }
+  });
+  return (closestIndex + 1).toString();
+};
+
+const hasAncestorTag = (node: Node | null, tagNames: string[], stopAt?: HTMLElement | null) => {
+  let element = node
+    ? (node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement)
+    : null;
+  const tags = tagNames.map(tag => tag.toUpperCase());
+  while (element) {
+    if (tags.includes(element.tagName)) return true;
+    if (stopAt && element === stopAt) break;
+    element = element.parentElement;
+  }
+  return false;
+};
+
 const Editor: React.FC<EditorProps> = ({ 
   htmlContent, 
   cssContent, 
@@ -93,7 +120,7 @@ const Editor: React.FC<EditorProps> = ({
 
   // Generate dynamic CSS for selection highlights
   const selectionStyle = selectionMode?.active && selectionMode.selectedIds.length > 0
-    ? `${selectionMode.selectedIds.map(id => `#${id}`).join(', ')} { outline: 2px dashed #2563eb !important; cursor: pointer !important; position: relative; z-index: 10; }`
+    ? `${selectionMode.selectedIds.map(id => `#${id}`).join(', ')} { outline: 2px dashed #8d55f1 !important; cursor: pointer !important; position: relative; z-index: 10; }`
     : '';
 
   // Initialize content
@@ -142,7 +169,7 @@ const Editor: React.FC<EditorProps> = ({
           observer.disconnect();
           window.removeEventListener('resize', updateRects);
       };
-  }, [htmlContent, showMarginGuides, containerRef]);
+  }, [htmlContent, showMarginGuides, containerRef, zoom, cssContent]);
 
   const handleSelectionChange = useCallback(() => {
     const selection = document.getSelection();
@@ -150,54 +177,141 @@ const Editor: React.FC<EditorProps> = ({
     const range = selection.getRangeAt(0);
     if (!contentRef.current?.contains(range.commonAncestorContainer)) return;
 
+    const startNode = range.startContainer;
+    const targetElement = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode as HTMLElement;
+    const block = targetElement?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, .page-footer') as HTMLElement | null;
+
+    if (!block) return;
+
+    const computedBlock = window.getComputedStyle(block);
+    const computedTarget = targetElement ? window.getComputedStyle(targetElement) : computedBlock;
+    const fontSizePx = parseFloat(computedTarget.fontSize || '16');
+    const fontWeight = computedTarget.fontWeight;
+    const computedBold = fontWeight === 'bold' || parseInt(fontWeight, 10) >= 600;
+    const textDecoration = computedTarget.textDecorationLine || computedTarget.textDecoration;
+    const computedUnderline = textDecoration.includes('underline');
+    const fontStyle = computedTarget.fontStyle || 'normal';
+    const computedItalic = fontStyle === 'italic' || fontStyle === 'oblique';
+    const boldTag = hasAncestorTag(range.startContainer, ['B', 'STRONG'], block) || hasAncestorTag(range.endContainer, ['B', 'STRONG'], block);
+    const italicTag = hasAncestorTag(range.startContainer, ['I', 'EM'], block) || hasAncestorTag(range.endContainer, ['I', 'EM'], block);
+    const underlineTag = hasAncestorTag(range.startContainer, ['U'], block) || hasAncestorTag(range.endContainer, ['U'], block);
+    const textAlign = computedBlock.textAlign || 'left';
+
+    const shapeClass = block.classList.contains('shape-circle')
+      ? 'circle'
+      : block.classList.contains('shape-pill')
+      ? 'pill'
+      : block.classList.contains('shape-speech')
+      ? 'speech'
+      : block.classList.contains('shape-cloud')
+      ? 'cloud'
+      : block.classList.contains('shape-rectangle')
+      ? 'rectangle'
+      : block.classList.contains('mission-box')
+      ? 'mission-box'
+      : 'none';
+
+    const safeParseInt = (val: string) => {
+      const parsed = parseInt(val, 10);
+      return isNaN(parsed) ? '0' : parsed.toString();
+    };
+
     const state: SelectionState = {
-      bold: document.queryCommandState('bold'),
-      italic: document.queryCommandState('italic'),
-      underline: document.queryCommandState('underline'),
-      blockType: document.queryCommandValue('formatBlock') || 'p',
-      alignLeft: document.queryCommandState('justifyLeft'),
-      alignCenter: document.queryCommandState('justifyCenter'),
-      alignRight: document.queryCommandState('justifyRight'),
-      alignJustify: document.queryCommandState('justifyFull'),
-      fontName: document.queryCommandValue('fontName') || 'sans-serif',
-      fontSize: document.queryCommandValue('fontSize') || '3',
-      lineHeight: 'normal',
-      foreColor: rgbToHex(document.queryCommandValue('foreColor')),
-      borderWidth: '0',
-      borderColor: '#000000',
-      borderRadius: '0',
-      backgroundColor: '#ffffff',
-      padding: '0',
-      borderStyle: 'none',
-      textAlign: 'left',
-      shape: 'none',
+      bold: computedBold || boldTag,
+      italic: computedItalic || italicTag,
+      underline: computedUnderline || underlineTag,
+      blockType: block.tagName.toLowerCase(),
+      alignLeft: textAlign === 'left' || textAlign === 'start',
+      alignCenter: textAlign === 'center',
+      alignRight: textAlign === 'right' || textAlign === 'end',
+      alignJustify: textAlign === 'justify',
+      fontName: computedTarget.fontFamily || 'sans-serif',
+      fontSize: mapFontSizeToCommandValue(fontSizePx),
+      lineHeight: computedBlock.lineHeight || 'normal',
+      foreColor: rgbToHex(computedTarget.color),
+      borderWidth: safeParseInt(computedBlock.borderTopWidth),
+      borderColor: rgbToHex(computedBlock.borderTopColor),
+      borderRadius: safeParseInt(computedBlock.borderRadius),
+      backgroundColor: rgbToHex(computedBlock.backgroundColor),
+      padding: safeParseInt(computedBlock.paddingTop),
+      borderStyle: computedBlock.borderTopStyle || 'none',
+      textAlign: textAlign,
+      shape: shapeClass,
+      width: block.style.width || '',
       range: range.cloneRange()
     };
 
-    const startNode = range.startContainer;
-    const element = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode as HTMLElement;
-    const block = element?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, .page-footer');
-    
-    if (block) {
-        const b = block as HTMLElement;
-        const computed = window.getComputedStyle(b);
-        const safeParseInt = (val: string) => {
-            const parsed = parseInt(val);
-            return isNaN(parsed) ? '0' : parsed.toString();
-        };
-        state.borderWidth = safeParseInt(computed.borderTopWidth);
-        state.borderColor = rgbToHex(computed.borderTopColor);
-        state.borderStyle = computed.borderTopStyle;
-        state.borderRadius = safeParseInt(computed.borderRadius);
-        state.padding = safeParseInt(computed.paddingTop);
-        state.backgroundColor = rgbToHex(computed.backgroundColor);
-        state.textAlign = computed.textAlign;
-        state.lineHeight = computed.lineHeight;
-        state.width = b.style.width || '';
-    }
-
-    onSelectionChange(state, block as HTMLElement | null);
+    onSelectionChange(state, block);
   }, [onSelectionChange]);
+
+  const buildSelectionStateFromElement = useCallback((element: HTMLElement, sourceElement?: HTMLElement | null): SelectionState => {
+    const selection = window.getSelection();
+    const selectionNode = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).commonAncestorContainer : null;
+    const selectionElement = selectionNode
+      ? (selectionNode.nodeType === Node.TEXT_NODE ? selectionNode.parentElement : selectionNode as HTMLElement)
+      : null;
+    const textElement = sourceElement || (selectionElement && element.contains(selectionElement) ? selectionElement : element);
+
+    const computedBlock = window.getComputedStyle(element);
+    const computedText = window.getComputedStyle(textElement);
+    const fontSizePx = parseFloat(computedText.fontSize || '16');
+    const fontWeight = computedText.fontWeight;
+    const isBold = fontWeight === 'bold' || parseInt(fontWeight, 10) >= 600;
+    const textDecoration = computedText.textDecorationLine || computedText.textDecoration;
+    const isUnderline = textDecoration.includes('underline');
+    const fontStyle = computedText.fontStyle || 'normal';
+    const textAlign = computedBlock.textAlign || 'left';
+
+    const shapeClass = element.classList.contains('shape-circle')
+      ? 'circle'
+      : element.classList.contains('shape-pill')
+      ? 'pill'
+      : element.classList.contains('shape-speech')
+      ? 'speech'
+      : element.classList.contains('shape-cloud')
+      ? 'cloud'
+      : element.classList.contains('shape-rectangle')
+      ? 'rectangle'
+      : element.classList.contains('mission-box')
+      ? 'mission-box'
+      : 'none';
+
+    const safeParseInt = (val: string) => {
+      const parsed = parseInt(val, 10);
+      return isNaN(parsed) ? '0' : parsed.toString();
+    };
+
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+    const boldTag = hasAncestorTag(range?.startContainer || null, ['B', 'STRONG'], element) || hasAncestorTag(range?.endContainer || null, ['B', 'STRONG'], element);
+    const italicTag = hasAncestorTag(range?.startContainer || null, ['I', 'EM'], element) || hasAncestorTag(range?.endContainer || null, ['I', 'EM'], element);
+    const underlineTag = hasAncestorTag(range?.startContainer || null, ['U'], element) || hasAncestorTag(range?.endContainer || null, ['U'], element);
+
+    return {
+      bold: isBold || boldTag,
+      italic: (fontStyle === 'italic' || fontStyle === 'oblique') || italicTag,
+      underline: isUnderline || underlineTag,
+      blockType: element.tagName.toLowerCase(),
+      alignLeft: textAlign === 'left' || textAlign === 'start',
+      alignCenter: textAlign === 'center',
+      alignRight: textAlign === 'right' || textAlign === 'end',
+      alignJustify: textAlign === 'justify',
+      fontName: computedText.fontFamily || 'sans-serif',
+      fontSize: mapFontSizeToCommandValue(fontSizePx),
+      lineHeight: computedBlock.lineHeight || 'normal',
+      foreColor: rgbToHex(computedText.color),
+      borderWidth: safeParseInt(computedBlock.borderTopWidth),
+      borderColor: rgbToHex(computedBlock.borderTopColor),
+      borderRadius: safeParseInt(computedBlock.borderRadius),
+      backgroundColor: rgbToHex(computedBlock.backgroundColor),
+      padding: safeParseInt(computedBlock.paddingTop),
+      borderStyle: computedBlock.borderTopStyle || 'none',
+      textAlign: textAlign,
+      shape: shapeClass,
+      width: element.style.width || '',
+      range: range
+    };
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -572,6 +686,14 @@ const Editor: React.FC<EditorProps> = ({
           if (block) {
               block.setAttribute('data-selected', 'true');
               setActiveBlock(block);
+              const selection = window.getSelection();
+              const hasSelection = selection && selection.rangeCount > 0 && !selection.isCollapsed;
+              const selectionInBlock = hasSelection && block.contains(selection.getRangeAt(0).commonAncestorContainer);
+              if (selectionInBlock) {
+                  handleSelectionChange();
+              } else {
+                  onSelectionChange(buildSelectionStateFromElement(block), block);
+              }
           }
           
           if (onBlockClick) {
@@ -606,6 +728,7 @@ const Editor: React.FC<EditorProps> = ({
       container.addEventListener('click', handleClick);
       container.addEventListener('input', handleInput);
       container.addEventListener('keyup', handleInput);
+      container.addEventListener('mouseup', handleSelectionChange);
       document.addEventListener('selectionchange', handleSelectionChange);
       
       return () => {
@@ -613,9 +736,10 @@ const Editor: React.FC<EditorProps> = ({
           container.removeEventListener('click', handleClick);
           container.removeEventListener('input', handleInput);
           container.removeEventListener('keyup', handleInput);
+          container.removeEventListener('mouseup', handleSelectionChange);
           document.removeEventListener('selectionchange', handleSelectionChange);
       };
-  }, [handleSelectionChange, onImageSelect, onContentChange, selectionMode, onBlockSelection]);
+  }, [handleSelectionChange, onImageSelect, onContentChange, selectionMode, onBlockSelection, buildSelectionStateFromElement, onSelectionChange]);
 
   const zoomStyle = {
     transform: `scale(${zoom / 100})`,
@@ -669,22 +793,22 @@ const Editor: React.FC<EditorProps> = ({
                 transition: border-color 0.2s;
             }
             .editor-workspace .spacer:hover {
-                border-color: #9ca3af;
+                border-color: #c4a7ff;
             }
             .editor-workspace hr {
                 cursor: pointer;
                 transition: outline 0.2s;
             }
             .editor-workspace hr:hover {
-                outline: 2px dashed #3b82f6;
+                outline: 2px dashed #8d55f1;
                 outline-offset: 2px;
             }
             .editor-workspace hr[data-selected="true"] {
-                outline: 2px solid #3b82f6;
+                outline: 2px solid #8d55f1;
                 outline-offset: 2px;
             }
             .editor-workspace [data-selected="true"] {
-                outline: 2px solid #3b82f6 !important;
+                outline: 2px solid #8d55f1 !important;
                 outline-offset: 2px !important;
             }
             .editor-workspace p,
@@ -716,9 +840,9 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace table:hover,
             .editor-workspace img:hover,
             .editor-workspace hr:hover {
-                outline: 2px dashed #3b82f6;
+                outline: 2px dashed #8d55f1;
                 outline-offset: 2px;
-                background-color: rgba(59, 130, 246, 0.05);
+                background-color: rgba(141, 85, 241, 0.06);
             }
             ${viewMode === 'double' ? `
             .editor-workspace {
@@ -757,7 +881,7 @@ const Editor: React.FC<EditorProps> = ({
                             className="absolute pointer-events-none"
                             style={{ top: rect.top, left: rect.left, width: rect.width, height: rect.height }}
                         >
-                            <PageRuler width={rect.width} height={rect.height} />
+                            <PageRuler width={rect.width} height={rect.height} margins={pageMargins} />
                             <MarginGuides width={rect.width} height={rect.height} margins={pageMargins} onMarginChange={onMarginChange} />
                         </div>
                     ))}

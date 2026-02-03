@@ -85,7 +85,11 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
         <div ref={containerRef} className="absolute inset-0 pointer-events-none">
             {/* Top Line */}
             <div 
-                className={`${LineStyle} w-full h-px cursor-ns-resize pointer-events-auto hover:h-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
+                className={`${LineStyle} w-full h-px pointer-events-none hover:h-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
+                style={{ top: topPx }}
+            />
+            <div
+                className="absolute left-0 right-0 h-4 -translate-y-2 cursor-ns-resize pointer-events-auto"
                 style={{ top: topPx }}
                 onMouseDown={(e) => handleMouseDown(e, 'top')}
             />
@@ -121,8 +125,12 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
 
             {/* Bottom Line */}
             <div 
-                className={`${LineStyle} w-full h-px cursor-ns-resize pointer-events-auto hover:h-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
-                style={{ bottom: margins.bottom * PPI }}
+                className={`${LineStyle} w-full h-px pointer-events-none hover:h-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
+                style={{ top: bottomPx }}
+            />
+            <div
+                className="absolute left-0 right-0 h-4 -translate-y-2 cursor-ns-resize pointer-events-auto"
+                style={{ top: bottomPx }}
                 onMouseDown={(e) => handleMouseDown(e, 'bottom')}
             />
             {dragging === 'bottom' && (

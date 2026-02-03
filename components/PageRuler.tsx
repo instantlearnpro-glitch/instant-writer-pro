@@ -5,9 +5,10 @@ interface PageRulerProps {
     height: number;
     unit?: 'in' | 'cm';
     ppi?: number;
+    margins?: { top: number, bottom: number, left: number, right: number };
 }
 
-const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi = 96 }) => {
+const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi = 96, margins }) => {
     // Determine tick interval based on unit
     // Inches: Major (1), Medium (0.5), Minor (0.125)
     // Cm: Major (1), Medium (0.5), Minor (0.1)
@@ -16,6 +17,7 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
     const rulerSize = 20; // Thickness of the ruler bar
     const tickColor = "#c4a7ff";
     const textColor = "#7539d3";
+    const marginColor = "rgba(0, 0, 0, 0.05)";
 
     const renderTicks = (length: number, orientation: 'horizontal' | 'vertical') => {
         const ticks = [];
@@ -71,6 +73,13 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
             {/* Top Ruler */}
             <div className="absolute top-[-20px] left-0 right-0 h-[20px] bg-brand-50 border-b border-brand-200">
                 <svg width={width} height={20} className="overflow-visible">
+                    {/* Margin Backgrounds */}
+                    {margins && (
+                        <>
+                            <rect x={0} y={0} width={margins.left * ppi} height={20} fill={marginColor} />
+                            <rect x={width - (margins.right * ppi)} y={0} width={margins.right * ppi} height={20} fill={marginColor} />
+                        </>
+                    )}
                     {renderTicks(width, 'horizontal')}
                 </svg>
             </div>
@@ -78,6 +87,13 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
             {/* Left Ruler */}
             <div className="absolute top-0 bottom-0 left-[-20px] w-[20px] bg-brand-50 border-r border-brand-200">
                 <svg width={20} height={height} className="overflow-visible">
+                    {/* Margin Backgrounds */}
+                    {margins && (
+                        <>
+                            <rect x={0} y={0} width={20} height={margins.top * ppi} fill={marginColor} />
+                            <rect x={0} y={height - (margins.bottom * ppi)} width={20} height={margins.bottom * ppi} fill={marginColor} />
+                        </>
+                    )}
                     {renderTicks(height, 'vertical')}
                 </svg>
             </div>

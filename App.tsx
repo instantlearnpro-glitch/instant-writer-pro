@@ -21,6 +21,95 @@ declare global {
   }
 }
 
+const rgbToHex = (rgb: string) => {
+  if (!rgb || rgb === 'transparent' || rgb === 'rgba(0, 0, 0, 0)') return '#ffffff';
+  const result = rgb.match(/\d+/g);
+  if (!result || result.length < 3) return '#000000';
+  const r = parseInt(result[0], 10).toString(16).padStart(2, '0');
+  const g = parseInt(result[1], 10).toString(16).padStart(2, '0');
+  const b = parseInt(result[2], 10).toString(16).padStart(2, '0');
+  return `#${r}${g}${b}`;
+};
+
+const mapFontSizeToCommandValue = (fontSizePx: number) => {
+  const sizes = [10, 13, 16, 18, 24, 32, 48];
+  let closestIndex = 0;
+  let smallestDiff = Infinity;
+  sizes.forEach((size, index) => {
+    const diff = Math.abs(size - fontSizePx);
+    if (diff < smallestDiff) {
+      smallestDiff = diff;
+      closestIndex = index;
+    }
+  });
+  return (closestIndex + 1).toString();
+};
+
+const buildSelectionStateFromElement = (element: HTMLElement): SelectionState => {
+  const selection = window.getSelection();
+  const selectionNode = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).commonAncestorContainer : null;
+  const selectionElement = selectionNode
+    ? (selectionNode.nodeType === Node.TEXT_NODE ? selectionNode.parentElement : selectionNode as HTMLElement)
+    : null;
+  const textElement = selectionElement && element.contains(selectionElement) ? selectionElement : element;
+
+  const computedBlock = window.getComputedStyle(element);
+  const computedText = window.getComputedStyle(textElement);
+  const fontSizePx = parseFloat(computedText.fontSize || '16');
+  const fontWeight = computedText.fontWeight;
+  const isBold = fontWeight === 'bold' || parseInt(fontWeight, 10) >= 600;
+  const textDecoration = computedText.textDecorationLine || computedText.textDecoration;
+  const isUnderline = textDecoration.includes('underline');
+  const fontStyle = computedText.fontStyle || 'normal';
+  const textAlign = computedBlock.textAlign || 'left';
+
+  const shapeClass = element.classList.contains('shape-circle')
+    ? 'circle'
+    : element.classList.contains('shape-pill')
+    ? 'pill'
+    : element.classList.contains('shape-speech')
+    ? 'speech'
+    : element.classList.contains('shape-cloud')
+    ? 'cloud'
+    : element.classList.contains('shape-rectangle')
+    ? 'rectangle'
+    : element.classList.contains('mission-box')
+    ? 'mission-box'
+    : 'none';
+
+  const safeParseInt = (val: string) => {
+    const parsed = parseInt(val, 10);
+    return isNaN(parsed) ? '0' : parsed.toString();
+  };
+
+  const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+  return {
+    bold: isBold,
+    italic: fontStyle === 'italic' || fontStyle === 'oblique',
+    underline: isUnderline,
+    blockType: element.tagName.toLowerCase(),
+    alignLeft: textAlign === 'left' || textAlign === 'start',
+    alignCenter: textAlign === 'center',
+    alignRight: textAlign === 'right' || textAlign === 'end',
+    alignJustify: textAlign === 'justify',
+    fontName: computedText.fontFamily || 'sans-serif',
+    fontSize: mapFontSizeToCommandValue(fontSizePx),
+    lineHeight: computedBlock.lineHeight || 'normal',
+    foreColor: rgbToHex(computedText.color),
+    borderWidth: safeParseInt(computedBlock.borderTopWidth),
+    borderColor: rgbToHex(computedBlock.borderTopColor),
+    borderRadius: safeParseInt(computedBlock.borderRadius),
+    backgroundColor: rgbToHex(computedBlock.backgroundColor),
+    padding: safeParseInt(computedBlock.paddingTop),
+    borderStyle: computedBlock.borderTopStyle || 'none',
+    textAlign: textAlign,
+    shape: shapeClass,
+    width: element.style.width || '',
+    range: range
+  };
+};
+
 const App: React.FC = () => {
   const [docState, setDocState] = useState<DocumentState>({
     htmlContent: DEFAULT_HTML,
@@ -248,7 +337,7 @@ const App: React.FC = () => {
   }, [docState.htmlContent]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+    const files = Array.from(e.target.files || []) as File[];
     if (files.length === 0) return;
 
     // 1. Find the main document file
@@ -966,9 +1055,10 @@ const App: React.FC = () => {
           }
 
           // Verify range is valid for NEW creation
+          const workspace = document.querySelector('.editor-workspace');
           const isRangeValid = range && 
                                !range.collapsed && 
-                               (document.contains(range.commonAncestorContainer) || (contentRef.current && contentRef.current.contains(range.commonAncestorContainer)));
+                               (document.contains(range.commonAncestorContainer) || (workspace && workspace.contains(range.commonAncestorContainer)));
 
           if (isRangeValid) {
               const content = range!.extractContents();
@@ -2505,7 +2595,9 @@ ${contentHtml}
                 cssContent={docState.cssContent}
                 onContentChange={handleContentChange}
                 onSelectionChange={onSelectionChange}
-                onBlockClick={(block) => setActiveBlock(block)}
+                onBlockClick={(block) => {
+                    setActiveBlock(block);
+                }}
                 onImageSelect={handleImageSelect}
                 onHRSelect={handleHRSelect}
                 onFooterSelect={handleFooterSelect}
