@@ -96,7 +96,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const textCaseMenuRef = useRef<HTMLDivElement>(null);
 
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
-    `p-2.5 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-[#efe5ff] hover:text-[#7539d3] text-gray-700 ' + (isActive ? 'bg-brand-100 text-brand-600' : '')}`;
+    `p-2.5 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-[#efe5ff] hover:text-[#7539d3] ' + (isActive ? 'bg-[#efe5ff] text-[#7539d3]' : 'text-gray-700')}`;
 
   // Close menu when clicking outside
   useEffect(() => {
