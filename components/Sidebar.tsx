@@ -38,7 +38,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <div className={`w-72 border-r border-gray-200 bg-white h-[calc(100vh-64px)] overflow-hidden flex flex-col flex-shrink-0 transition-all duration-300 ${isSidebarOpen ? 'ml-0' : '-ml-72'}`}>
+    <div className={`w-72 border-r border-gray-200 bg-white h-[calc(100vh-68px)] overflow-hidden flex flex-col flex-shrink-0 transition-all duration-300 ${isSidebarOpen ? 'ml-0' : '-ml-72'}`}>
       
       {/* Tabs */}
       <div className="flex border-b border-gray-200">

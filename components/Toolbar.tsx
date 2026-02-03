@@ -96,7 +96,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const textCaseMenuRef = useRef<HTMLDivElement>(null);
 
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
-    `p-2 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-700 ' + (isActive ? 'bg-blue-100 text-blue-600' : '')}`;
+    `p-2.5 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-700 ' + (isActive ? 'bg-blue-100 text-blue-600' : '')}`;
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -162,7 +162,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <div className="flex flex-col border-b border-gray-200 shadow-sm z-10 sticky top-0 bg-white">
         {/* === MAIN TOOLBAR (Always Visible) === */}
-        <div className="h-16 flex items-center px-4 justify-between bg-white z-20 relative">
+        <div className="h-[68px] flex items-center px-4 justify-between bg-white z-20 relative">
             <div className="flex items-center space-x-2">
                 <div className="mr-4 flex items-center space-x-2 border-r border-gray-200 pr-4">
                 <h1 className="font-bold text-lg text-gray-800 tracking-tight flex items-center gap-2">
@@ -183,7 +183,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </button>
                 </div>
 
-                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2">
+                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 mr-2">
                     <label className={`${ButtonClass(false)} cursor-pointer`} title="Apri File">
                         <input type="file" multiple accept=".html,.htm,.docx,image/*" onChange={onFileUpload} className="hidden" />
                         <FileUp size={18} />
@@ -195,7 +195,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
                 
                 {/* Insertions */}
-                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 pl-2">
+                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 mr-2 pl-2">
                     <button onClick={onPageBreak} className={ButtonClass(false)} title="Insert Page Break (Cmd+Enter)">
                         <FilePlus size={18} />
                     </button>
@@ -217,222 +217,217 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </button>
                 </div>
 
-                {/* Page Size Selector */}
-                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 pl-2">
-                    <Settings size={16} className="text-gray-400 mr-1" />
+                {/* Page Size Selector (Compact) */}
+                <div className="flex flex-col justify-center items-start border-r border-gray-200 pr-1 mr-1 pl-1 gap-0.5">
+                    <div className="flex items-center text-gray-500 ml-0.5">
+                        <span className="text-[9px] uppercase font-bold">Format</span>
+                    </div>
                     <select 
-                        className="h-9 border border-gray-300 rounded px-2 text-sm text-gray-700 focus:outline-none focus:border-blue-500 bg-white"
+                        className="h-6 border border-gray-300 rounded px-1 text-[10px] text-gray-700 focus:outline-none focus:border-blue-500 bg-white w-20"
                         onChange={(e) => onPageSizeChange(e.target.value)}
                         value={pageFormatId}
                     >
-                        <option value={PAGE_FORMATS.LETTER.id}>{PAGE_FORMATS.LETTER.name}</option>
-                        <option value={PAGE_FORMATS.LETTER_THICK.id}>{PAGE_FORMATS.LETTER_THICK.name}</option>
-                        <option value={PAGE_FORMATS.TRADE.id}>{PAGE_FORMATS.TRADE.name}</option>
-                        <option value={PAGE_FORMATS.TRADE_THICK.id}>{PAGE_FORMATS.TRADE_THICK.name}</option>
-                        <option value={PAGE_FORMATS.CUSTOM.id}>{PAGE_FORMATS.CUSTOM.name}</option>
+                        <option value={PAGE_FORMATS.LETTER.id}>Letter</option>
+                        <option value={PAGE_FORMATS.LETTER_THICK.id}>Letter (T)</option>
+                        <option value={PAGE_FORMATS.TRADE.id}>Trade</option>
+                        <option value={PAGE_FORMATS.TRADE_THICK.id}>Trade (T)</option>
+                        <option value={PAGE_FORMATS.CUSTOM.id}>Custom</option>
                     </select>
                     
                     {pageFormatId === 'custom' && (
-                        <div className="flex items-center gap-1 ml-1">
+                        <div className="flex items-center gap-1">
                             <input 
                                 type="text" 
                                 value={customPageSize.width} 
                                 onChange={(e) => onCustomPageSizeChange(e.target.value, customPageSize.height)}
-                                className="w-12 h-7 border border-gray-300 rounded px-1 text-xs text-center"
+                                className="w-9 h-5 border border-gray-300 rounded px-1 text-[9px] text-center"
                                 placeholder="W"
-                                title="Width (e.g. 8.5in, 800px)"
                             />
-                            <span className="text-gray-400 text-xs">x</span>
                             <input 
                                 type="text" 
                                 value={customPageSize.height} 
                                 onChange={(e) => onCustomPageSizeChange(customPageSize.width, e.target.value)}
-                                className="w-12 h-7 border border-gray-300 rounded px-1 text-xs text-center"
+                                className="w-9 h-5 border border-gray-300 rounded px-1 text-[9px] text-center"
                                 placeholder="H"
-                                title="Height (e.g. 11in, 1200px)"
                             />
                         </div>
                     )}
-
-                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
-                    
-                    {/* Toggle Margins */}
-                    <button 
-                        onClick={onToggleMarginGuides} 
-                        className={ButtonClass(showMarginGuides)}
-                        title="Show/Edit Page Margins"
-                    >
-                        <LayoutTemplate size={18} />
-                    </button>
                 </div>
 
-                {/* 1. Style Group (Custom Dropdown) */}
-                <div className="relative flex flex-col border-r border-gray-200 px-3 h-full justify-center min-w-[120px]" ref={styleMenuRef}>
-                    <button
-                        onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
-                        className="flex items-center justify-between w-full h-8 px-2 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 text-sm font-medium text-gray-700"
-                    >
-                        <span className="truncate">{currentStyleLabel}</span>
-                        <ChevronDown size={14} className="ml-2 text-gray-400" />
-                    </button>
+                {/* Stacked Group: Style & Font Family */}
+                <div className="flex flex-col justify-center gap-1 border-r border-gray-200 px-3 mr-3 h-full min-w-[200px] py-1.5" ref={styleMenuRef}>
+                    {/* Top: Style Selector */}
+                    <div className="relative w-full">
+                        <button
+                            onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
+                            className="flex items-center justify-between w-56 h-6 px-2 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 text-[11px] font-medium text-gray-700"
+                        >
+                            <span className="truncate">{currentStyleLabel}</span>
+                            <ChevronDown size={10} className="ml-2 text-gray-400" />
+                        </button>
 
-                    {isStyleMenuOpen && (
-                        <div className="absolute top-14 left-0 w-64 bg-white border border-gray-200 rounded-md shadow-xl z-50 flex flex-col p-1">
-                            <div className="text-[10px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">
-                                Apply or Update Styles
-                            </div>
-                            {styles.map((style) => (
-                                <div key={style.tag} className="flex items-center justify-between hover:bg-blue-50 rounded px-2 py-1.5 group cursor-pointer">
-                                    <span 
-                                        className="flex-1 text-sm text-gray-700"
-                                        onClick={() => {
-                                            onFormat('formatBlock', style.tag);
-                                            setIsStyleMenuOpen(false);
-                                        }}
-                                    >
-                                        {style.label}
-                                    </span>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onUpdateStyle(style.tag);
-                                            setIsStyleMenuOpen(false);
-                                        }}
-                                        className="text-gray-400 hover:text-blue-600 p-1 rounded hover:bg-blue-100 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px]"
-                                        title={`Update ${style.label} style to match selection`}
-                                    >
-                                        Update <RefreshCw size={10} />
-                                    </button>
+                        {isStyleMenuOpen && (
+                            <div className="absolute top-7 left-0 w-56 bg-white border border-gray-200 rounded-md shadow-xl z-50 flex flex-col p-1">
+                                <div className="text-[10px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">
+                                    Apply Style
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {/* 2. Font & Formatting Group */}
-                <div className="flex flex-col border-r border-gray-200 px-3 h-full justify-center">
-                    {/* Row 1: Font Family & Size */}
-                    <div className="flex items-center gap-1 mb-1">
-                        <select 
-                            className="h-6 border border-gray-200 rounded text-[11px] text-gray-800 focus:outline-none w-32 px-1 cursor-pointer"
-                            onChange={(e) => onFormat('fontName', e.target.value)}
-                            value={selectionState.fontName || 'inherit'}
-                            title="Font Family"
-                        >
-                            {displayFonts.map((font, idx) => (
-                                <option key={idx} value={font.value}>
-                                    {font.name} {font.available === false ? '⚠️' : ''}
-                                </option>
-                            ))}
-                        </select>
-
-                        <select 
-                            className="h-6 border border-gray-200 rounded text-[11px] text-gray-800 focus:outline-none w-14 px-1 cursor-pointer"
-                            onChange={(e) => onFormat('fontSize', e.target.value)}
-                            value={selectionState.fontSize || '3'}
-                            title="Font Size"
-                        >
-                            <option value="1">10px</option>
-                            <option value="2">13px</option>
-                            <option value="3">16px</option>
-                            <option value="4">18px</option>
-                            <option value="5">24px</option>
-                            <option value="6">32px</option>
-                            <option value="7">48px</option>
-                        </select>
-                    </div>
-
-                    {/* Row 2: BIU & Color */}
-                    <div className="flex items-center gap-1">
-                        <button onClick={() => onFormat('bold')} className={`${ButtonClass(selectionState.bold)} !p-1`} title="Bold (Ctrl+B)">
-                            <Bold size={14} />
-                        </button>
-                        <button onClick={() => onFormat('italic')} className={`${ButtonClass(selectionState.italic)} !p-1`} title="Italic (Ctrl+I)">
-                            <Italic size={14} />
-                        </button>
-                        <button onClick={() => onFormat('underline')} className={`${ButtonClass(selectionState.underline)} !p-1`} title="Underline (Ctrl+U)">
-                            <Underline size={14} />
-                        </button>
-                        <div className="w-px h-4 bg-gray-200 mx-1"></div>
-                        <div className="relative flex items-center justify-center w-6 h-6 rounded hover:bg-gray-100 cursor-pointer border border-transparent hover:border-gray-300" title="Text Color">
-                            <span className="font-bold text-gray-700 text-[10px] select-none" style={{ color: selectionState.foreColor }}>A</span>
-                            <input 
-                                type="color" 
-                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                                value={selectionState.foreColor || '#000000'}
-                                onChange={(e) => onFormat('foreColor', e.target.value)}
-                            />
-                            <div className="absolute bottom-0.5 w-3 h-0.5 rounded-full" style={{ backgroundColor: selectionState.foreColor || '#000000' }}></div>
-                        </div>
-
-                        <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
-
-                        {/* Line Height */}
-                        <div className="relative flex items-center" ref={lineHeightMenuRef}>
-                            <button 
-                                onClick={() => setIsLineHeightMenuOpen(!isLineHeightMenuOpen)}
-                                className={`${ButtonClass(isLineHeightMenuOpen)} !p-1`} 
-                                title="Line Height"
-                            >
-                                <ArrowUpDown size={14} />
-                            </button>
-                            {isLineHeightMenuOpen && (
-                                <div className="absolute top-7 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-28 animate-in fade-in zoom-in duration-150">
-                                    <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Spacing</div>
-                                    {[1.0, 1.15, 1.5, 2.0, 2.5, 3.0].map(val => (
-                                        <button 
-                                            key={val}
+                                {styles.map((style) => (
+                                    <div key={style.tag} className="flex items-center justify-between hover:bg-blue-50 rounded px-2 py-1.5 group cursor-pointer">
+                                        <span 
+                                            className="flex-1 text-sm text-gray-700"
                                             onClick={() => {
-                                                onFormat('lineHeight', val.toString());
-                                                setIsLineHeightMenuOpen(false);
-                                            }} 
-                                            className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left transition-colors flex justify-between items-center"
+                                                onFormat('formatBlock', style.tag);
+                                                setIsStyleMenuOpen(false);
+                                            }}
                                         >
-                                            {val === 1.0 ? 'Single (1.0)' : val === 2.0 ? 'Double (2.0)' : val.toFixed(2)}
-                                            {selectionState.lineHeight === val.toString() && <div className="w-1 h-1 bg-blue-600 rounded-full"></div>}
+                                            {style.label}
+                                        </span>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onUpdateStyle(style.tag);
+                                                setIsStyleMenuOpen(false);
+                                            }}
+                                            className="text-gray-400 hover:text-blue-600 p-1 rounded hover:bg-blue-100 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px]"
+                                            title="Update style"
+                                        >
+                                            <RefreshCw size={10} />
                                         </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Text Case */}
-                        <div className="relative flex items-center" ref={textCaseMenuRef}>
-                            <button 
-                                onClick={() => setIsTextCaseMenuOpen(!isTextCaseMenuOpen)}
-                                className={`${ButtonClass(isTextCaseMenuOpen)} !p-1`} 
-                                title="Text Case"
-                            >
-                                <Type size={14} />
-                            </button>
-                            {isTextCaseMenuOpen && (
-                                <div className="absolute top-7 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-32 animate-in fade-in zoom-in duration-150">
-                                    <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Text Case</div>
-                                    <button onClick={() => { onFormat('textTransform', 'uppercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left uppercase">Uppercase</button>
-                                    <button onClick={() => { onFormat('textTransform', 'lowercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left lowercase">Lowercase</button>
-                                    <button onClick={() => { onFormat('textTransform', 'capitalize'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left capitalize">Capitalize</button>
-                                    <div className="h-px bg-gray-100 my-1"></div>
-                                    <button onClick={() => { onFormat('textTransform', 'none'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-[11px] p-1.5 rounded text-left">Normal / Reset</button>
-                                </div>
-                            )}
-                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
+
+                    {/* Bottom: Font Family */}
+                    <select 
+                        className="h-6 border border-gray-200 rounded text-[11px] text-gray-800 focus:outline-none w-56 px-2 cursor-pointer bg-white"
+                        onChange={(e) => onFormat('fontName', e.target.value)}
+                        value={selectionState.fontName || 'inherit'}
+                        title="Font Family"
+                    >
+                        {displayFonts.map((font, idx) => (
+                            <option key={idx} value={font.value}>
+                                {font.name} {font.available === false ? '⚠️' : ''}
+                            </option>
+                        ))}
+                    </select>
                 </div>
 
-                {/* 3. Alignment Group */}
-                <div className="flex items-center gap-1 border-r border-gray-200 px-3 h-full justify-center">
-                    <button onClick={() => onFormat('justifyLeft')} className={`${ButtonClass(selectionState.alignLeft)} !p-1.5`} title="Align Left">
-                        <AlignLeft size={16} />
-                    </button>
-                    <button onClick={() => onFormat('justifyCenter')} className={`${ButtonClass(selectionState.alignCenter)} !p-1.5`} title="Align Center">
-                        <AlignCenter size={16} />
-                    </button>
-                    <button onClick={() => onFormat('justifyRight')} className={`${ButtonClass(selectionState.alignRight)} !p-1.5`} title="Align Right">
-                        <AlignRight size={16} />
-                    </button>
-                    <button onClick={() => onFormat('justifyFull')} className={`${ButtonClass(selectionState.alignJustify)} !p-1.5`} title="Justify">
-                        <AlignJustify size={16} />
-                    </button>
+                {/* Linear Formatting Icons */}
+                <div className="flex items-center h-full gap-3 mr-4">
+                    {/* Font Size */}
+                    <select 
+                        className="h-8 border border-gray-200 rounded text-xs text-gray-800 focus:outline-none w-14 px-1 cursor-pointer bg-white"
+                        onChange={(e) => onFormat('fontSize', e.target.value)}
+                        value={selectionState.fontSize || '3'}
+                        title="Font Size"
+                    >
+                        <option value="1">10</option>
+                        <option value="2">13</option>
+                        <option value="3">16px</option>
+                        <option value="4">18px</option>
+                        <option value="5">24px</option>
+                        <option value="6">32px</option>
+                        <option value="7">48px</option>
+                    </select>
+
+                    <div className="w-px h-8 bg-gray-200"></div>
+
+                    {/* BIU */}
+                    <div className="flex items-center gap-1">
+                        <button onClick={() => onFormat('bold')} className={`${ButtonClass(selectionState.bold)} !p-2`} title="Bold">
+                            <Bold size={16} />
+                        </button>
+                        <button onClick={() => onFormat('italic')} className={`${ButtonClass(selectionState.italic)} !p-2`} title="Italic">
+                            <Italic size={16} />
+                        </button>
+                        <button onClick={() => onFormat('underline')} className={`${ButtonClass(selectionState.underline)} !p-2`} title="Underline">
+                            <Underline size={16} />
+                        </button>
+                    </div>
+
+                    {/* Color */}
+                    <div className="relative flex items-center justify-center w-9 h-9 rounded hover:bg-gray-100 cursor-pointer border border-transparent hover:border-gray-300" title="Text Color">
+                        <span className="font-bold text-gray-700 text-xs select-none" style={{ color: selectionState.foreColor }}>A</span>
+                        <input 
+                            type="color" 
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            value={selectionState.foreColor || '#000000'}
+                            onChange={(e) => onFormat('foreColor', e.target.value)}
+                        />
+                        <div className="absolute bottom-1 w-5 h-0.5 rounded-full" style={{ backgroundColor: selectionState.foreColor || '#000000' }}></div>
+                    </div>
+
+                    <div className="w-px h-8 bg-gray-200"></div>
+
+                    {/* Spacing */}
+                    <div className="relative flex items-center" ref={lineHeightMenuRef}>
+                        <button 
+                            onClick={() => setIsLineHeightMenuOpen(!isLineHeightMenuOpen)}
+                            className={`${ButtonClass(isLineHeightMenuOpen)} !p-2`} 
+                            title="Line Height"
+                        >
+                            <ArrowUpDown size={16} />
+                        </button>
+                        {isLineHeightMenuOpen && (
+                            <div className="absolute top-10 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-28">
+                                <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Spacing</div>
+                                {[1.0, 1.15, 1.5, 2.0, 2.5, 3.0].map(val => (
+                                    <button 
+                                        key={val}
+                                        onClick={() => {
+                                            onFormat('lineHeight', val.toString());
+                                            setIsLineHeightMenuOpen(false);
+                                        }} 
+                                        className="hover:bg-blue-50 text-xs p-2 rounded text-left flex justify-between items-center"
+                                    >
+                                        {val === 1.0 ? 'Single' : val.toFixed(2)}
+                                        {selectionState.lineHeight === val.toString() && <div className="w-1.5 h-1.5 bg-blue-600 rounded-full"></div>}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Case */}
+                    <div className="relative flex items-center" ref={textCaseMenuRef}>
+                        <button 
+                            onClick={() => setIsTextCaseMenuOpen(!isTextCaseMenuOpen)}
+                            className={`${ButtonClass(isTextCaseMenuOpen)} !p-2`} 
+                            title="Text Case"
+                        >
+                            <Type size={16} />
+                        </button>
+                        {isTextCaseMenuOpen && (
+                            <div className="absolute top-10 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-36">
+                                <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Case</div>
+                                <button onClick={() => { onFormat('textTransform', 'uppercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-xs p-2 rounded text-left uppercase">Uppercase</button>
+                                <button onClick={() => { onFormat('textTransform', 'lowercase'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-xs p-2 rounded text-left lowercase">Lowercase</button>
+                                <button onClick={() => { onFormat('textTransform', 'capitalize'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-xs p-2 rounded text-left capitalize">Capitalize</button>
+                                <div className="h-px bg-gray-100 my-1"></div>
+                                <button onClick={() => { onFormat('textTransform', 'none'); setIsTextCaseMenuOpen(false); }} className="hover:bg-blue-50 text-xs p-2 rounded text-left">Normal</button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="w-px h-8 bg-gray-200"></div>
+
+                    {/* Alignment */}
+                    <div className="flex items-center gap-1">
+                        <button onClick={() => onFormat('justifyLeft')} className={`${ButtonClass(selectionState.alignLeft)} !p-2`} title="Left">
+                            <AlignLeft size={16} />
+                        </button>
+                        <button onClick={() => onFormat('justifyCenter')} className={`${ButtonClass(selectionState.alignCenter)} !p-2`} title="Center">
+                            <AlignCenter size={16} />
+                        </button>
+                        <button onClick={() => onFormat('justifyRight')} className={`${ButtonClass(selectionState.alignRight)} !p-2`} title="Right">
+                            <AlignRight size={16} />
+                        </button>
+                        <button onClick={() => onFormat('justifyFull')} className={`${ButtonClass(selectionState.alignJustify)} !p-2`} title="Justify">
+                            <AlignJustify size={16} />
+                        </button>
+                    </div>
                 </div>
                 <button 
                     onClick={onExport}
