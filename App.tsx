@@ -138,6 +138,33 @@ const App: React.FC = () => {
 
   // Load available system fonts on mount and when web fonts are ready
   useEffect(() => {
+      const openFontDb = () => new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open('spywriter-fonts', 1);
+          request.onupgradeneeded = () => {
+              const db = request.result;
+              if (!db.objectStoreNames.contains('fonts')) {
+                  db.createObjectStore('fonts', { keyPath: 'name' });
+              }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+      });
+
+      const loadFontsFromDb = async () => {
+          try {
+              const db = await openFontDb();
+              const tx = db.transaction('fonts', 'readonly');
+              const store = tx.objectStore('fonts');
+              const getAll = store.getAll();
+              return await new Promise<Array<{ name: string; dataUrl: string }>>((resolve) => {
+                  getAll.onsuccess = () => resolve(getAll.result || []);
+                  getAll.onerror = () => resolve([]);
+              });
+          } catch {
+              return [];
+          }
+      };
+
       const loadFonts = async () => {
           const fonts = await getSystemFonts();
           setAvailableFonts(fonts);
@@ -152,6 +179,41 @@ const App: React.FC = () => {
 
       const storedKey = localStorage.getItem('openai_api_key') || '';
       if (storedKey) setOpenAiApiKey(storedKey);
+
+      // Restore custom fonts (localStorage + IndexedDB)
+      const storedFonts = localStorage.getItem('custom_fonts');
+      if (storedFonts) {
+          try {
+              const fonts = JSON.parse(storedFonts) as Array<{ name: string; dataUrl: string; }>
+              fonts.forEach(font => {
+                  const fontFace = new FontFace(font.name, `url(${font.dataUrl})`);
+                  fontFace.load().then(() => {
+                      document.fonts.add(fontFace);
+                      setAvailableFonts(prev => {
+                          const exists = prev.some(f => f.name.toLowerCase() === font.name.toLowerCase());
+                          if (exists) return prev;
+                          return [{ name: font.name, value: `'${font.name}', sans-serif`, available: true }, ...prev];
+                      });
+                  });
+              });
+          } catch (e) {
+              // ignore invalid storage
+          }
+      }
+
+      loadFontsFromDb().then(fonts => {
+          fonts.forEach(font => {
+              const fontFace = new FontFace(font.name, `url(${font.dataUrl})`);
+              fontFace.load().then(() => {
+                  document.fonts.add(fontFace);
+                  setAvailableFonts(prev => {
+                      const exists = prev.some(f => f.name.toLowerCase() === font.name.toLowerCase());
+                      if (exists) return prev;
+                      return [{ name: font.name, value: `'${font.name}', sans-serif`, available: true }, ...prev];
+                  });
+              });
+          });
+      });
   }, []);
 
 
@@ -174,6 +236,45 @@ const App: React.FC = () => {
               if (exists) return prev;
               return [{ name: fontName, value: `'${fontName}', sans-serif`, available: true }, ...prev];
           });
+
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = () => reject(new Error('Failed to read font file'));
+              reader.readAsDataURL(file);
+          });
+
+          let savedToStorage = false;
+          try {
+              const storedFonts = localStorage.getItem('custom_fonts');
+              const list = storedFonts ? (JSON.parse(storedFonts) as Array<{ name: string; dataUrl: string }>) : [];
+              const filtered = list.filter(font => font.name.toLowerCase() !== fontName.toLowerCase());
+              filtered.unshift({ name: fontName, dataUrl });
+              localStorage.setItem('custom_fonts', JSON.stringify(filtered.slice(0, 20)));
+              savedToStorage = true;
+          } catch {
+              savedToStorage = false;
+          }
+
+          try {
+              const dbRequest = indexedDB.open('spywriter-fonts', 1);
+              dbRequest.onupgradeneeded = () => {
+                  const db = dbRequest.result;
+                  if (!db.objectStoreNames.contains('fonts')) {
+                      db.createObjectStore('fonts', { keyPath: 'name' });
+                  }
+              };
+              dbRequest.onsuccess = () => {
+                  const db = dbRequest.result;
+                  const tx = db.transaction('fonts', 'readwrite');
+                  tx.objectStore('fonts').put({ name: fontName, dataUrl });
+              };
+          } catch {
+              // ignore db errors
+          }
+
+          setFontUploadMessage(savedToStorage ? `Font loaded: ${fontName}` : `Font loaded (stored in DB): ${fontName}`);
+          window.setTimeout(() => setFontUploadMessage(''), 2500);
       } catch (err) {
           alert('Failed to load font file. Please try a .ttf, .otf, .woff, or .woff2 file.');
       } finally {
@@ -259,6 +360,7 @@ const App: React.FC = () => {
   const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [openAiApiKey, setOpenAiApiKey] = useState('');
+  const [fontUploadMessage, setFontUploadMessage] = useState('');
   const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'assistant' | 'system'; content: string }[]>([
     {
       role: 'system',
@@ -276,6 +378,38 @@ const App: React.FC = () => {
   // Zoom and View Mode
   const [zoom, setZoom] = useState(100);
   const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
+
+  const handleZoomChange = (nextZoom: number) => {
+      const container = editorContainerRef.current;
+      const prevZoom = zoom || 100;
+      if (!container) {
+          setZoom(nextZoom);
+          return;
+      }
+
+      const containerRect = container.getBoundingClientRect();
+      const selection = window.getSelection();
+      let anchorViewportY = containerRect.height / 2;
+
+      if (selection && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          if (container.contains(range.commonAncestorContainer)) {
+              const rect = range.getBoundingClientRect();
+              if (rect.top) {
+                  anchorViewportY = rect.top - containerRect.top;
+              }
+          }
+      }
+
+      const anchorContentY = container.scrollTop + anchorViewportY;
+      const scale = nextZoom / prevZoom;
+
+      setZoom(nextZoom);
+
+      requestAnimationFrame(() => {
+          container.scrollTop = anchorContentY * scale - anchorViewportY;
+      });
+  };
   
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const suppressSelectionRef = useRef(false);
@@ -2873,6 +3007,12 @@ ${contentHtml}
         onAddFont={handleAddFont}
         onCaptureSelection={handleCaptureSelection}
       />
+
+      {fontUploadMessage && (
+        <div className="fixed top-20 right-6 z-50 bg-black text-white text-xs font-semibold px-3 py-2 rounded shadow-lg">
+          {fontUploadMessage}
+        </div>
+      )}
       
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
@@ -2935,7 +3075,7 @@ ${contentHtml}
             <ZoomControls
                 zoom={zoom}
                 viewMode={viewMode}
-                onZoomChange={setZoom}
+                onZoomChange={handleZoomChange}
                 onViewModeChange={setViewMode}
             />
         </div>
