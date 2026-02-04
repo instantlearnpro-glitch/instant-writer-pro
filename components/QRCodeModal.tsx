@@ -108,19 +108,64 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
     return output.toDataURL('image/png');
   };
 
-  const handleInsert = () => {
-    const element = document.getElementById('react-qrcode-logo');
-    if (element instanceof HTMLCanvasElement) {
-      const dataUrl = getQrDataUrl(element);
+  const getQrDataUrlFromElement = async (element: HTMLElement): Promise<string | null> => {
+    const target = element.matches('canvas, svg')
+      ? element
+      : (element.querySelector('canvas, svg') as HTMLElement | null);
+    if (!target) return null;
+
+    if (target instanceof HTMLCanvasElement) {
+      return getQrDataUrl(target);
+    }
+    if (target instanceof SVGElement) {
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(target);
+      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const size = target.clientWidth || img.width || 250;
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, size, size);
+            const dataUrl = getQrDataUrl(canvas);
+            URL.revokeObjectURL(url);
+            resolve(dataUrl);
+            return;
+          }
+          URL.revokeObjectURL(url);
+          resolve(null);
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(null);
+        };
+        img.src = url;
+      });
+    }
+    return null;
+  };
+
+  const handleInsert = async () => {
+    const element = document.getElementById('react-qrcode-logo') as HTMLElement | null;
+    if (!element) return;
+    const dataUrl = await getQrDataUrlFromElement(element);
+    if (dataUrl) {
       onInsert(dataUrl, url || '');
       onClose();
     }
   };
 
-  const handleDownload = () => {
-    const element = document.getElementById('react-qrcode-logo');
-    if (element instanceof HTMLCanvasElement) {
-      const dataUrl = getQrDataUrl(element);
+  const handleDownload = async () => {
+    const element = document.getElementById('react-qrcode-logo') as HTMLElement | null;
+    if (!element) return;
+    const dataUrl = await getQrDataUrlFromElement(element);
+    if (dataUrl) {
       const link = document.createElement('a');
       link.href = dataUrl;
       link.download = 'qrcode.png';

@@ -421,8 +421,15 @@ const Editor: React.FC<EditorProps> = ({
 
   const insertAtCursor = (html: string) => {
       const selection = window.getSelection();
+      let range: Range | null = null;
       if (selection && selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
+          const candidate = selection.getRangeAt(0);
+          if (contentRef.current?.contains(candidate.commonAncestorContainer)) {
+              range = candidate;
+          }
+      }
+
+      if (range) {
           const fragment = document.createRange().createContextualFragment(html);
           range.insertNode(fragment);
           range.collapse(false);
@@ -962,7 +969,7 @@ const Editor: React.FC<EditorProps> = ({
                 onCopy={handleCopy}
                 onCut={handleCut}
                 onPaste={handlePaste}
-                onCreateQRCode={contextMenu.linkUrl ? () => setQrModal({ isOpen: true, url: contextMenu.linkUrl! }) : undefined}
+                onCreateQRCode={() => setQrModal({ isOpen: true, url: contextMenu.linkUrl || '' })}
                 onMoveUp={handleMoveUp}
                 onMoveDown={handleMoveDown}
                 onDelete={handleDeleteBlock}
