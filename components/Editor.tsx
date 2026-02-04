@@ -333,6 +333,30 @@ const Editor: React.FC<EditorProps> = ({
           onPageBreak();
           return;
       }
+
+      if (e.key === 'Enter') {
+          const selection = window.getSelection();
+          if (!selection || selection.rangeCount === 0) return;
+          const range = selection.getRangeAt(0);
+          const container = range.commonAncestorContainer;
+          const element = container.nodeType === Node.ELEMENT_NODE
+              ? (container as HTMLElement)
+              : container.parentElement;
+          const shape = element?.closest('.mission-box, .shape-rectangle, .shape-circle, .shape-pill, .shape-speech, .shape-cloud');
+          if (shape && contentRef.current) {
+              e.preventDefault();
+              const paragraph = document.createElement('p');
+              paragraph.appendChild(document.createElement('br'));
+              shape.insertAdjacentElement('afterend', paragraph);
+              const newRange = document.createRange();
+              newRange.setStart(paragraph, 0);
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+              reflowPages(contentRef.current);
+              onContentChange(contentRef.current.innerHTML);
+          }
+      }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -674,6 +698,74 @@ const Editor: React.FC<EditorProps> = ({
 
       const handleClick = (e: MouseEvent) => {
           const target = e.target as HTMLElement;
+
+          const isPageSurface = target.classList.contains('page') || target.classList.contains('editor-workspace');
+          if (isPageSurface) {
+              const page = target.classList.contains('page') ? target : target.closest('.page');
+              if (page) {
+                  const doc = page.ownerDocument;
+                  const selection = doc.getSelection();
+                  let range: Range | null = null;
+                  const anyDoc = doc as Document & {
+                      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+                      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+                  };
+
+                  if (anyDoc.caretRangeFromPoint) {
+                      range = anyDoc.caretRangeFromPoint(e.clientX, e.clientY);
+                  } else if (anyDoc.caretPositionFromPoint) {
+                      const pos = anyDoc.caretPositionFromPoint(e.clientX, e.clientY);
+                      if (pos) {
+                          range = doc.createRange();
+                          range.setStart(pos.offsetNode, pos.offset);
+                          range.collapse(true);
+                      }
+                  }
+
+                  const insertParagraphAfter = (anchor: Element) => {
+                      const paragraph = doc.createElement('p');
+                      paragraph.appendChild(doc.createElement('br'));
+                      anchor.insertAdjacentElement('afterend', paragraph);
+                      const newRange = doc.createRange();
+                      newRange.setStart(paragraph, 0);
+                      newRange.collapse(true);
+                      selection?.removeAllRanges();
+                      selection?.addRange(newRange);
+                      if (contentRef.current) {
+                          reflowPages(contentRef.current);
+                          onContentChange(contentRef.current.innerHTML);
+                      }
+                  };
+
+                  if (range) {
+                      const container = range.commonAncestorContainer;
+                      const element = container.nodeType === Node.ELEMENT_NODE
+                          ? (container as Element)
+                          : container.parentElement;
+                      const blocked = element?.closest('table, .writing-lines, .tracing-line, .mission-box, .shape-rectangle, .shape-circle, .shape-pill, .shape-speech, .shape-cloud');
+                      if (blocked) {
+                          const rect = blocked.getBoundingClientRect();
+                          if (e.clientY > rect.bottom - 2) {
+                              insertParagraphAfter(blocked);
+                              return;
+                          }
+                      }
+
+                      const paragraph = doc.createElement('p');
+                      paragraph.appendChild(doc.createElement('br'));
+                      range.insertNode(paragraph);
+                      range.setStart(paragraph, 0);
+                      range.collapse(true);
+                      selection?.removeAllRanges();
+                      selection?.addRange(range);
+                      if (contentRef.current) {
+                          reflowPages(contentRef.current);
+                          onContentChange(contentRef.current.innerHTML);
+                      }
+                  }
+              }
+              return;
+          }
           
           // Handle Link Click
           const link = target.closest('a') as HTMLAnchorElement | null;
@@ -712,6 +804,36 @@ const Editor: React.FC<EditorProps> = ({
                   }
               }
               return;
+          }
+
+          const insertParagraphAfter = (anchor: Element) => {
+              const paragraph = document.createElement('p');
+              paragraph.appendChild(document.createElement('br'));
+              anchor.insertAdjacentElement('afterend', paragraph);
+              const selection = window.getSelection();
+              const newRange = document.createRange();
+              newRange.setStart(paragraph, 0);
+              newRange.collapse(true);
+              selection?.removeAllRanges();
+              selection?.addRange(newRange);
+              if (contentRef.current) {
+                  reflowPages(contentRef.current);
+                  onContentChange(contentRef.current.innerHTML);
+              }
+          };
+
+          const shapeContainer = target.closest('.mission-box, .shape-rectangle, .shape-circle, .shape-pill, .shape-speech, .shape-cloud') as HTMLElement | null;
+          if (shapeContainer) {
+              const rect = shapeContainer.getBoundingClientRect();
+              const children = Array.from(shapeContainer.children) as HTMLElement[];
+              const maxChildBottom = children.length
+                  ? Math.max(...children.map(child => child.getBoundingClientRect().bottom))
+                  : rect.top;
+
+              if (e.clientY > maxChildBottom + 4 && e.clientY <= rect.bottom + 2) {
+                  insertParagraphAfter(shapeContainer);
+                  return;
+              }
           }
 
           // Clear previous block selection
