@@ -102,7 +102,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const listMenuRef = useRef<HTMLDivElement>(null);
 
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
-    `p-2.5 rounded transition-colors ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-[#efe5ff] hover:text-[#7539d3] ' + (isActive ? 'bg-[#efe5ff] text-[#7539d3]' : 'text-gray-700')}`;
+    `p-2.5 rounded transition-colors cursor-pointer ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-[#efe5ff] hover:text-[#7539d3] ' + (isActive ? 'bg-[#efe5ff] text-[#7539d3]' : 'text-gray-700')}`;
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -199,13 +199,17 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 mr-2">
-                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Open File">
-                        <input type="file" multiple accept=".html,.htm,.docx,image/*" onChange={onFileUpload} className="hidden" />
-                        <FileUp size={18} />
+                    <label className={`${ButtonClass(false)} cursor-pointer relative block`} title="Open File">
+                        <input type="file" multiple accept=".html,.htm,.docx,image/*" onChange={onFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-auto z-10" />
+                        <span className="relative z-0 cursor-pointer block">
+                            <FileUp size={18} />
+                        </span>
                     </label>
-                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Insert Image">
-                        <input type="file" accept="image/*" onChange={onInsertImage} className="hidden" />
-                        <ImagePlus size={18} />
+                    <label className={`${ButtonClass(false)} cursor-pointer relative block`} title="Insert Image">
+                        <input type="file" accept="image/*" onChange={onInsertImage} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-auto z-10" />
+                        <span className="relative z-0 cursor-pointer block">
+                            <ImagePlus size={18} />
+                        </span>
                     </label>
                 </div>
                 
