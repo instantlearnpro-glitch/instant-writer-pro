@@ -414,7 +414,7 @@ const App: React.FC = () => {
                 const styleTags = doc.querySelectorAll('style');
                 let extractedCss = '';
                 styleTags.forEach(tag => {
-                    let css = tag.innerHTML.replace(/!important/g, '');
+                    const css = tag.innerHTML;
                     extractedCss += css + '\n';
                     tag.remove();
                 });
@@ -455,7 +455,7 @@ const App: React.FC = () => {
                     bodyContent = `<div class="page">${bodyContent}</div>`;
                 }
 
-                const finalCss = extractedCss ? `${DEFAULT_CSS}\n/* Imported Styles */\n${extractedCss}` : DEFAULT_CSS;
+                const finalCss = extractedCss.trim() ? extractedCss : '';
 
                 const newState = {
                     htmlContent: bodyContent,
