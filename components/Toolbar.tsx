@@ -5,7 +5,7 @@ import {
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
   RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
-  ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents
+  ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -50,6 +50,9 @@ interface ToolbarProps {
   onToggleMarginGuides: () => void;
   showSmartGuides: boolean;
   onToggleSmartGuides: () => void;
+  onOpenSettings: () => void;
+  onReloadFonts: () => void;
+  onAddFont: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -90,12 +93,17 @@ const Toolbar: React.FC<ToolbarProps> = ({
   showMarginGuides,
   onToggleMarginGuides,
   showSmartGuides,
-  onToggleSmartGuides
+  onToggleSmartGuides,
+  onOpenSettings,
+  onReloadFonts,
+  onAddFont
 }) => {
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const [isLineHeightMenuOpen, setIsLineHeightMenuOpen] = useState(false);
   const [isTextCaseMenuOpen, setIsTextCaseMenuOpen] = useState(false);
   const [isListMenuOpen, setIsListMenuOpen] = useState(false);
+  const [fontSearch, setFontSearch] = useState('');
+  const [fontInput, setFontInput] = useState('');
   const styleMenuRef = useRef<HTMLDivElement>(null);
   const lineHeightMenuRef = useRef<HTMLDivElement>(null);
   const textCaseMenuRef = useRef<HTMLDivElement>(null);
@@ -167,6 +175,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
           available: false // Assume unavailable if not found in our rigorous list
       });
   }
+
+  const filteredFonts = fontSearch.trim()
+      ? displayFonts.filter(font => font.name.toLowerCase().includes(fontSearch.toLowerCase()))
+      : displayFonts;
+
+  useEffect(() => {
+      setFontInput(currentFontName);
+  }, [currentFontName]);
 
   return (
     <div className="flex flex-col border-b border-gray-200 shadow-sm z-10 sticky top-0 bg-white">
@@ -290,19 +306,26 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
 
                 {/* Stacked Group: Style & Font Family */}
-                <div className="flex flex-col justify-center gap-1 border-r border-gray-200 px-3 mr-3 h-full min-w-[200px] py-1.5" ref={styleMenuRef}>
+                <div className="flex flex-col justify-center gap-0 border-r border-gray-200 px-1.5 mr-3 h-full min-w-[200px] py-1" ref={styleMenuRef}>
                     {/* Top: Style Selector */}
-                    <div className="relative w-full">
+                    <div className="relative w-full flex items-center gap-1">
                         <button
                             onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
-                            className="flex items-center justify-between w-56 h-6 px-2 bg-gray-50 border border-gray-200 rounded hover:bg-brand-50 text-[11px] font-medium text-gray-700"
+                            className="flex items-center justify-between w-52 h-6 px-2 bg-gray-50 border border-gray-200 rounded hover:bg-brand-50 text-[11px] font-medium text-gray-700"
                         >
                             <span className="truncate">{currentStyleLabel}</span>
                             <ChevronDown size={10} className="ml-2 text-gray-400" />
                         </button>
+                        <button
+                            onClick={onReloadFonts}
+                            className="p-0 rounded hover:bg-brand-50 text-gray-600 hover:text-brand-600"
+                            title="Reload Fonts"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
 
                         {isStyleMenuOpen && (
-                            <div className="absolute top-7 left-0 w-56 bg-white border border-gray-200 rounded-md shadow-xl z-50 flex flex-col p-1">
+                            <div className="absolute top-7 left-0 w-52 bg-white border border-gray-200 rounded-md shadow-xl z-50 flex flex-col p-1">
                                 <div className="text-[10px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">
                                     Apply Style
                                 </div>
@@ -335,18 +358,51 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </div>
 
                     {/* Bottom: Font Family */}
-                    <select 
-                        className="h-6 border border-gray-200 rounded text-[11px] text-gray-800 focus:outline-none w-56 px-2 cursor-pointer bg-white"
-                        onChange={(e) => onFormat('fontName', e.target.value)}
-                        value={selectionState.fontName || 'inherit'}
-                        title="Font Family"
-                    >
-                        {displayFonts.map((font, idx) => (
-                            <option key={idx} value={font.value}>
-                                {font.name} {font.available === false ? '⚠️' : ''}
-                            </option>
-                        ))}
-                    </select>
+                    <div className="flex items-center gap-1">
+                        <div className="flex flex-col gap-0">
+                            <input
+                                type="text"
+                                list="font-list"
+                                value={fontInput}
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    setFontInput(value);
+                                    setFontSearch(value);
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        const value = fontInput.trim();
+                                        if (value) onFormat('fontName', value);
+                                    }
+                                }}
+                                onBlur={() => {
+                                    const value = fontInput.trim();
+                                    if (value) onFormat('fontName', value);
+                                }}
+                                placeholder="Font"
+                                className="h-6 border border-gray-200 rounded text-[11px] text-gray-700 focus:outline-none w-52 px-2 bg-white"
+                                title="Font Family"
+                            />
+                            <datalist id="font-list">
+                                {filteredFonts.map((font, idx) => (
+                                    <option key={idx} value={font.name} />
+                                ))}
+                            </datalist>
+                        </div>
+                        <label
+                            className="p-0 rounded hover:bg-brand-50 text-gray-600 hover:text-brand-600 cursor-pointer"
+                            title="Add Font"
+                        >
+                            <input
+                                type="file"
+                                accept=".ttf,.otf,.woff,.woff2"
+                                onChange={onAddFont}
+                                className="hidden"
+                            />
+                            <Plus size={12} />
+                        </label>
+                    </div>
                 </div>
 
                 {/* Linear Formatting Icons */}
@@ -495,6 +551,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     title="Export"
                 >
                     <Download size={18} />
+                </button>
+                <button
+                    onClick={onOpenSettings}
+                    className={ButtonClass(false)}
+                    title="Settings"
+                >
+                    <Settings size={18} />
                 </button>
             </div>
         </div>

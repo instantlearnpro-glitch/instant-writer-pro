@@ -12,6 +12,7 @@ import { scanStructure } from './utils/structureScanner';
 import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from './utils/patternDetector';
 import PatternModal from './components/PatternModal';
 import ExportModal from './components/ExportModal';
+import SettingsModal from './components/SettingsModal';
 import { reflowPages } from './utils/pagination';
 
 declare global {
@@ -147,7 +148,36 @@ const App: React.FC = () => {
       document.fonts.ready.then(() => {
           loadFonts();
       });
+
+      const storedKey = localStorage.getItem('openai_api_key') || '';
+      if (storedKey) setOpenAiApiKey(storedKey);
   }, []);
+
+  const handleReloadFonts = async () => {
+      const fonts = await getSystemFonts();
+      setAvailableFonts(fonts);
+  };
+
+  const handleAddFont = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const fontName = file.name.replace(/\.(ttf|otf|woff2?|)$/i, '').trim() || 'Custom Font';
+      try {
+          const buffer = await file.arrayBuffer();
+          const fontFace = new FontFace(fontName, buffer);
+          await fontFace.load();
+          document.fonts.add(fontFace);
+          setAvailableFonts(prev => {
+              const exists = prev.some(font => font.name.toLowerCase() === fontName.toLowerCase());
+              if (exists) return prev;
+              return [{ name: fontName, value: `'${fontName}', sans-serif`, available: true }, ...prev];
+          });
+      } catch (err) {
+          alert('Failed to load font file. Please try a .ttf, .otf, .woff, or .woff2 file.');
+      } finally {
+          e.target.value = '';
+      }
+  };
 
   // History State
   const [history, setHistory] = useState<DocumentState[]>([{ 
@@ -217,6 +247,16 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [openAiApiKey, setOpenAiApiKey] = useState('');
+  const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'assistant' | 'system'; content: string }[]>([
+    {
+      role: 'system',
+      content: 'You are a document automation assistant. Respond with JSON only.'
+    }
+  ]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
   const [isPageNumberModalOpen, setIsPageNumberModalOpen] = useState(false);
   const [pageAnchors, setPageAnchors] = useState<PageAnchor[]>([]);
   
@@ -480,6 +520,126 @@ const App: React.FC = () => {
     
     // Reset input
     e.target.value = '';
+  };
+
+  const handleSaveApiKey = (apiKey: string) => {
+    setOpenAiApiKey(apiKey);
+    if (apiKey) {
+      localStorage.setItem('openai_api_key', apiKey);
+    } else {
+      localStorage.removeItem('openai_api_key');
+    }
+    setIsSettingsModalOpen(false);
+  };
+
+  const applyAiActions = (actions: Array<{ type: string; selector?: string; fontFamily?: string; style?: Record<string, string> }>) => {
+    const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+    if (!workspace || actions.length === 0) return;
+
+    actions.forEach(action => {
+      if (action.type === 'apply_font' && action.selector && action.fontFamily) {
+        const elements = workspace.querySelectorAll(action.selector);
+        elements.forEach(el => {
+          (el as HTMLElement).style.setProperty('font-family', action.fontFamily, 'important');
+        });
+      }
+
+      if (action.type === 'set_style' && action.selector && action.style) {
+        const elements = workspace.querySelectorAll(action.selector);
+        elements.forEach(el => {
+          Object.entries(action.style || {}).forEach(([key, value]) => {
+            (el as HTMLElement).style.setProperty(key, value, 'important');
+          });
+        });
+      }
+    });
+
+    reflowPages(workspace);
+    updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+  };
+
+  const handleAiSend = async () => {
+    const prompt = aiInput.trim();
+    if (!prompt || aiLoading) return;
+    if (!openAiApiKey) {
+      setIsSettingsModalOpen(true);
+      return;
+    }
+
+    const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+    const plainText = workspace ? workspace.innerText.replace(/\s+/g, ' ').trim() : '';
+    const textSnippet = plainText.length > 2000 ? `${plainText.slice(0, 2000)}…` : plainText;
+    const fontNames = availableFonts.map(f => f.name).join(', ');
+
+    const systemPrompt = `You are a document automation assistant for a rich text editor. Return JSON only with keys: assistant_message (string) and actions (array).\nActions supported:\n- {"type":"apply_font","selector":"CSS_SELECTOR","fontFamily":"Font Name"}\n- {"type":"set_style","selector":"CSS_SELECTOR","style":{"css-property":"value"}}\n\nAvailable selectors you can use include: .writing-lines, .tracing-line, .mission-box, .shape-rectangle, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, p, h1, h2, h3, li, blockquote, table, td, th.\nIf the user asks for a handwriting-like font, choose the closest from the available fonts list. If unsure, respond with an assistant_message and no actions.`;
+
+    const userPrompt = `User request: ${prompt}\n\nAvailable fonts: ${fontNames}\n\nDocument snippet:\n${textSnippet}`;
+
+    setAiLoading(true);
+    setAiMessages(prev => [...prev, { role: 'user', content: prompt }]);
+
+    const parseAiJson = (text: string) => {
+      if (!text) return null;
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+          const slice = text.slice(start, end + 1);
+          try {
+            return JSON.parse(slice);
+          } catch (err) {
+            return null;
+          }
+        }
+        return null;
+      }
+    };
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openAiApiKey}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.2,
+          response_format: { type: 'json_object' }
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const message = data?.error?.message || 'AI request failed.';
+        setAiMessages(prev => [...prev, { role: 'assistant', content: `AI error: ${message}` }]);
+        return;
+      }
+
+      const content = data?.choices?.[0]?.message?.content || '';
+      const parsed = parseAiJson(content);
+
+      if (parsed && (parsed.assistant_message || parsed.actions)) {
+        if (parsed.actions && Array.isArray(parsed.actions)) {
+          applyAiActions(parsed.actions);
+        }
+        setAiMessages(prev => [...prev, { role: 'assistant', content: parsed.assistant_message || 'Done.' }]);
+      } else {
+        setAiMessages(prev => [...prev, { role: 'assistant', content: content || 'No response.' }]);
+      }
+    } catch (err: any) {
+      setAiMessages(prev => [...prev, { role: 'assistant', content: 'AI request failed. Check API key and network.' }]);
+    } finally {
+      setAiLoading(false);
+      setAiInput('');
+    }
   };
 
   const handleInsertImage = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2549,6 +2709,9 @@ ${contentHtml}
         onToggleMarginGuides={() => setShowMarginGuides(!showMarginGuides)}
         showSmartGuides={showSmartGuides}
         onToggleSmartGuides={() => setShowSmartGuides(!showSmartGuides)}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onReloadFonts={handleReloadFonts}
+        onAddFont={handleAddFont}
       />
       
       <div className="flex flex-1 overflow-hidden">
@@ -2564,6 +2727,13 @@ ${contentHtml}
           onCancelSelection={handleCancelSelection}
           onNavigateToEntry={handleNavigateToEntry}
           onUpdateEntryStatus={handleUpdateEntryStatus}
+          aiMessages={aiMessages}
+          aiInput={aiInput}
+          aiLoading={aiLoading}
+          hasApiKey={!!openAiApiKey}
+          onAiInputChange={setAiInput}
+          onAiSend={handleAiSend}
+          onOpenSettings={() => setIsSettingsModalOpen(true)}
         />
         
         <div className="flex-1 relative" onScroll={handleScroll}>
@@ -2610,6 +2780,13 @@ ${contentHtml}
         isOpen={isTOCModalOpen} 
         onClose={() => setIsTOCModalOpen(false)} 
         onInsert={handleInsertTOC} 
+      />
+
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        initialApiKey={openAiApiKey}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onSave={handleSaveApiKey}
       />
 
       <PageNumberModal
