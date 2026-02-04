@@ -18,6 +18,9 @@ declare global {
   interface Window {
     html2pdf: any;
     html2canvas: (element: HTMLElement, options?: any) => Promise<HTMLCanvasElement>;
+    htmlDocx: {
+      asBlob: (html: string, options?: Record<string, unknown>) => Blob;
+    };
   }
 }
 
@@ -2058,197 +2061,202 @@ ${pagesHTML}
   };
 
   const handleExportDOCX = async (fileName: string) => {
-    // Helper: RGB to Hex
-    const rgbToHex = (rgb: string): string => {
-        if (!rgb || rgb === 'transparent' || rgb.includes('rgba(0, 0, 0, 0)')) return '';
-        const match = rgb.match(/\d+/g);
-        if (!match || match.length < 3) return rgb;
-        return `#${parseInt(match[0]).toString(16).padStart(2, '0')}${parseInt(match[1]).toString(16).padStart(2, '0')}${parseInt(match[2]).toString(16).padStart(2, '0')}`;
-    };
+    if (!window.html2canvas || !window.htmlDocx) {
+      alert('DOCX export requires html2canvas and html-docx-js to be loaded.');
+      return;
+    }
 
     // Helper: px to pt
     const pxToPt = (px: string): string => {
-        const num = parseFloat(px);
-        return isNaN(num) ? px : `${Math.round(num * 0.75)}pt`;
+      const num = parseFloat(px);
+      return isNaN(num) ? px : `${Math.round(num * 0.75)}pt`;
     };
 
     // Render element as image using html2canvas
     const renderElementAsImage = async (el: HTMLElement): Promise<string> => {
-        if (!window.html2canvas) {
-            // Fallback: return element text content
-            return `<p style="margin: 10pt 0;">${el.textContent || ''}</p>`;
-        }
-        try {
-            const scale = 2;
-            const canvas = await window.html2canvas(el, {
-                scale: scale,
-                useCORS: true,
-                allowTaint: true,
-                backgroundColor: null,
-                logging: false,
-                windowWidth: el.scrollWidth + 100,
-                windowHeight: el.scrollHeight + 100
-            });
-            const imgData = canvas.toDataURL('image/png', 1.0);
-            const width = Math.min(Math.round(el.offsetWidth * scale), 600);
-            const height = Math.round(canvas.height * (width / canvas.width));
-            return `<p style="margin: 10pt 0; text-align: center;"><img src="${imgData}" width="${width}" height="${height}" style="max-width: 100%;"></p>`;
-        } catch (e) {
-            console.error('Error rendering element as image:', e);
-            return `<p style="margin: 10pt 0;">${el.textContent || ''}</p>`;
-        }
+      try {
+        const scale = 2;
+        const canvas = await window.html2canvas(el, {
+          scale,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: null,
+          logging: false,
+          windowWidth: el.scrollWidth + 50,
+          windowHeight: el.scrollHeight + 50
+        });
+        const imgData = canvas.toDataURL('image/png', 1.0);
+        const width = Math.min(Math.round(el.offsetWidth * scale), 800);
+        const height = Math.round(canvas.height * (width / canvas.width));
+        return `<p style="margin: 8pt 0; text-align: center;"><img src="${imgData}" width="${width}" height="${height}" style="max-width: 100%;"></p>`;
+      } catch (e) {
+        console.error('Error rendering element as image:', e);
+        return `<p style="margin: 8pt 0;">${el.textContent || ''}</p>`;
+      }
     };
 
     // Check if element should be rendered as image
     const shouldRenderAsImage = (el: HTMLElement): boolean => {
-        const classList = el.classList;
-        // Shapes and special boxes
-        if (classList.contains('mission-box') || 
-            classList.contains('shape-rectangle') ||
-            classList.contains('shape-circle') ||
-            classList.contains('shape-pill') ||
-            classList.contains('shape-speech') ||
-            classList.contains('shape-cloud') ||
-            classList.contains('tracing-line') ||
-            classList.contains('writing-lines') ||
-            classList.contains('toc-container')) {
-            return true;
-        }
-        // HR elements
-        if (el.tagName === 'HR') return true;
-        // Tables
-        if (el.tagName === 'TABLE') return true;
-        // Elements with non-white background
-        if (el.style.backgroundColor && 
-            el.style.backgroundColor !== 'transparent' && 
-            el.style.backgroundColor !== 'rgba(0,0,0,0)') {
-            return true;
-        }
-        return false;
+      const classList = el.classList;
+      const computed = window.getComputedStyle(el);
+      const hasBackgroundImage = computed.backgroundImage && computed.backgroundImage !== 'none';
+
+      if (classList.contains('tracing-line') ||
+          classList.contains('writing-lines') ||
+          classList.contains('toc-container')) {
+        return true;
+      }
+      if (el.tagName === 'TABLE') return true;
+      if (hasBackgroundImage) return true;
+      return false;
     };
 
-    // Get inline styles for text elements
+    // Get inline styles for text elements using computed styles
     const getInlineStyle = (el: HTMLElement): string => {
-        const styles: string[] = [];
-        const style = el.style;
-        
-        if (style.color) styles.push(`color: ${style.color}`);
-        if (style.backgroundColor && style.backgroundColor !== 'transparent') styles.push(`background-color: ${style.backgroundColor}`);
-        if (style.fontFamily) styles.push(`font-family: ${style.fontFamily}`);
-        if (style.fontSize) styles.push(`font-size: ${pxToPt(style.fontSize)}`);
-        if (style.fontWeight && style.fontWeight !== '400') styles.push(`font-weight: ${style.fontWeight}`);
-        if (style.fontStyle === 'italic') styles.push(`font-style: italic`);
-        if (style.textDecoration === 'underline') styles.push(`text-decoration: underline`);
-        if (style.textAlign && style.textAlign !== 'start') styles.push(`text-align: ${style.textAlign}`);
-        if (style.lineHeight && style.lineHeight !== 'normal') styles.push(`line-height: ${style.lineHeight}`);
-        if (style.marginTop) styles.push(`margin-top: ${pxToPt(style.marginTop)}`);
-        if (style.marginBottom) styles.push(`margin-bottom: ${pxToPt(style.marginBottom)}`);
-        if (style.padding) styles.push(`padding: ${pxToPt(style.padding)}`);
-        if (style.borderRadius) styles.push(`border-radius: ${style.borderRadius}`);
-        if (style.border) styles.push(`border: ${style.border}`);
-        
-        return styles.length > 0 ? styles.join('; ') : '';
+      const styles: string[] = [];
+      const style = el.style;
+      const computed = window.getComputedStyle(el);
+
+      const color = style.color || computed.color;
+      const backgroundColor = style.backgroundColor || computed.backgroundColor;
+      const fontFamily = style.fontFamily || computed.fontFamily;
+      const fontSize = style.fontSize || computed.fontSize;
+      const fontWeight = style.fontWeight || computed.fontWeight;
+      const fontStyle = style.fontStyle || computed.fontStyle;
+      const textDecoration = style.textDecoration || computed.textDecoration;
+      const textAlign = style.textAlign || computed.textAlign;
+      const lineHeight = style.lineHeight || computed.lineHeight;
+      const letterSpacing = style.letterSpacing || computed.letterSpacing;
+      const borderRadius = style.borderRadius || computed.borderRadius;
+      const border = style.border || computed.border;
+      const paddingTop = style.paddingTop || computed.paddingTop;
+      const paddingRight = style.paddingRight || computed.paddingRight;
+      const paddingBottom = style.paddingBottom || computed.paddingBottom;
+      const paddingLeft = style.paddingLeft || computed.paddingLeft;
+      const marginTop = style.marginTop || computed.marginTop;
+      const marginBottom = style.marginBottom || computed.marginBottom;
+
+      if (color) styles.push(`color: ${color}`);
+      if (backgroundColor && backgroundColor !== 'transparent' && backgroundColor !== 'rgba(0, 0, 0, 0)') {
+        styles.push(`background-color: ${backgroundColor}`);
+      }
+      if (fontFamily) styles.push(`font-family: ${fontFamily}`);
+      if (fontSize) styles.push(`font-size: ${pxToPt(fontSize)}`);
+      if (fontWeight && fontWeight !== '400') styles.push(`font-weight: ${fontWeight}`);
+      if (fontStyle && fontStyle !== 'normal') styles.push(`font-style: ${fontStyle}`);
+      if (textDecoration && textDecoration !== 'none') styles.push(`text-decoration: ${textDecoration}`);
+      if (textAlign && textAlign !== 'start') styles.push(`text-align: ${textAlign}`);
+      if (lineHeight && lineHeight !== 'normal') styles.push(`line-height: ${lineHeight}`);
+      if (letterSpacing && letterSpacing !== 'normal') styles.push(`letter-spacing: ${letterSpacing}`);
+      if (borderRadius && borderRadius !== '0px') styles.push(`border-radius: ${borderRadius}`);
+      if (border && border !== 'none') styles.push(`border: ${border}`);
+      if (paddingTop || paddingRight || paddingBottom || paddingLeft) {
+        styles.push(`padding: ${pxToPt(paddingTop)} ${pxToPt(paddingRight)} ${pxToPt(paddingBottom)} ${pxToPt(paddingLeft)}`);
+      }
+      if (marginTop && marginTop !== '0px') styles.push(`margin-top: ${pxToPt(marginTop)}`);
+      if (marginBottom && marginBottom !== '0px') styles.push(`margin-bottom: ${pxToPt(marginBottom)}`);
+
+      return styles.length > 0 ? styles.join('; ') : '';
     };
 
     // Process element recursively
     const processElement = async (el: Node): Promise<string> => {
-        if (el.nodeType === Node.TEXT_NODE) {
-            return el.textContent || '';
-        }
-        if (!(el instanceof HTMLElement)) return '';
-        
-        const tagName = el.tagName.toLowerCase();
-        if (tagName === 'style' || tagName === 'script' || tagName === 'head' || tagName === 'meta') return '';
+      if (el.nodeType === Node.TEXT_NODE) {
+        return el.textContent || '';
+      }
+      if (!(el instanceof HTMLElement)) return '';
 
-        // Check if should be rendered as image (shapes, lines, special boxes)
-        if (shouldRenderAsImage(el)) {
-            return await renderElementAsImage(el);
-        }
+      const tagName = el.tagName.toLowerCase();
+      if (tagName === 'style' || tagName === 'script' || tagName === 'head' || tagName === 'meta') return '';
 
-        // Handle images - preserve as data URL
-        if (tagName === 'img') {
-            const img = el as HTMLImageElement;
-            let src = img.src || img.getAttribute('src') || '';
-            if (!src) return '';
-            
-            // Try to get the actual image data
-            try {
-                if (img.complete && img.naturalWidth > 0 && !src.startsWith('data:')) {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.naturalWidth;
-                    canvas.height = img.naturalHeight;
-                    const ctx = canvas.getContext('2d');
-                    if (ctx) {
-                        ctx.drawImage(img, 0, 0);
-                        src = canvas.toDataURL('image/png');
-                    }
-                }
-            } catch (e) { }
-            
-            const width = img.offsetWidth || img.naturalWidth || 300;
-            const height = img.offsetHeight || img.naturalHeight || 'auto';
-            return `<p style="text-align: center; margin: 10pt 0;"><img src="${src}" width="${width}" height="${height}" style="max-width: 100%;"></p>`;
-        }
+      if (shouldRenderAsImage(el)) {
+        return await renderElementAsImage(el);
+      }
 
-        // Handle HR (horizontal rule)
-        if (tagName === 'hr') {
-            return `<hr style="border: none; border-top: 2px solid #000; margin: 15pt 0;">`;
-        }
+      // Handle images - apply filters (brightness/contrast/saturate)
+      if (tagName === 'img') {
+        const img = el as HTMLImageElement;
+        let src = img.src || img.getAttribute('src') || '';
+        if (!src) return '';
 
-        // Process children
-        let childrenHtml = '';
-        for (const child of Array.from(el.childNodes)) {
-            childrenHtml += await processElement(child);
-        }
+        const computed = window.getComputedStyle(img);
+        const filter = img.style.filter || computed.filter || '';
 
-        // Handle page divs
-        if (el.classList.contains('page')) {
-            return childrenHtml;
-        }
-        
-        // Handle page footer
-        if (el.classList.contains('page-footer')) {
-            return `<p style="text-align: center; font-size: 10pt; margin-top: 20pt; color: #666;">${childrenHtml}</p>`;
-        }
+        try {
+          if (img.complete && img.naturalWidth > 0) {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              if (filter && filter !== 'none') {
+                ctx.filter = filter;
+              }
+              ctx.drawImage(img, 0, 0);
+              src = canvas.toDataURL('image/png');
+            }
+          }
+        } catch (e) { }
 
-        const inlineStyle = getInlineStyle(el);
-        const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : '';
+        const width = img.offsetWidth || img.naturalWidth || 300;
+        const height = img.offsetHeight || img.naturalHeight || 'auto';
+        return `<p style="text-align: center; margin: 10pt 0;"><img src="${src}" width="${width}" height="${height}" style="max-width: 100%;"></p>`;
+      }
 
-        // Handle different tags
-        switch (tagName) {
-            case 'h1':
-                return `<h1${styleAttr}><strong>${childrenHtml}</strong></h1>`;
-            case 'h2':
-                return `<h2${styleAttr}><strong>${childrenHtml}</strong></h2>`;
-            case 'h3':
-                return `<h3${styleAttr}><strong>${childrenHtml}</strong></h3>`;
-            case 'p':
-                return `<p${styleAttr}>${childrenHtml}</p>`;
-            case 'ul':
-                return `<ul style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ul>`;
-            case 'ol':
-                return `<ol style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ol>`;
-            case 'li':
-                return `<li${styleAttr}>${childrenHtml}</li>`;
-            case 'strong':
-            case 'b':
-                return `<b>${childrenHtml}</b>`;
-            case 'em':
-            case 'i':
-                return `<i>${childrenHtml}</i>`;
-            case 'u':
-                return `<u>${childrenHtml}</u>`;
-            case 'br':
-                return '<br>';
-            case 'span':
-            case 'div':
-                if (childrenHtml.trim()) {
-                    return `<${tagName}${styleAttr}>${childrenHtml}</${tagName}>`;
-                }
-                return childrenHtml;
-            default:
-                return childrenHtml;
-        }
+      if (tagName === 'hr') {
+        return `<hr style="border: none; border-top: 1.5pt solid #000; margin: 12pt 0;">`;
+      }
+
+      let childrenHtml = '';
+      for (const child of Array.from(el.childNodes)) {
+        childrenHtml += await processElement(child);
+      }
+
+      if (el.classList.contains('page')) {
+        return childrenHtml;
+      }
+
+      if (el.classList.contains('page-footer')) {
+        return `<p style="text-align: center; font-size: 10pt; margin-top: 16pt; color: #666;">${childrenHtml}</p>`;
+      }
+
+      const inlineStyle = getInlineStyle(el);
+      const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : '';
+
+      switch (tagName) {
+        case 'h1':
+          return `<h1${styleAttr}><strong>${childrenHtml}</strong></h1>`;
+        case 'h2':
+          return `<h2${styleAttr}><strong>${childrenHtml}</strong></h2>`;
+        case 'h3':
+          return `<h3${styleAttr}><strong>${childrenHtml}</strong></h3>`;
+        case 'p':
+          return `<p${styleAttr}>${childrenHtml}</p>`;
+        case 'ul':
+          return `<ul style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ul>`;
+        case 'ol':
+          return `<ol style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ol>`;
+        case 'li':
+          return `<li${styleAttr}>${childrenHtml}</li>`;
+        case 'strong':
+        case 'b':
+          return `<b>${childrenHtml}</b>`;
+        case 'em':
+        case 'i':
+          return `<i>${childrenHtml}</i>`;
+        case 'u':
+          return `<u>${childrenHtml}</u>`;
+        case 'br':
+          return '<br>';
+        case 'span':
+        case 'div':
+          if (childrenHtml.trim()) {
+            return `<${tagName}${styleAttr}>${childrenHtml}</${tagName}>`;
+          }
+          return childrenHtml;
+        default:
+          return childrenHtml;
+      }
     };
 
     // Create a temporary container and render the content
@@ -2261,28 +2269,29 @@ ${pagesHTML}
     tempContainer.style.background = 'white';
     document.body.appendChild(tempContainer);
 
-    // Wait for images to load
-    const images = tempContainer.querySelectorAll('img');
-    await Promise.all(Array.from(images).map(img => {
-        if ((img as HTMLImageElement).complete) return Promise.resolve();
-        return new Promise(resolve => {
-            img.onload = resolve;
-            img.onerror = resolve;
-        });
-    }));
-
-    // Process all pages
-    const pages = tempContainer.querySelectorAll('.page');
-    let contentHtml = '';
-    
-    for (let i = 0; i < pages.length; i++) {
-        if (i > 0) {
-            contentHtml += `<br clear="all" style="page-break-before: always;">`;
-        }
-        contentHtml += await processElement(pages[i]);
+    if (document.fonts && document.fonts.ready) {
+      await document.fonts.ready;
     }
 
-    // Remove temporary container
+    const images = tempContainer.querySelectorAll('img');
+    await Promise.all(Array.from(images).map(img => {
+      if ((img as HTMLImageElement).complete) return Promise.resolve();
+      return new Promise(resolve => {
+        img.onload = resolve;
+        img.onerror = resolve;
+      });
+    }));
+
+    const pages = tempContainer.querySelectorAll('.page');
+    let contentHtml = '';
+
+    for (let i = 0; i < pages.length; i++) {
+      if (i > 0) {
+        contentHtml += `<br clear="all" style="page-break-before: always;">`;
+      }
+      contentHtml += await processElement(pages[i]);
+    }
+
     document.body.removeChild(tempContainer);
 
     const htmlContent = `<!DOCTYPE html>
@@ -2300,7 +2309,7 @@ ${pagesHTML}
 <![endif]-->
 <style>
 @page { size: 8.5in 11in; margin: 0.6in; }
-body { font-family: Arial, sans-serif; font-size: 12pt; margin: 0; padding: 0; line-height: 1.5; }
+body { font-size: 12pt; margin: 0; padding: 0; line-height: 1.5; }
 h1, h2, h3, p, div, span { display: block; }
 ul, ol { margin-left: 24pt; }
 img { max-width: 100%; height: auto; }
@@ -2312,11 +2321,11 @@ ${contentHtml}
 </body>
 </html>`;
 
-    const blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
+    const docxBlob = window.htmlDocx.asBlob(htmlContent);
+    const url = URL.createObjectURL(docxBlob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${fileName}.doc`;
+    a.download = `${fileName}.docx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
