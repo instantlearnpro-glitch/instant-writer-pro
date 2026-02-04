@@ -9,6 +9,7 @@ import DragHandle from './DragHandle';
 import PatternModal from './PatternModal';
 import QRCodeModal from './QRCodeModal';
 import LinkToolbar from './LinkToolbar';
+import TableTocModal from './TableTocModal';
 import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from '../utils/patternDetector';
 
 interface EditorProps {
@@ -112,6 +113,155 @@ const Editor: React.FC<EditorProps> = ({
   const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
   const [qrModal, setQrModal] = useState<{ isOpen: boolean; url: string }>({ isOpen: false, url: '' });
   const [activeLink, setActiveLink] = useState<{ url: string; x: number; y: number; element: HTMLAnchorElement } | null>(null);
+  const [tableTocModal, setTableTocModal] = useState<{
+      isOpen: boolean;
+      tableId: string;
+      rows: { index: number; label: string; selectedId: string }[];
+      anchors: { id: string; label: string; page: number }[];
+  }>({ isOpen: false, tableId: '', rows: [], anchors: [] });
+
+  const normalizeText = (text: string) => text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const getPageIndexForElement = (el: HTMLElement, pages: HTMLElement[]) => {
+      const pageEl = el.closest('.page');
+      if (!pageEl) return 1;
+      const index = pages.findIndex(page => page === pageEl);
+      return index >= 0 ? index + 1 : 1;
+  };
+
+  const findHeadingMatch = (label: string, headings: { id: string; text: string; page: number }[]) => {
+      const exact = headings.find(h => h.text === label);
+      if (exact) return exact;
+      const starts = headings.find(h => h.text.startsWith(label));
+      if (starts) return starts;
+      const contains = headings.find(h => h.text.includes(label));
+      return contains || null;
+  };
+
+  const updateTocTablePageNumbers = (workspace: HTMLElement) => {
+      const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
+      const tables = Array.from(workspace.querySelectorAll('table.toc-table, table[data-toc-table="true"]')) as HTMLTableElement[];
+
+      tables.forEach(table => {
+          const rows = Array.from(table.querySelectorAll('tr')) as HTMLTableRowElement[];
+          rows.forEach(row => {
+              const targetId = row.getAttribute('data-toc-target');
+              if (!targetId) return;
+              const target = workspace.querySelector(`#${CSS.escape(targetId)}`) as HTMLElement | null;
+              if (!target) return;
+              const page = getPageIndexForElement(target, pages);
+              const cells = Array.from(row.querySelectorAll('th, td')) as HTMLElement[];
+              if (cells.length === 0) return;
+              const pageCell = cells[cells.length - 1];
+              pageCell.textContent = String(page);
+              pageCell.setAttribute('data-toc-page', 'true');
+          });
+      });
+  };
+
+  const openTableTocModal = (table: HTMLTableElement) => {
+      if (!contentRef.current) return;
+      const workspace = contentRef.current;
+      if (!table.id) {
+          table.id = `toc-table-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      }
+
+      const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
+      const anchorEls = Array.from(workspace.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, blockquote')) as HTMLElement[];
+      const anchors = anchorEls
+          .map((el, index) => {
+              if (!el.id) {
+                  el.id = `toc-${index}-${Date.now()}`;
+              }
+              const raw = (el.textContent || '').trim();
+              if (!raw) return null;
+              return {
+                  id: el.id,
+                  label: raw.length > 140 ? `${raw.slice(0, 140)}…` : raw,
+                  page: getPageIndexForElement(el, pages),
+                  normalized: normalizeText(raw)
+              };
+          })
+          .filter(Boolean) as Array<{ id: string; label: string; page: number; normalized: string }>;
+
+      const rows = Array.from(table.querySelectorAll('tr')) as HTMLTableRowElement[];
+      const rowMappings = rows.map((row, index) => {
+          const cells = Array.from(row.querySelectorAll('th, td')) as HTMLElement[];
+          const labelCell = cells[0];
+          const rawLabel = (labelCell?.textContent || '').trim();
+          const normalized = normalizeText(rawLabel);
+          let selectedId = '';
+          if (normalized) {
+              const exact = anchors.find(a => a.normalized === normalized);
+              const starts = anchors.find(a => a.normalized.startsWith(normalized));
+              const contains = anchors.find(a => a.normalized.includes(normalized));
+              const match = exact || starts || contains || null;
+              if (match) selectedId = match.id;
+          }
+          return { index, label: rawLabel, selectedId };
+      });
+
+      setTableTocModal({
+          isOpen: true,
+          tableId: table.id,
+          rows: rowMappings,
+          anchors: anchors.map(a => ({ id: a.id, label: a.label, page: a.page }))
+      });
+  };
+
+  const applyTableTocMapping = (tableId: string, rows: { index: number; label: string; selectedId: string }[]) => {
+      if (!contentRef.current) return;
+      const workspace = contentRef.current;
+      const table = workspace.querySelector(`#${CSS.escape(tableId)}`) as HTMLTableElement | null;
+      if (!table) return;
+
+      const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
+      const tableRows = Array.from(table.querySelectorAll('tr')) as HTMLTableRowElement[];
+
+      rows.forEach(row => {
+          const targetId = row.selectedId;
+          const target = targetId ? (workspace.querySelector(`#${CSS.escape(targetId)}`) as HTMLElement | null) : null;
+          const tableRow = tableRows[row.index];
+          if (!tableRow) return;
+          const cells = Array.from(tableRow.querySelectorAll('th, td')) as HTMLElement[];
+          if (cells.length < 2) return;
+
+          if (!target) {
+              tableRow.removeAttribute('data-toc-target');
+              return;
+          }
+
+          const labelCell = cells[0];
+          const pageCell = cells[cells.length - 1];
+          const rawLabel = (labelCell.textContent || '').trim();
+
+          tableRow.setAttribute('data-toc-target', targetId);
+          table.setAttribute('data-toc-table', 'true');
+          table.classList.add('toc-table');
+
+          const existingLink = labelCell.querySelector('a') as HTMLAnchorElement | null;
+          if (existingLink) {
+              existingLink.href = `#${targetId}`;
+              existingLink.setAttribute('data-toc-link', 'true');
+              existingLink.setAttribute('onclick', `const el = document.getElementById('${targetId}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;`);
+              existingLink.textContent = rawLabel;
+          } else {
+              labelCell.innerHTML = `<a href="#${targetId}" data-toc-link="true" onclick="const el = document.getElementById('${targetId}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;">${rawLabel}</a>`;
+          }
+
+          const page = getPageIndexForElement(target, pages);
+          pageCell.textContent = String(page);
+          pageCell.setAttribute('data-toc-page', 'true');
+      });
+
+      updateTocTablePageNumbers(workspace);
+      reflowPages(workspace);
+      onContentChange(workspace.innerHTML);
+  };
   
   // Pattern detection
   const patternTrackerRef = useRef(new PatternTracker());
@@ -413,6 +563,11 @@ const Editor: React.FC<EditorProps> = ({
       if (!block) {
           block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, img, table, tr, td, th, span:not(.editor-workspace), a') as HTMLElement | null;
       }
+
+      if (block && (block.tagName === 'TD' || block.tagName === 'TH' || block.tagName === 'TR')) {
+          const table = block.closest('table');
+          if (table) block = table as HTMLElement;
+      }
       
       // If we're on the target itself and it's selectable, use it
       if (!block && (target.tagName === 'HR' || target.tagName === 'IMG')) {
@@ -699,6 +854,52 @@ const Editor: React.FC<EditorProps> = ({
       const handleClick = (e: MouseEvent) => {
           const target = e.target as HTMLElement;
 
+          const tocPageCell = target.closest('td[data-toc-page], th[data-toc-page]') as HTMLElement | null;
+          if (tocPageCell) {
+              const row = tocPageCell.closest('tr[data-toc-target]') as HTMLTableRowElement | null;
+              if (row) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const targetId = row.getAttribute('data-toc-target') || '';
+                  if (targetId) {
+                      const el = document.getElementById(targetId);
+                      if (el) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }
+                  }
+                  return;
+              }
+          }
+
+          const tocRow = target.closest('tr[data-toc-target]') as HTMLTableRowElement | null;
+          if (tocRow) {
+              e.preventDefault();
+              e.stopPropagation();
+              const targetId = tocRow.getAttribute('data-toc-target') || '';
+              if (targetId) {
+                  const el = document.getElementById(targetId);
+                  if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }
+              }
+              return;
+          }
+
+          const tocLink = target.closest('a[data-toc-link="true"]') as HTMLAnchorElement | null;
+          if (tocLink) {
+              e.preventDefault();
+              e.stopPropagation();
+              const href = tocLink.getAttribute('href') || '';
+              const id = href.startsWith('#') ? href.slice(1) : href;
+              if (id) {
+                  const el = document.getElementById(id);
+                  if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }
+              }
+              return;
+          }
+
           const isPageSurface = target.classList.contains('page') || target.classList.contains('editor-workspace');
           if (isPageSurface) {
               const page = target.classList.contains('page') ? target : target.closest('.page');
@@ -896,6 +1097,7 @@ const Editor: React.FC<EditorProps> = ({
               reflowTimeout = window.setTimeout(() => {
                   if (contentRef.current) {
                       reflowPages(contentRef.current);
+                      updateTocTablePageNumbers(contentRef.current);
                       onContentChange(contentRef.current.innerHTML);
                   }
               }, 50);
@@ -980,6 +1182,24 @@ const Editor: React.FC<EditorProps> = ({
                 outline: 2px dashed #8d55f1;
                 outline-offset: 2px;
             }
+            .editor-workspace table.toc-table tr[data-toc-target] {
+                cursor: pointer;
+            }
+            .editor-workspace table.toc-table td[data-toc-page],
+            .editor-workspace table.toc-table th[data-toc-page] {
+                cursor: pointer;
+            }
+            .editor-workspace.toc-modal-open * {
+                outline: none !important;
+                outline-offset: 0 !important;
+            }
+            .editor-workspace.toc-modal-open *:hover {
+                outline: none !important;
+                background-color: transparent !important;
+            }
+            .editor-workspace.toc-modal-open [data-selected="true"] {
+                outline: none !important;
+            }
             .editor-workspace hr[data-selected="true"] {
                 outline: 2px solid #8d55f1;
                 outline-offset: 2px;
@@ -1039,14 +1259,22 @@ const Editor: React.FC<EditorProps> = ({
 
         <div 
             ref={contentRef}
-            className={`${workspaceClasses} ${selectionMode?.active ? 'cursor-crosshair' : ''}`}
+            className={`${workspaceClasses} ${selectionMode?.active ? 'cursor-crosshair' : ''} ${tableTocModal.isOpen ? 'toc-modal-open' : ''}`}
             style={zoomStyle}
             contentEditable={!imageProperties.isCropping && !selectionMode?.active}
+            suppressContentEditableWarning={true}
+            onMouseDown={(e) => {
+                const target = e.target as HTMLElement;
+                const tocLink = target.closest('a[data-toc-link="true"]') as HTMLAnchorElement | null;
+                if (tocLink) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }}
             onKeyDown={handleKeyDown}
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
             onContextMenu={handleContextMenu}
-            suppressContentEditableWarning={true}
         />
         
         {showMarginGuides && (
@@ -1092,6 +1320,7 @@ const Editor: React.FC<EditorProps> = ({
                 onCut={handleCut}
                 onPaste={handlePaste}
                 onCreateQRCode={() => setQrModal({ isOpen: true, url: contextMenu.linkUrl || '' })}
+                onTransformToTOC={contextMenu.block?.closest('table') ? () => openTableTocModal(contextMenu.block!.closest('table') as HTMLTableElement) : undefined}
                 onMoveUp={handleMoveUp}
                 onMoveDown={handleMoveDown}
                 onDelete={handleDeleteBlock}
@@ -1130,6 +1359,17 @@ const Editor: React.FC<EditorProps> = ({
                 onClose={() => setActiveLink(null)}
             />
         )}
+
+        <TableTocModal
+            isOpen={tableTocModal.isOpen}
+            rows={tableTocModal.rows}
+            anchors={tableTocModal.anchors}
+            onClose={() => setTableTocModal({ isOpen: false, tableId: '', rows: [], anchors: [] })}
+            onApply={(rows) => {
+                applyTableTocMapping(tableTocModal.tableId, rows);
+                setTableTocModal({ isOpen: false, tableId: '', rows: [], anchors: [] });
+            }}
+        />
 
         <PatternModal
             isOpen={patternModal.isOpen}
