@@ -7,6 +7,8 @@ import PageRuler from './PageRuler';
 import BlockContextMenu from './BlockContextMenu';
 import DragHandle from './DragHandle';
 import PatternModal from './PatternModal';
+import QRCodeModal from './QRCodeModal';
+import LinkToolbar from './LinkToolbar';
 import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from '../utils/patternDetector';
 
 interface EditorProps {
@@ -106,8 +108,10 @@ const Editor: React.FC<EditorProps> = ({
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [pageRects, setPageRects] = useState<{ top: number; left: number; width: number; height: number }[]>([]);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; block: HTMLElement | null } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; block: HTMLElement | null; linkUrl?: string } | null>(null);
   const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
+  const [qrModal, setQrModal] = useState<{ isOpen: boolean; url: string }>({ isOpen: false, url: '' });
+  const [activeLink, setActiveLink] = useState<{ url: string; x: number; y: number; element: HTMLAnchorElement } | null>(null);
   
   // Pattern detection
   const patternTrackerRef = useRef(new PatternTracker());
@@ -358,6 +362,25 @@ const Editor: React.FC<EditorProps> = ({
       e.preventDefault();
       const target = e.target as HTMLElement;
       
+      // Check for link or selection content
+      let linkUrl: string | undefined = undefined;
+      
+      // 1. Check if target is a link or inside a link
+      const link = target.closest('a') as HTMLAnchorElement | null;
+      if (link) {
+          linkUrl = link.href;
+      } else {
+          // 2. Check if current selection is a URL
+          const selection = window.getSelection();
+          if (selection && selection.toString().trim().length > 0) {
+              const text = selection.toString().trim();
+              // Simple URL validation
+              if (text.match(/^(http|https):\/\/[^ "]+$/) || text.match(/^www\.[^ "]+$/)) {
+                  linkUrl = text.startsWith('www.') ? `https://${text}` : text;
+              }
+          }
+      }
+
       // Try to find any selectable block element - prioritize special elements
       let block = target.closest('.tracing-line, .writing-lines, .mission-box, .shape-rectangle, .shape-circle, .shape-pill, textarea') as HTMLElement | null;
       if (!block) {
@@ -393,7 +416,7 @@ const Editor: React.FC<EditorProps> = ({
       }
       
       setActiveBlock(block);
-      setContextMenu({ x: e.clientX, y: e.clientY, block });
+      setContextMenu({ x: e.clientX, y: e.clientY, block, linkUrl });
   };
 
   const insertAtCursor = (html: string) => {
@@ -644,6 +667,21 @@ const Editor: React.FC<EditorProps> = ({
 
       const handleClick = (e: MouseEvent) => {
           const target = e.target as HTMLElement;
+          
+          // Handle Link Click
+          const link = target.closest('a') as HTMLAnchorElement | null;
+          if (link) {
+              const rect = link.getBoundingClientRect();
+              setActiveLink({
+                  url: link.href,
+                  x: rect.left + rect.width / 2,
+                  y: rect.top,
+                  element: link
+              });
+          } else {
+              setActiveLink(null);
+          }
+
           if (selectionMode?.active && onBlockSelection) {
               e.preventDefault();
               e.stopPropagation();
@@ -924,17 +962,12 @@ const Editor: React.FC<EditorProps> = ({
                 onCopy={handleCopy}
                 onCut={handleCut}
                 onPaste={handlePaste}
-                onInsertPageBreak={onPageBreak}
-                onInsertSpace={handleInsertSpace}
-                onInsertHR={onInsertHorizontalRule}
-                onInsertImage={onInsertImage}
-                onInsertParagraph={handleInsertParagraph}
+                onCreateQRCode={contextMenu.linkUrl ? () => setQrModal({ isOpen: true, url: contextMenu.linkUrl! }) : undefined}
                 onMoveUp={handleMoveUp}
                 onMoveDown={handleMoveDown}
                 onDelete={handleDeleteBlock}
                 onDuplicate={handleDuplicateBlock}
                 hasBlock={!!contextMenu.block}
-                isHR={contextMenu.block?.tagName === 'HR'}
             />
         )}
 
@@ -954,12 +987,36 @@ const Editor: React.FC<EditorProps> = ({
             />
         )}
 
+        {activeLink && (
+            <LinkToolbar
+                url={activeLink.url}
+                x={activeLink.x}
+                y={activeLink.y}
+                onEdit={() => {}} // Placeholder
+                onRemove={() => {}} // Placeholder
+                onCreateQRCode={() => {
+                    setQrModal({ isOpen: true, url: activeLink.url });
+                    setActiveLink(null);
+                }}
+                onClose={() => setActiveLink(null)}
+            />
+        )}
+
         <PatternModal
             isOpen={patternModal.isOpen}
             actionType={patternModal.actionType}
             matches={patternModal.matches}
             onConfirm={handlePatternConfirm}
             onCancel={handlePatternCancel}
+        />
+
+        <QRCodeModal
+            isOpen={qrModal.isOpen}
+            initialUrl={qrModal.url}
+            onClose={() => setQrModal({ ...qrModal, isOpen: false })}
+            onInsert={(dataUrl, url) => {
+                insertAtCursor(`<img src="${dataUrl}" data-original-url="${url}" class="qr-code" style="width: 150px; height: auto; display: inline-block;" />`);
+            }}
         />
     </div>
   );

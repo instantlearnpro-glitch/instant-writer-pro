@@ -7,17 +7,12 @@ interface BlockContextMenuProps {
   onCopy: () => void;
   onCut: () => void;
   onPaste: () => void;
-  onInsertPageBreak: () => void;
-  onInsertSpace: (size: 'small' | 'medium' | 'large') => void;
-  onInsertHR: () => void;
-  onInsertImage: () => void;
-  onInsertParagraph: () => void;
+  onCreateQRCode?: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
   hasBlock: boolean;
-  isHR: boolean;
 }
 
 const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
@@ -27,17 +22,12 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
   onCopy,
   onCut,
   onPaste,
-  onInsertPageBreak,
-  onInsertSpace,
-  onInsertHR,
-  onInsertImage,
-  onInsertParagraph,
+  onCreateQRCode,
   onMoveUp,
   onMoveDown,
   onDelete,
   onDuplicate,
-  hasBlock,
-  isHR
+  hasBlock
 }) => {
   return (
     <>
@@ -93,90 +83,21 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
           </button>
         )}
 
-        <div className="border-t border-gray-100 my-1" />
-        <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase">Inserisci</div>
-        
-        <button
-          onClick={() => { onInsertParagraph(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
-          </svg>
-          Paragrafo
-        </button>
-
-        <button
-          onClick={() => { onInsertImage(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          Immagine
-        </button>
-
-        <button
-          onClick={() => { onInsertHR(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-          </svg>
-          Linea orizzontale
-        </button>
-
-        <div className="border-t border-gray-100 my-1" />
-        <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase">Spaziatura</div>
-
-        <button
-          onClick={() => { onInsertSpace('small'); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
-        >
-          <div className="w-4 h-4 flex items-center justify-center">
-            <div className="w-3 h-1 bg-gray-300" />
-          </div>
-          Spazio piccolo (0.5")
-        </button>
-
-        <button
-          onClick={() => { onInsertSpace('medium'); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
-        >
-          <div className="w-4 h-4 flex items-center justify-center">
-            <div className="w-3 h-2 bg-gray-300" />
-          </div>
-          Spazio medio (1")
-        </button>
-
-        <button
-          onClick={() => { onInsertSpace('large'); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
-        >
-          <div className="w-4 h-4 flex items-center justify-center">
-            <div className="w-3 h-3 bg-gray-300" />
-          </div>
-          Spazio grande (2")
-        </button>
-
-        <div className="border-t border-gray-100 my-1" />
-
-        <button
-          onClick={() => { onInsertPageBreak(); onClose(); }}
-          className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          Interruzione di pagina
-        </button>
+        {onCreateQRCode && (
+          <button
+            onClick={() => { onCreateQRCode(); onClose(); }}
+            className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 border-t border-gray-100"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4h2v-4zm-6 0H6v4h2v-4zm10-7h2m-6 0h-2v4h2V8zm-6 0H6v4h2V8zm0-4H6v4h2V4zm10 0h-2v4h2V4zM4 20h16a2 2 0 002-2V6a2 2 0 00-2-2H4a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            Crea QR Code
+          </button>
+        )}
 
         {hasBlock && (
           <>
             <div className="border-t border-gray-100 my-1" />
-            <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase">
-              {isHR ? 'Linea' : 'Blocco'}
-            </div>
 
             <button
               onClick={() => { onMoveUp(); onClose(); }}
