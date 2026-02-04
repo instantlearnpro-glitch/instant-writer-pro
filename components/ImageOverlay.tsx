@@ -23,6 +23,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [cropRect, setCropRect] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
   const [guides, setGuides] = useState<{ type: 'horizontal' | 'vertical', x?: number, y?: number, length?: number }[]>([]);
+  const [lockAspect, setLockAspect] = useState(true);
   
   // Sync overlay position with image
   const updatePosition = () => {
@@ -98,14 +99,50 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
         let newWidth = startWidth;
         let newHeight = startHeight;
 
-        if (direction.includes('e')) newWidth = startWidth + dx;
-        else if (direction.includes('w')) newWidth = startWidth - dx;
+        const hasE = direction.includes('e');
+        const hasW = direction.includes('w');
+        const hasS = direction.includes('s');
+        const hasN = direction.includes('n');
 
-        if (direction.includes('s')) newHeight = startHeight + dy;
-        else if (direction.includes('n')) newHeight = startHeight - dy;
+        if (hasE) newWidth = startWidth + dx;
+        else if (hasW) newWidth = startWidth - dx;
 
-        if (newWidth < 20) newWidth = 20;
-        if (newHeight < 20) newHeight = 20;
+        if (hasS) newHeight = startHeight + dy;
+        else if (hasN) newHeight = startHeight - dy;
+
+        if (lockAspect && isImage) {
+            const aspect = startWidth / startHeight;
+            const hasH = hasE || hasW;
+            const hasV = hasN || hasS;
+
+            if (hasH && !hasV) {
+                newHeight = newWidth / aspect;
+            } else if (hasV && !hasH) {
+                newWidth = newHeight * aspect;
+            } else if (hasH && hasV) {
+                if (Math.abs(dx) >= Math.abs(dy)) {
+                    newHeight = newWidth / aspect;
+                } else {
+                    newWidth = newHeight * aspect;
+                }
+            }
+        }
+
+        const minSize = 20;
+        if (lockAspect && isImage) {
+            const aspect = startWidth / startHeight;
+            if (newWidth < minSize) {
+                newWidth = minSize;
+                newHeight = newWidth / aspect;
+            }
+            if (newHeight < minSize) {
+                newHeight = minSize;
+                newWidth = newHeight * aspect;
+            }
+        } else {
+            if (newWidth < minSize) newWidth = minSize;
+            if (newHeight < minSize) newHeight = minSize;
+        }
 
         image.style.setProperty('width', `${newWidth}px`, 'important');
         image.style.setProperty('height', `${newHeight}px`, 'important');
@@ -155,7 +192,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             // Optional: Page Margins? For now just Center as requested before, plus edges logic below for siblings.
             
             // Siblings
-            const siblings = Array.from(page.querySelectorAll('img, .mission-box, h1, h2, h3, p')); // Added 'p' for text lines
+            const siblings = Array.from(page.querySelectorAll('img, .mission-box, h1, h2, h3, p')) as HTMLElement[]; // Added 'p' for text lines
             siblings.forEach(sib => {
                 if (sib === image) return;
                 const r = sib.getBoundingClientRect();
@@ -524,6 +561,29 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                 <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M12 12L5 12M12 12L12 5M12 12L19 12M12 12L12 19"/>
             </svg>
         </div>
+
+        {isImage && (
+            <button
+                type="button"
+                onClick={() => setLockAspect(prev => !prev)}
+                title={lockAspect ? 'Unlock proportions' : 'Lock proportions'}
+                style={{
+                    position: 'absolute',
+                    top: -36,
+                    left: 0,
+                    pointerEvents: 'auto',
+                    backgroundColor: lockAspect ? '#8d55f1' : '#ffffff',
+                    color: lockAspect ? '#ffffff' : '#4b5563',
+                    border: '1px solid #e5e7eb',
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 600
+                }}
+            >
+                {lockAspect ? 'Lock ratio' : 'Unlock ratio'}
+            </button>
+        )}
         
         <div style={{ pointerEvents: 'auto' }}>
             <Handle dir="nw" cursor="nw-resize" onStart={handleResizeStart} />
