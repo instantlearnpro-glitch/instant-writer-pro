@@ -24,6 +24,7 @@ export interface SelectionState {
   fontName: string;
   fontSize: string;
   lineHeight: string;
+  letterSpacing: string;
   foreColor: string;
   // Frame/Border props
   borderWidth: string;

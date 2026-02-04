@@ -53,6 +53,7 @@ interface ToolbarProps {
   onOpenSettings: () => void;
   onReloadFonts: () => void;
   onAddFont: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onCaptureSelection: () => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -96,18 +97,22 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onToggleSmartGuides,
   onOpenSettings,
   onReloadFonts,
-  onAddFont
+  onAddFont,
+  onCaptureSelection
 }) => {
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const [isLineHeightMenuOpen, setIsLineHeightMenuOpen] = useState(false);
   const [isTextCaseMenuOpen, setIsTextCaseMenuOpen] = useState(false);
   const [isListMenuOpen, setIsListMenuOpen] = useState(false);
+  const [isFontListOpen, setIsFontListOpen] = useState(false);
+  const [isFontSearchActive, setIsFontSearchActive] = useState(false);
   const [fontSearch, setFontSearch] = useState('');
   const [fontInput, setFontInput] = useState('');
   const styleMenuRef = useRef<HTMLDivElement>(null);
   const lineHeightMenuRef = useRef<HTMLDivElement>(null);
   const textCaseMenuRef = useRef<HTMLDivElement>(null);
   const listMenuRef = useRef<HTMLDivElement>(null);
+  const fontMenuRef = useRef<HTMLDivElement>(null);
 
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
     `p-2.5 rounded transition-colors cursor-pointer ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-[#efe5ff] hover:text-[#7539d3] ' + (isActive ? 'bg-[#efe5ff] text-[#7539d3]' : 'text-gray-700')}`;
@@ -127,6 +132,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
           }
           if (listMenuRef.current && !listMenuRef.current.contains(target)) {
               setIsListMenuOpen(false);
+          }
+          if (fontMenuRef.current && !fontMenuRef.current.contains(target)) {
+              setIsFontListOpen(false);
+              setIsFontSearchActive(false);
           }
       };
       document.addEventListener('mousedown', handleClickOutside);
@@ -184,10 +193,51 @@ const Toolbar: React.FC<ToolbarProps> = ({
       setFontInput(currentFontName);
   }, [currentFontName]);
 
+  useEffect(() => {
+      if (!isFontSearchActive) return;
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
+          if (e.key === 'Escape') {
+              setIsFontSearchActive(false);
+              setIsFontListOpen(false);
+              return;
+          }
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              const value = fontInput.trim();
+              if (value) onFormat('fontName', value);
+              setIsFontSearchActive(false);
+              setIsFontListOpen(false);
+              return;
+          }
+          if (e.key === 'Backspace') {
+              e.preventDefault();
+              const next = fontInput.slice(0, -1);
+              setFontInput(next);
+              setFontSearch(next);
+              setIsFontListOpen(true);
+              return;
+          }
+          if (e.key.length === 1) {
+              e.preventDefault();
+              const next = `${fontInput}${e.key}`;
+              setFontInput(next);
+              setFontSearch(next);
+              setIsFontListOpen(true);
+          }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFontSearchActive, fontInput, onFormat]);
+
   return (
     <div className="flex flex-col border-b border-gray-200 shadow-sm z-10 sticky top-0 bg-white">
         {/* === MAIN TOOLBAR (Always Visible) === */}
-        <div className="h-[68px] flex items-center px-4 justify-between bg-white z-20 relative">
+        <div
+            className="h-[68px] flex items-center px-4 justify-between bg-white z-20 relative"
+            onMouseDown={onCaptureSelection}
+        >
             <div className="flex items-center space-x-2">
                 <div className="mr-4 flex items-center space-x-2 border-r border-gray-200 pr-4">
                 <h1 className="font-bold text-lg text-gray-800 tracking-tight flex items-center gap-2 h-full leading-none">
@@ -359,31 +409,50 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
                     {/* Bottom: Font Family */}
                     <div className="flex items-center gap-1">
-                        <div className="flex flex-col gap-0">
-                            <input
+                        <div className="relative flex flex-col gap-0" ref={fontMenuRef}>
+                            <div className="relative flex items-center">
+                                <input
                                 type="text"
                                 list="font-list"
                                 value={fontInput}
-                                onChange={(e) => {
-                                    const value = e.target.value;
-                                    setFontInput(value);
-                                    setFontSearch(value);
+                                readOnly
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    onCaptureSelection();
+                                    setIsFontSearchActive(true);
+                                    setIsFontListOpen(true);
                                 }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        const value = fontInput.trim();
-                                        if (value) onFormat('fontName', value);
-                                    }
-                                }}
-                                onBlur={() => {
-                                    const value = fontInput.trim();
-                                    if (value) onFormat('fontName', value);
+                                onDoubleClick={(e) => {
+                                    e.preventDefault();
+                                    setFontInput('');
+                                    setFontSearch('');
+                                    setIsFontListOpen(true);
                                 }}
                                 placeholder="Font"
-                                className="h-6 border border-gray-200 rounded text-[11px] text-gray-700 focus:outline-none w-52 px-2 bg-white"
+                                className="h-6 border border-gray-200 rounded text-[11px] text-gray-700 focus:outline-none w-52 pr-2 pl-2 bg-white cursor-text"
                                 title="Font Family"
-                            />
+                                />
+                            </div>
+                            {isFontListOpen && (
+                                <div className="absolute top-7 left-0 w-52 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-xl z-50">
+                                    {filteredFonts.map((font, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => {
+                                                setFontInput(font.name);
+                                                setFontSearch('');
+                                                onFormat('fontName', font.value);
+                                                setIsFontListOpen(false);
+                                            }}
+                                            className="w-full text-left text-xs px-2 py-2 hover:bg-brand-50 text-gray-700"
+                                        >
+                                            {font.name} {font.available === false ? '⚠️' : ''}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                             <datalist id="font-list">
                                 {filteredFonts.map((font, idx) => (
                                     <option key={idx} value={font.name} />
@@ -462,14 +531,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             <ArrowUpDown size={16} />
                         </button>
                         {isLineHeightMenuOpen && (
-                            <div className="absolute top-10 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-28">
-                                <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Spacing</div>
+                            <div className="absolute top-10 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-40">
+                                <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Line Height</div>
                                 {[1.0, 1.15, 1.5, 2.0, 2.5, 3.0].map(val => (
                                     <button 
                                         key={val}
                                         onClick={() => {
                                             onFormat('lineHeight', val.toString());
-                                            setIsLineHeightMenuOpen(false);
                                         }} 
                                         className="hover:bg-brand-50 text-xs p-2 rounded text-left flex justify-between items-center"
                                     >
@@ -477,6 +545,27 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                         {selectionState.lineHeight === val.toString() && <div className="w-1.5 h-1.5 bg-brand-600 rounded-full"></div>}
                                     </button>
                                 ))}
+                                <div className="h-px bg-gray-100 my-1"></div>
+                                <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Letter Spacing</div>
+                                <div className="px-2 pb-2">
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        min="-5"
+                                        max="10"
+                                        value={parseFloat(selectionState.letterSpacing || '0') || 0}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === '') return;
+                                            const num = parseFloat(val);
+                                            if (isNaN(num)) return;
+                                            onFormat('letterSpacing', `${num}px`);
+                                        }}
+                                        className="w-full h-7 border border-gray-200 rounded px-2 text-xs text-gray-700"
+                                        placeholder="px"
+                                    />
+                                    <div className="text-[10px] text-gray-400 mt-1">Tip: use 0.5 steps (px)</div>
+                                </div>
                             </div>
                         )}
                     </div>

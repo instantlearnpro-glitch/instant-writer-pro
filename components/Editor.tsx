@@ -37,6 +37,7 @@ interface EditorProps {
   onMarginChange: (key: 'top' | 'bottom' | 'left' | 'right', value: number) => void;
   selectionMode?: { active: boolean; level: string | null; selectedIds: string[] };
   onBlockSelection?: (id: string) => void;
+  suppressSelectionRef?: React.MutableRefObject<boolean>;
   zoom: number;
   viewMode: 'single' | 'double';
 }
@@ -98,6 +99,7 @@ const Editor: React.FC<EditorProps> = ({
   onMarginChange,
   selectionMode,
   onBlockSelection,
+  suppressSelectionRef,
   imageProperties,
   onCropComplete,
   onCancelCrop,
@@ -328,6 +330,7 @@ const Editor: React.FC<EditorProps> = ({
   }, [htmlContent, showMarginGuides, containerRef, zoom, cssContent]);
 
   const handleSelectionChange = useCallback(() => {
+    if (suppressSelectionRef?.current) return;
     const selection = document.getSelection();
     if (!selection || selection.rangeCount === 0) return;
     const range = selection.getRangeAt(0);
@@ -388,6 +391,7 @@ const Editor: React.FC<EditorProps> = ({
       fontName: computedTarget.fontFamily || 'sans-serif',
       fontSize: mapFontSizeToCommandValue(fontSizePx),
       lineHeight: computedBlock.lineHeight || 'normal',
+      letterSpacing: computedTarget.letterSpacing || 'normal',
       foreColor: rgbToHex(computedTarget.color),
       borderWidth: safeParseInt(computedBlock.borderTopWidth),
       borderColor: rgbToHex(computedBlock.borderTopColor),
@@ -463,6 +467,7 @@ const Editor: React.FC<EditorProps> = ({
       fontName: computedText.fontFamily || 'sans-serif',
       fontSize: mapFontSizeToCommandValue(fontSizePx),
       lineHeight: computedBlock.lineHeight || 'normal',
+      letterSpacing: computedText.letterSpacing || 'normal',
       foreColor: rgbToHex(computedText.color),
       borderWidth: safeParseInt(computedBlock.borderTopWidth),
       borderColor: rgbToHex(computedBlock.borderTopColor),
@@ -923,19 +928,12 @@ const Editor: React.FC<EditorProps> = ({
                       }
                   }
 
-                  const insertParagraphAfter = (anchor: Element) => {
-                      const paragraph = doc.createElement('p');
-                      paragraph.appendChild(doc.createElement('br'));
-                      anchor.insertAdjacentElement('afterend', paragraph);
+                  const setCaretAfter = (anchor: Element) => {
                       const newRange = doc.createRange();
-                      newRange.setStart(paragraph, 0);
+                      newRange.setStartAfter(anchor);
                       newRange.collapse(true);
                       selection?.removeAllRanges();
                       selection?.addRange(newRange);
-                      if (contentRef.current) {
-                          reflowPages(contentRef.current);
-                          onContentChange(contentRef.current.innerHTML);
-                      }
                   };
 
                   if (range) {
@@ -947,22 +945,14 @@ const Editor: React.FC<EditorProps> = ({
                       if (blocked) {
                           const rect = blocked.getBoundingClientRect();
                           if (e.clientY > rect.bottom - 2) {
-                              insertParagraphAfter(blocked);
+                              setCaretAfter(blocked);
                               return;
                           }
                       }
 
-                      const paragraph = doc.createElement('p');
-                      paragraph.appendChild(doc.createElement('br'));
-                      range.insertNode(paragraph);
-                      range.setStart(paragraph, 0);
                       range.collapse(true);
                       selection?.removeAllRanges();
                       selection?.addRange(range);
-                      if (contentRef.current) {
-                          reflowPages(contentRef.current);
-                          onContentChange(contentRef.current.innerHTML);
-                      }
                   }
               }
               return;
@@ -1007,20 +997,13 @@ const Editor: React.FC<EditorProps> = ({
               return;
           }
 
-          const insertParagraphAfter = (anchor: Element) => {
-              const paragraph = document.createElement('p');
-              paragraph.appendChild(document.createElement('br'));
-              anchor.insertAdjacentElement('afterend', paragraph);
+          const setCaretAfter = (anchor: Element) => {
               const selection = window.getSelection();
               const newRange = document.createRange();
-              newRange.setStart(paragraph, 0);
+              newRange.setStartAfter(anchor);
               newRange.collapse(true);
               selection?.removeAllRanges();
               selection?.addRange(newRange);
-              if (contentRef.current) {
-                  reflowPages(contentRef.current);
-                  onContentChange(contentRef.current.innerHTML);
-              }
           };
 
           const shapeContainer = target.closest('.mission-box, .shape-rectangle, .shape-circle, .shape-pill, .shape-speech, .shape-cloud') as HTMLElement | null;
@@ -1032,7 +1015,7 @@ const Editor: React.FC<EditorProps> = ({
                   : rect.top;
 
               if (e.clientY > maxChildBottom + 4 && e.clientY <= rect.bottom + 2) {
-                  insertParagraphAfter(shapeContainer);
+                  setCaretAfter(shapeContainer);
                   return;
               }
           }

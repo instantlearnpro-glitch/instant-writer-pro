@@ -104,6 +104,7 @@ const buildSelectionStateFromElement = (element: HTMLElement): SelectionState =>
     fontName: computedText.fontFamily || 'sans-serif',
     fontSize: mapFontSizeToCommandValue(fontSizePx),
     lineHeight: computedBlock.lineHeight || 'normal',
+    letterSpacing: computedText.letterSpacing || 'normal',
     foreColor: rgbToHex(computedText.color),
     borderWidth: safeParseInt(computedBlock.borderTopWidth),
     borderColor: rgbToHex(computedBlock.borderTopColor),
@@ -268,6 +269,7 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
   
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const suppressSelectionRef = useRef(false);
 
   // Pattern detection for image/style changes
   const patternTrackerRef = useRef(new PatternTracker());
@@ -532,6 +534,18 @@ const App: React.FC = () => {
     setIsSettingsModalOpen(false);
   };
 
+  const handleCaptureSelection = () => {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0).cloneRange();
+          setSelectionState(prev => ({ ...prev, range }));
+      }
+      suppressSelectionRef.current = true;
+      window.setTimeout(() => {
+          suppressSelectionRef.current = false;
+      }, 0);
+  };
+
   const applyAiActions = (actions: Array<{ type: string; selector?: string; fontFamily?: string; style?: Record<string, string> }>) => {
     const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
     if (!workspace || actions.length === 0) return;
@@ -777,6 +791,18 @@ const App: React.FC = () => {
       }
   };
 
+  const restoreSelection = () => {
+      const range = selectionState.range;
+      const workspace = document.querySelector('.editor-workspace');
+      if (!range || !workspace) return false;
+      const selection = window.getSelection();
+      if (!selection) return false;
+      if (!workspace.contains(range.commonAncestorContainer)) return false;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return true;
+  };
+
   const handleFormat = (command: string, value?: string) => {
     if (command === 'removeSelection') {
         setSelectedImage(null);
@@ -792,6 +818,15 @@ const App: React.FC = () => {
     if (command === 'deleteFooter') {
         handleRemoveFooter();
         return;
+    }
+
+    const commandsNeedingSelection = new Set([
+        'bold', 'italic', 'underline', 'fontName', 'fontSize', 'foreColor',
+        'justifyLeft', 'justifyCenter', 'justifyRight', 'justifyFull',
+        'insertOrderedList', 'insertUnorderedList', 'textTransform'
+    ]);
+    if (commandsNeedingSelection.has(command)) {
+        restoreSelection();
     }
 
     // --- Footer Global Styling ---
@@ -919,6 +954,56 @@ const App: React.FC = () => {
             }
 
             // Force history update
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            }
+        }
+        return;
+    }
+
+    if (command === 'letterSpacing') {
+        let targetBlock = activeBlock;
+        if (targetBlock && !targetBlock.isConnected) {
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0) {
+                const node = selection.getRangeAt(0).commonAncestorContainer;
+                const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+                targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
+            }
+        }
+
+        if (!targetBlock) {
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0) {
+                const node = selection.getRangeAt(0).commonAncestorContainer;
+                const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+                targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
+            }
+        }
+
+        if (targetBlock) {
+            targetBlock.style.letterSpacing = value || 'normal';
+
+            const selection = window.getSelection();
+            if (selection && !selection.isCollapsed) {
+                const range = selection.getRangeAt(0);
+                const wrapper = document.createElement('div');
+                wrapper.appendChild(range.cloneContents());
+                const blocks = wrapper.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div, li, blockquote');
+                if (blocks.length > 0) {
+                    let current = targetBlock;
+                    const endNode = selection.focusNode?.parentElement?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page), li, blockquote');
+                    let loops = 0;
+                    while (current && loops < 50) {
+                        (current as HTMLElement).style.letterSpacing = value || 'normal';
+                        if (current === endNode || !current.nextElementSibling) break;
+                        current = current.nextElementSibling as HTMLElement;
+                        loops++;
+                    }
+                }
+            }
+
             const workspace = document.querySelector('.editor-workspace');
             if (workspace) {
                 updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
@@ -2712,6 +2797,7 @@ ${contentHtml}
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         onReloadFonts={handleReloadFonts}
         onAddFont={handleAddFont}
+        onCaptureSelection={handleCaptureSelection}
       />
       
       <div className="flex flex-1 overflow-hidden">
@@ -2764,6 +2850,7 @@ ${contentHtml}
                 onMarginChange={handleMarginChange}
                 selectionMode={selectionMode}
                 onBlockSelection={handleBlockSelection}
+                suppressSelectionRef={suppressSelectionRef}
                 zoom={zoom}
                 viewMode={viewMode}
             />
