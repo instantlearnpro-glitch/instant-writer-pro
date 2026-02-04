@@ -632,7 +632,7 @@ const Editor: React.FC<EditorProps> = ({
       selectedIds.forEach(id => {
           const element = document.getElementById(id);
           if (element) {
-              if (actionType === 'Elimina') {
+              if (actionType === 'Delete') {
                   element.remove();
               } else if (command) {
                   // Apply formatting to element

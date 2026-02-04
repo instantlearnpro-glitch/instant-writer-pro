@@ -135,11 +135,11 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
       <div className="bg-white rounded-lg shadow-xl w-[900px] h-[740px] flex overflow-hidden">
         {/* Left: Controls */}
         <div className="w-1/2 p-4 border-r border-gray-200 bg-gray-50">
-          <h2 className="text-lg font-bold mb-3 text-gray-800">Genera QR Code</h2>
+          <h2 className="text-lg font-bold mb-3 text-gray-800">Generate QR Code</h2>
           
           <div className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">URL Destinazione</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Destination URL</label>
               <input
                 type="text"
                 value={url}
@@ -150,25 +150,25 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Stile Punti</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Dot Style</label>
               <div className="flex gap-4">
                 <button
                   onClick={() => setQrStyle('squares')}
                   className={`flex-1 py-1.5 px-4 rounded border ${qrStyle === 'squares' ? 'bg-violet-50 border-violet-500 text-violet-700' : 'bg-white border-gray-300 hover:bg-violet-50'}`}
                 >
-                  Quadrati
+                  Squares
                 </button>
                 <button
                   onClick={() => setQrStyle('dots')}
                   className={`flex-1 py-1.5 px-4 rounded border ${qrStyle === 'dots' ? 'bg-violet-50 border-violet-500 text-violet-700' : 'bg-white border-gray-300 hover:bg-violet-50'}`}
                 >
-                  Punti
+                  Dots
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Stile Bordo (Occhi)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Eye Corner Style</label>
               <input
                 type="range"
                 min="0"
@@ -178,13 +178,13 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
                 className="w-full accent-violet-500"
               />
               <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Quadrato</span>
-                <span>Rotondo</span>
+                <span>Square</span>
+                <span>Round</span>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Margine (Quiet Zone)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Margin (Quiet Zone)</label>
               <input
                 type="range"
                 min="0"
@@ -197,7 +197,7 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Colore Punti</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Dot Color</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
@@ -209,7 +209,7 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Sfondo</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Background</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
@@ -223,7 +223,7 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Logo Centrale</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Center Logo</label>
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <input
@@ -242,7 +242,7 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
                     <button
                       type="button"
                       onClick={handleLogoRemove}
-                      aria-label="Rimuovi logo"
+                      aria-label="Remove logo"
                       className="h-6 w-6 rounded-full border border-gray-300 text-gray-600 hover:bg-white"
                     >
                       ×
@@ -251,7 +251,7 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
                 </div>
                 {logoUrl && (
                   <div>
-                     <label className="block text-xs text-gray-500 mb-1">Dimensione Logo</label>
+                     <label className="block text-xs text-gray-500 mb-1">Logo Size</label>
                       <input
                        type="range"
                        min="20"
@@ -266,7 +266,7 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Bordo Esterno</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Outer Border</label>
               <div className="space-y-3">
                 <label className="flex items-center gap-2 text-sm text-gray-700">
                   <input
@@ -275,13 +275,13 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
                     onChange={(e) => setBorderEnabled(e.target.checked)}
                     className="h-4 w-4"
                   />
-                  Attiva bordo
+                  Enable border
                 </label>
                 {borderEnabled && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Colore Bordo</label>
+                        <label className="block text-xs text-gray-500 mb-1">Border Color</label>
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
@@ -293,7 +293,7 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
                         </div>
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Spessore</label>
+                        <label className="block text-xs text-gray-500 mb-1">Thickness</label>
                         <input
                           type="range"
                           min="2"
@@ -305,7 +305,7 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Smusso Angoli</label>
+                      <label className="block text-xs text-gray-500 mb-1">Corner Radius</label>
                       <input
                         type="range"
                         min="0"
@@ -360,19 +360,19 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, initialUrl =
               onClick={onClose}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-white transition-colors"
             >
-              Annulla
+              Cancel
             </button>
             <button
               onClick={handleDownload}
               className="flex-1 px-4 py-2 border border-violet-600 text-violet-600 rounded-lg font-medium hover:bg-violet-50 transition-colors"
             >
-              Scarica PNG
+              Download PNG
             </button>
             <button
               onClick={handleInsert}
               className="flex-1 px-4 py-2 bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-700 shadow-md transition-all transform hover:scale-[1.02]"
             >
-              Inserisci
+              Insert
             </button>
           </div>
         </div>

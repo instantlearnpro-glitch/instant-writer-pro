@@ -43,7 +43,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
       onClose();
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Esportazione fallita. Riprova.');
+      alert('Export failed. Please try again.');
     } finally {
       setIsExporting(false);
     }
@@ -53,21 +53,21 @@ const ExportModal: React.FC<ExportModalProps> = ({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
         <div className="p-6 border-b">
-          <h2 className="text-xl font-semibold text-gray-800">Esporta documento</h2>
-          <p className="text-sm text-gray-500 mt-1">Scegli formato e nome del file</p>
+          <h2 className="text-xl font-semibold text-gray-800">Export document</h2>
+          <p className="text-sm text-gray-500 mt-1">Choose format and file name</p>
         </div>
 
         <div className="p-6 space-y-4">
           {/* File name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Nome file
+              File name
             </label>
             <input
               type="text"
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
-              placeholder="Nome del documento"
+              placeholder="Document name"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
             />
           </div>
@@ -75,7 +75,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
           {/* Format selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Formato
+              Format
             </label>
             <div className="grid grid-cols-3 gap-2">
               <button
@@ -88,7 +88,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               >
                 <div className="text-2xl mb-1">📄</div>
                 <div className="text-sm font-medium">PDF</div>
-                <div className="text-xs text-gray-500">Stampa</div>
+                <div className="text-xs text-gray-500">Print</div>
               </button>
               
               <button
@@ -122,13 +122,13 @@ const ExportModal: React.FC<ExportModalProps> = ({
           {/* Info */}
           <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
             {format === 'pdf' && (
-              <>📄 Il PDF mantiene layout, immagini e formattazione esattamente come visualizzati.</>
+              <>📄 The PDF keeps layout, images, and formatting exactly as shown.</>
             )}
             {format === 'html' && (
-              <>🌐 L'HTML preserva tutto il contenuto e può essere riaperto in SpyWriter Pro.</>
+              <>🌐 HTML preserves all content and can be reopened in SpyWriter Pro.</>
             )}
             {format === 'docx' && (
-              <>📝 Il DOCX può essere aperto in Microsoft Word, Google Docs e altri editor.</>
+              <>📝 DOCX can be opened in Microsoft Word, Google Docs, and other editors.</>
             )}
           </div>
         </div>
@@ -139,7 +139,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
             disabled={isExporting}
             className="px-4 py-2 text-gray-700 hover:bg-brand-50 hover:text-brand-700 rounded-lg transition-colors"
           >
-            Annulla
+            Cancel
           </button>
           <button
             onClick={handleExport}
@@ -155,7 +155,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
                 Esportazione...
               </>
             ) : (
-              <>Esporta {format.toUpperCase()}</>
+              <>Export {format.toUpperCase()}</>
             )}
           </button>
         </div>

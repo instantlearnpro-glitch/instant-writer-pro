@@ -76,7 +76,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({
       <button
         onClick={() => onViewModeChange('single')}
         className={`p-1.5 rounded ${viewMode === 'single' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50 hover:text-brand-600 text-gray-600'}`}
-        title="Vista pagina singola"
+        title="Single page view"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <rect x="6" y="3" width="12" height="18" rx="1" strokeWidth={2} />
@@ -87,7 +87,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({
       <button
         onClick={() => onViewModeChange('double')}
         className={`p-1.5 rounded ${viewMode === 'double' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50 hover:text-brand-600 text-gray-600'}`}
-        title="Vista doppia pagina"
+        title="Two-page view"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <rect x="2" y="4" width="8" height="16" rx="1" strokeWidth={2} />

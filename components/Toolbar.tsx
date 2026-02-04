@@ -199,11 +199,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 mr-2">
-                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Apri File">
+                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Open File">
                         <input type="file" multiple accept=".html,.htm,.docx,image/*" onChange={onFileUpload} className="hidden" />
                         <FileUp size={18} />
                     </label>
-                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Inserisci Immagine">
+                    <label className={`${ButtonClass(false)} cursor-pointer`} title="Insert Image">
                         <input type="file" accept="image/*" onChange={onInsertImage} className="hidden" />
                         <ImagePlus size={18} />
                     </label>
@@ -240,14 +240,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             <button
                                 onClick={onToggleSmartGuides}
                                 className={`${ButtonClass(showSmartGuides)} !p-1`}
-                                title="Guide Intelligenti (Allineamento)"
+                                title="Smart Guides (Alignment)"
                             >
                                 <LayoutTemplate size={12} />
                             </button>
                             <button
                                 onClick={onToggleMarginGuides}
                                 className={`${ButtonClass(showMarginGuides)} !p-1`}
-                                title="Mostra margini e righello"
+                                title="Show margins and ruler"
                             >
                                 <Ruler size={12} />
                             </button>
@@ -467,19 +467,19 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         <button 
                             onClick={() => setIsListMenuOpen(!isListMenuOpen)}
                             className={`${ButtonClass(selectionState.ul || selectionState.ol)} !p-2 flex items-center`} 
-                            title="Elenchi"
+                            title="Lists"
                         >
                             {selectionState.ol ? <ListOrdered size={16} /> : <List size={16} />}
                             <ChevronDown size={10} className="ml-1 -mr-1 opacity-50" />
                         </button>
                         {isListMenuOpen && (
                             <div className="absolute top-10 left-0 flex flex-col bg-white border border-gray-200 shadow-xl rounded-md p-1 z-50 w-36">
-                                <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Elenchi</div>
+                                <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Lists</div>
                                 <button onClick={() => { onFormat('insertUnorderedList'); setIsListMenuOpen(false); }} className={`text-xs p-2 rounded text-left flex items-center gap-2 hover:bg-brand-50 ${selectionState.ul ? 'bg-brand-50 text-brand-600' : ''}`}>
-                                    <List size={14} /> Puntato
+                                    <List size={14} /> Bulleted
                                 </button>
                                 <button onClick={() => { onFormat('insertOrderedList'); setIsListMenuOpen(false); }} className={`text-xs p-2 rounded text-left flex items-center gap-2 hover:bg-brand-50 ${selectionState.ol ? 'bg-brand-50 text-brand-600' : ''}`}>
-                                    <ListOrdered size={14} /> Numerato
+                                    <ListOrdered size={14} /> Numbered
                                 </button>
                             </div>
                         )}
@@ -488,7 +488,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 <button 
                     onClick={onExport}
                     className="bg-[#8d55f1] text-white p-2 rounded-md hover:bg-[#7539d3] shadow-sm"
-                    title="Esporta"
+                    title="Export"
                 >
                     <Download size={18} />
                 </button>

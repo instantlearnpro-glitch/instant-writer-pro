@@ -62,6 +62,8 @@ const buildSelectionStateFromElement = (element: HTMLElement): SelectionState =>
   const isUnderline = textDecoration.includes('underline');
   const fontStyle = computedText.fontStyle || 'normal';
   const textAlign = computedBlock.textAlign || 'left';
+  const ulTag = element.tagName === 'LI' && element.parentElement?.tagName === 'UL';
+  const olTag = element.tagName === 'LI' && element.parentElement?.tagName === 'OL';
 
   const shapeClass = element.classList.contains('shape-circle')
     ? 'circle'
@@ -88,6 +90,8 @@ const buildSelectionStateFromElement = (element: HTMLElement): SelectionState =>
     bold: isBold,
     italic: fontStyle === 'italic' || fontStyle === 'oblique',
     underline: isUnderline,
+    ul: ulTag,
+    ol: olTag,
     blockType: element.tagName.toLowerCase(),
     alignLeft: textAlign === 'left' || textAlign === 'start',
     alignCenter: textAlign === 'center',
@@ -676,64 +680,7 @@ const App: React.FC = () => {
         return;
     }
 
-    // 1. Check for Shape Alignment FIRST
-    if (command === 'justifyLeft' || command === 'justifyCenter' || command === 'justifyRight') {
-        // Use direct DOM check to find if we are inside a shape
-        const selection = window.getSelection();
-        let shapeContainer: HTMLElement | null = null;
-
-        if (selection && selection.rangeCount > 0) {
-            const range = selection.getRangeAt(0);
-            let node = range.commonAncestorContainer;
-            if (node.nodeType === 3) node = node.parentElement!; // Fix text node
-            
-            shapeContainer = (node as HTMLElement).closest('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle');
-        }
-
-        // If we found a shape container, move THE CONTAINER, not the text
-        if (shapeContainer) {
-            // CRITICAL: A block must have width < 100% to be aligned via margins.
-            // If it's a full-width block (default div), margins do nothing visible.
-            // We force fit-content if no specific width is set, to allow movement.
-            if (!shapeContainer.style.width || shapeContainer.style.width === '100%') {
-                shapeContainer.style.width = 'fit-content';
-            }
-            shapeContainer.style.display = 'block'; 
-
-            // Reset margins first
-            shapeContainer.style.marginLeft = '';
-            shapeContainer.style.marginRight = '';
-
-            if (command === 'justifyLeft') {
-                shapeContainer.style.setProperty('margin-left', '0', 'important');
-                shapeContainer.style.setProperty('margin-right', 'auto', 'important');
-            } else if (command === 'justifyCenter') {
-                shapeContainer.style.setProperty('margin-left', 'auto', 'important');
-                shapeContainer.style.setProperty('margin-right', 'auto', 'important');
-            } else if (command === 'justifyRight') {
-                shapeContainer.style.setProperty('margin-left', 'auto', 'important');
-                shapeContainer.style.setProperty('margin-right', '0', 'important');
-            }
-            
-            // Update state manually since we bypassed execCommand
-            setSelectionState(prev => ({
-                ...prev,
-                alignLeft: command === 'justifyLeft',
-                alignCenter: command === 'justifyCenter',
-                alignRight: command === 'justifyRight'
-            }));
-            
-            // Force save history for alignment change
-            const workspace = document.querySelector('.editor-workspace');
-            if (workspace) {
-                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
-            }
-            
-            return;
-        }
-    }
-
-    // 2. Handle formatBlock for divs with special classes
+    // 1. Handle formatBlock for divs with special classes
     if (command === 'formatBlock' && activeBlock) {
         const targetDiv = activeBlock.closest('div[class]:not(.page):not(.editor-workspace)') as HTMLElement;
         if (targetDiv) {
@@ -1156,15 +1103,57 @@ const App: React.FC = () => {
 
       if (!currentBlock) return;
 
+      const shapeSelectors = '.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle';
+      const pendingStyles = { ...styles };
+
+      // Shape alignment: move the container instead of aligning text
+      const shapeAlignmentTarget = pendingStyles.textAlign
+        ? (currentBlock.matches(shapeSelectors)
+            ? currentBlock
+            : currentBlock.closest(shapeSelectors))
+        : null;
+
+      if (shapeAlignmentTarget && (pendingStyles.textAlign === 'left' || pendingStyles.textAlign === 'center' || pendingStyles.textAlign === 'right')) {
+          if (!shapeAlignmentTarget.style.width || shapeAlignmentTarget.style.width === '100%') {
+              shapeAlignmentTarget.style.width = 'fit-content';
+          }
+          shapeAlignmentTarget.style.display = 'block';
+
+          shapeAlignmentTarget.style.marginLeft = '';
+          shapeAlignmentTarget.style.marginRight = '';
+
+          if (pendingStyles.textAlign === 'left') {
+              shapeAlignmentTarget.style.setProperty('margin-left', '0', 'important');
+              shapeAlignmentTarget.style.setProperty('margin-right', 'auto', 'important');
+          } else if (pendingStyles.textAlign === 'center') {
+              shapeAlignmentTarget.style.setProperty('margin-left', 'auto', 'important');
+              shapeAlignmentTarget.style.setProperty('margin-right', 'auto', 'important');
+          } else if (pendingStyles.textAlign === 'right') {
+              shapeAlignmentTarget.style.setProperty('margin-left', 'auto', 'important');
+              shapeAlignmentTarget.style.setProperty('margin-right', '0', 'important');
+          }
+
+          setSelectionState(prev => ({ ...prev, textAlign: pendingStyles.textAlign as string }));
+
+          const workspace = document.querySelector('.editor-workspace');
+          if (workspace) {
+              updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+          }
+
+          delete pendingStyles.textAlign;
+      }
+
+      if (Object.keys(pendingStyles).length === 0) return;
+
       // RESOLVE TARGET: If applying shape properties, look for the shape container
-      const isShapeProperty = styles.shape || styles.borderColor || styles.backgroundColor || styles.borderWidth || styles.borderStyle || styles.padding;
+      const isShapeProperty = pendingStyles.shape || pendingStyles.borderColor || pendingStyles.backgroundColor || pendingStyles.borderWidth || pendingStyles.borderStyle || pendingStyles.padding;
       
       let targetBlock = currentBlock;
-      let isShape = currentBlock.matches('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle');
+      let isShape = currentBlock.matches(shapeSelectors);
 
       if (isShapeProperty && !isShape) {
           // Try to find a parent shape
-          const parentShape = currentBlock.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle');
+          const parentShape = currentBlock.closest(shapeSelectors);
           if (parentShape) {
               targetBlock = parentShape as HTMLElement;
               isShape = true;
@@ -1175,12 +1164,12 @@ const App: React.FC = () => {
           // Exception: If we are just aligning text (textAlign), that's allowed on paragraphs.
           // But if we are setting borders/backgrounds/shapes, abort if it's not a shape.
           // This prevents "Page Rectangle" layout breakage.
-          if (!styles.textAlign && !styles.blockType && !styles.fontSize && !styles.fontName) {
+          if (!pendingStyles.textAlign && !pendingStyles.blockType && !pendingStyles.fontSize && !pendingStyles.fontName) {
              return;
           }
       }
 
-      Object.entries(styles).forEach(([key, value]) => {
+      Object.entries(pendingStyles).forEach(([key, value]) => {
           if (key === 'shape') {
               // Remove existing shape classes
               targetBlock.classList.remove('shape-circle', 'shape-pill', 'shape-speech', 'shape-cloud', 'shape-rectangle');

@@ -110,7 +110,7 @@ const getElementPreview = (element: HTMLElement): string => {
   const text = element.textContent?.trim() || '';
   
   if (element.tagName === 'IMG') {
-    return `<img> ${(element as HTMLImageElement).alt || 'immagine'}`;
+    return `<img> ${(element as HTMLImageElement).alt || 'image'}`;
   }
   
   if (element.tagName === 'HR') {
@@ -182,23 +182,23 @@ export class PatternTracker {
   
   private getActionLabel(type: ActionType): string {
     switch (type) {
-      case 'delete': return 'Elimina';
-      case 'move': return 'Sposta';
-      case 'resize': return 'Ridimensiona';
-      case 'bold': return 'Grassetto';
-      case 'italic': return 'Corsivo';
-      case 'underline': return 'Sottolineato';
-      case 'list': return 'Elenco';
-      case 'indent': return 'Rientro';
-      case 'align': return 'Allineamento';
-      case 'fontSize': return 'Dimensione testo';
-      case 'fontColor': return 'Colore testo';
-      case 'imageWidth': return 'Dimensione immagine';
-      case 'imageAlign': return 'Allineamento immagine';
-      case 'imageBrightness': return 'Luminosità immagine';
-      case 'imageContrast': return 'Contrasto immagine';
-      case 'imageStyle': return 'Stile immagine';
-      case 'style': return 'Modifica stile';
+      case 'delete': return 'Delete';
+      case 'move': return 'Move';
+      case 'resize': return 'Resize';
+      case 'bold': return 'Bold';
+      case 'italic': return 'Italic';
+      case 'underline': return 'Underline';
+      case 'list': return 'List';
+      case 'indent': return 'Indent';
+      case 'align': return 'Align';
+      case 'fontSize': return 'Text size';
+      case 'fontColor': return 'Text color';
+      case 'imageWidth': return 'Image size';
+      case 'imageAlign': return 'Image alignment';
+      case 'imageBrightness': return 'Image brightness';
+      case 'imageContrast': return 'Image contrast';
+      case 'imageStyle': return 'Image style';
+      case 'style': return 'Style edit';
       default: return type;
     }
   }
