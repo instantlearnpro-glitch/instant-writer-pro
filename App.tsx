@@ -313,6 +313,7 @@ const App: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState<HTMLImageElement | null>(null);
   const [selectedTextLayer, setSelectedTextLayer] = useState<HTMLElement | null>(null);
   const [isTextLayerMode, setIsTextLayerMode] = useState(false);
+  const [multiSelectedElements, setMultiSelectedElements] = useState<HTMLElement[]>([]);
 
   useEffect(() => {
       document.body.classList.remove('text-layer-mode');
@@ -504,6 +505,17 @@ const App: React.FC = () => {
               return prevHistory;
           });
       }, 1000); // Wait 1s after typing stops
+  };
+
+  const updateDocStatePreserveScroll = (html: string) => {
+      const container = editorContainerRef.current;
+      const prevScroll = container ? container.scrollTop : 0;
+      updateDocState({ ...docState, htmlContent: html }, true);
+      if (container) {
+          requestAnimationFrame(() => {
+              container.scrollTop = prevScroll;
+          });
+      }
   };
 
 
@@ -940,6 +952,27 @@ const App: React.FC = () => {
       }
   };
 
+  const handleToggleMultiSelect = (el: HTMLElement | null) => {
+      if (!el) return;
+      setMultiSelectedElements(prev => {
+          const exists = prev.includes(el);
+          const next = exists ? prev.filter(item => item !== el) : [...prev, el];
+          if (exists) {
+              el.removeAttribute('data-multi-selected');
+          } else {
+              el.setAttribute('data-multi-selected', 'true');
+          }
+          return next;
+      });
+  };
+
+  const handleClearMultiSelect = () => {
+      setMultiSelectedElements(prev => {
+          prev.forEach(el => el.removeAttribute('data-multi-selected'));
+          return [];
+      });
+  };
+
   const handleFooterSelect = (footer: HTMLElement | null) => {
       const workspace = document.querySelector('.editor-workspace');
       if (!workspace) return;
@@ -998,6 +1031,20 @@ const App: React.FC = () => {
       return true;
   };
 
+  const applyStyleToMultiSelection = (styles: Record<string, string>) => {
+      if (multiSelectedElements.length === 0) return false;
+      multiSelectedElements.forEach(el => {
+          Object.entries(styles).forEach(([key, val]) => {
+              el.style.setProperty(key, val, 'important');
+          });
+      });
+      const workspace = document.querySelector('.editor-workspace');
+      if (workspace) {
+          updateDocStatePreserveScroll(workspace.innerHTML);
+      }
+      return true;
+  };
+
   const handleFormat = (command: string, value?: string) => {
     if (command === 'removeSelection') {
         setSelectedImage(null);
@@ -1013,6 +1060,73 @@ const App: React.FC = () => {
     if (command === 'deleteFooter') {
         handleRemoveFooter();
         return;
+    }
+
+    if (multiSelectedElements.length > 0) {
+        if (command === 'fontName' && value) {
+            if (applyStyleToMultiSelection({ 'font-family': value })) return;
+        }
+        if (command === 'fontSize') {
+            const sizeValue = value || '16';
+            const sizePx = sizeValue.includes('px') ? sizeValue : `${sizeValue}px`;
+            const textTargets = multiSelectedElements
+                .map(el => el.closest('.floating-text, .writing-lines, textarea.writing-lines, p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)') as HTMLElement | null)
+                .filter(Boolean) as HTMLElement[];
+            if (textTargets.length > 0) {
+                textTargets.forEach(el => el.style.setProperty('font-size', sizePx, 'important'));
+                const workspace = document.querySelector('.editor-workspace');
+                if (workspace) {
+                    updateDocStatePreserveScroll(workspace.innerHTML);
+                }
+                setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
+                return;
+            }
+        }
+        if (command === 'foreColor' && value) {
+            if (applyStyleToMultiSelection({ 'color': value })) return;
+        }
+        if (command === 'lineHeight' && value) {
+            if (applyStyleToMultiSelection({ 'line-height': value })) return;
+        }
+        if (command === 'letterSpacing' && value) {
+            if (applyStyleToMultiSelection({ 'letter-spacing': value })) return;
+        }
+        if (command === 'textTransform' && value) {
+            if (applyStyleToMultiSelection({ 'text-transform': value })) return;
+        }
+        if (command === 'bold') {
+            const next = selectionState.bold ? 'normal' : 'bold';
+            if (applyStyleToMultiSelection({ 'font-weight': next })) {
+                setSelectionState(prev => ({ ...prev, bold: !prev.bold }));
+                return;
+            }
+        }
+        if (command === 'italic') {
+            const next = selectionState.italic ? 'normal' : 'italic';
+            if (applyStyleToMultiSelection({ 'font-style': next })) {
+                setSelectionState(prev => ({ ...prev, italic: !prev.italic }));
+                return;
+            }
+        }
+        if (command === 'underline') {
+            const next = selectionState.underline ? 'none' : 'underline';
+            if (applyStyleToMultiSelection({ 'text-decoration': next })) {
+                setSelectionState(prev => ({ ...prev, underline: !prev.underline }));
+                return;
+            }
+        }
+        if (command === 'justifyLeft') {
+            if (applyStyleToMultiSelection({ 'text-align': 'left' })) return;
+        }
+        if (command === 'justifyCenter') {
+            if (applyStyleToMultiSelection({ 'text-align': 'center' })) return;
+        }
+        if (command === 'justifyRight') {
+            if (applyStyleToMultiSelection({ 'text-align': 'right' })) return;
+        }
+        if (command === 'justifyFull') {
+            if (applyStyleToMultiSelection({ 'text-align': 'justify' })) return;
+        }
     }
 
     const commandsNeedingSelection = new Set([
@@ -1174,7 +1288,7 @@ const App: React.FC = () => {
 
             const workspace = document.querySelector('.editor-workspace');
             if (workspace) {
-                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+                updateDocStatePreserveScroll(workspace.innerHTML);
             }
             setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
             return;
@@ -1204,7 +1318,7 @@ const App: React.FC = () => {
             setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
             const workspace = document.querySelector('.editor-workspace');
             if (workspace) {
-                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+                updateDocStatePreserveScroll(workspace.innerHTML);
             }
         }
         return;
@@ -1226,7 +1340,7 @@ const App: React.FC = () => {
 
             const workspace = document.querySelector('.editor-workspace');
             if (workspace) {
-                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+                updateDocStatePreserveScroll(workspace.innerHTML);
             }
             setSelectionState(prev => ({ ...prev, letterSpacing: value || 'normal' }));
             return;
@@ -1256,7 +1370,7 @@ const App: React.FC = () => {
             setSelectionState(prev => ({ ...prev, letterSpacing: value || 'normal' }));
             const workspace = document.querySelector('.editor-workspace');
             if (workspace) {
-                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+                updateDocStatePreserveScroll(workspace.innerHTML);
             }
         }
         return;
@@ -1264,28 +1378,19 @@ const App: React.FC = () => {
 
     if (command === 'textTransform') {
         const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
-             const range = selection.getRangeAt(0);
-             const content = range.extractContents();
-             
-             // Wrap in span with text-transform
-             const span = document.createElement('span');
-             span.style.textTransform = value || 'none';
-             span.appendChild(content);
-             range.insertNode(span);
-             
-             // Clean up: If we just wrapped a single span that already had transform, merge?
-             // For now, simple wrapping is safer than complex DOM manipulation.
-             
-             selection.removeAllRanges();
-             const newRange = document.createRange();
-             newRange.selectNodeContents(span);
-             selection.addRange(newRange);
-
-             const workspace = document.querySelector('.editor-workspace');
-             if (workspace) {
-                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
-             }
+        if (selection && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            const node = range.commonAncestorContainer;
+            const el = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+            const targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, .writing-lines, textarea.writing-lines, div:not(.page):not(.editor-workspace)') as HTMLElement | null;
+            if (targetBlock) {
+                targetBlock.style.textTransform = value || 'none';
+                const workspace = document.querySelector('.editor-workspace');
+                if (workspace) {
+                    updateDocStatePreserveScroll(workspace.innerHTML);
+                }
+                return;
+            }
         }
         return;
     }
@@ -3115,6 +3220,9 @@ ${contentHtml}
                 isTextLayerMode={isTextLayerMode}
                 zoom={zoom}
                 viewMode={viewMode}
+                onToggleMultiSelect={handleToggleMultiSelect}
+                onClearMultiSelect={handleClearMultiSelect}
+                multiSelectedElements={multiSelectedElements}
             />
             <ZoomControls
                 zoom={zoom}

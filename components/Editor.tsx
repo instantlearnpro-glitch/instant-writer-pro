@@ -35,6 +35,9 @@ interface EditorProps {
   onInsertImage: () => void;
   onInsertTextLayerAt: (page: HTMLElement, x: number, y: number) => void;
   isTextLayerMode: boolean;
+  onToggleMultiSelect: (el: HTMLElement | null) => void;
+  onClearMultiSelect: () => void;
+  multiSelectedElements: HTMLElement[];
   showMarginGuides: boolean;
   showSmartGuides: boolean;
   pageMargins: { top: number, bottom: number, left: number, right: number };
@@ -104,6 +107,9 @@ const Editor: React.FC<EditorProps> = ({
   onInsertImage,
   onInsertTextLayerAt,
   isTextLayerMode,
+  onToggleMultiSelect,
+  onClearMultiSelect,
+  multiSelectedElements,
   zoom,
   viewMode
 }) => {
@@ -896,6 +902,18 @@ const Editor: React.FC<EditorProps> = ({
       const handleClick = (e: MouseEvent) => {
           const target = e.target as HTMLElement;
 
+          if (e.metaKey || e.ctrlKey) {
+              const block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img, .floating-text, .writing-lines') as HTMLElement | null;
+              if (block) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleMultiSelect(block);
+                  return;
+              }
+          } else if (multiSelectedElements.length > 0) {
+              onClearMultiSelect();
+          }
+
           if (isTextLayerMode) {
               let page = target.closest('.page') as HTMLElement | null;
               if (!page) {
@@ -1314,6 +1332,10 @@ const Editor: React.FC<EditorProps> = ({
             }
             .editor-workspace [data-selected="true"] {
                 outline: 2px solid #8d55f1 !important;
+                outline-offset: 2px !important;
+            }
+            .editor-workspace [data-multi-selected="true"] {
+                outline: 2px dashed #10b981 !important;
                 outline-offset: 2px !important;
             }
             .editor-workspace p,
