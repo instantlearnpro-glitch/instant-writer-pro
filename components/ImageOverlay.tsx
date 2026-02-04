@@ -85,6 +85,8 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     const startRect = image.getBoundingClientRect();
     const startWidth = startRect.width;
     const startHeight = startRect.height;
+    const startLeft = parseFloat(image.style.left) || 0;
+    const startTop = parseFloat(image.style.top) || 0;
 
     image.style.setProperty('max-width', 'none', 'important');
     image.style.setProperty('max-height', 'none', 'important');
@@ -101,6 +103,8 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
         
         let newWidth = startWidth;
         let newHeight = startHeight;
+        let newLeft = startLeft;
+        let newTop = startTop;
 
         const hasE = direction.includes('e');
         const hasW = direction.includes('w');
@@ -112,6 +116,11 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
 
         if (hasS) newHeight = startHeight + dy;
         else if (hasN) newHeight = startHeight - dy;
+
+        if (image.classList.contains('floating-text')) {
+            if (hasW) newLeft = startLeft + dx;
+            if (hasN) newTop = startTop + dy;
+        }
 
         if (lockAspect && isImage) {
             const aspect = startWidth / startHeight;
@@ -147,8 +156,21 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             if (newHeight < minSize) newHeight = minSize;
         }
 
+        if (image.classList.contains('floating-text')) {
+            if (hasW && newWidth < minSize) {
+                newLeft = startLeft + (startWidth - minSize);
+            }
+            if (hasN && newHeight < minSize) {
+                newTop = startTop + (startHeight - minSize);
+            }
+        }
+
         image.style.setProperty('width', `${newWidth}px`, 'important');
         image.style.setProperty('height', `${newHeight}px`, 'important');
+        if (image.classList.contains('floating-text')) {
+            image.style.setProperty('left', `${newLeft}px`, 'important');
+            image.style.setProperty('top', `${newTop}px`, 'important');
+        }
         
         updatePosition();
     };

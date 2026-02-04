@@ -497,6 +497,39 @@ const Editor: React.FC<EditorProps> = ({
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+          const selection = window.getSelection();
+          if (selection && selection.rangeCount > 0) {
+              if (!selection.isCollapsed) {
+                  return;
+              }
+              const range = selection.getRangeAt(0);
+              const node = range.commonAncestorContainer;
+              const element = node.nodeType === Node.ELEMENT_NODE
+                  ? (node as HTMLElement)
+                  : node.parentElement;
+              const inTextBlock = !!element?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, div[contenteditable="true"]');
+              if (inTextBlock) {
+                  return;
+              }
+          }
+
+          if (activeBlock) {
+              e.preventDefault();
+              activeBlock.remove();
+              setActiveBlock(null);
+              onImageSelect(null);
+              onTextLayerSelect(null);
+              onHRSelect(null);
+              onFooterSelect(null);
+              if (contentRef.current) {
+                  reflowPages(contentRef.current);
+                  onContentChange(contentRef.current.innerHTML);
+              }
+              return;
+          }
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
           e.preventDefault();
           onPageBreak();
