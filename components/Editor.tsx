@@ -59,17 +59,7 @@ const rgbToHex = (rgb: string) => {
 };
 
 const mapFontSizeToCommandValue = (fontSizePx: number) => {
-  const sizes = [10, 13, 16, 18, 24, 32, 48];
-  let closestIndex = 0;
-  let smallestDiff = Infinity;
-  sizes.forEach((size, index) => {
-    const diff = Math.abs(size - fontSizePx);
-    if (diff < smallestDiff) {
-      smallestDiff = diff;
-      closestIndex = index;
-    }
-  });
-  return (closestIndex + 1).toString();
+  return String(Math.max(1, Math.round(fontSizePx)));
 };
 
 const hasAncestorTag = (node: Node | null, tagNames: string[], stopAt?: HTMLElement | null) => {

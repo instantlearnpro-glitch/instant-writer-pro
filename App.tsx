@@ -36,17 +36,7 @@ const rgbToHex = (rgb: string) => {
 };
 
 const mapFontSizeToCommandValue = (fontSizePx: number) => {
-  const sizes = [10, 13, 16, 18, 24, 32, 48];
-  let closestIndex = 0;
-  let smallestDiff = Infinity;
-  sizes.forEach((size, index) => {
-    const diff = Math.abs(size - fontSizePx);
-    if (diff < smallestDiff) {
-      smallestDiff = diff;
-      closestIndex = index;
-    }
-  });
-  return (closestIndex + 1).toString();
+  return String(Math.max(1, Math.round(fontSizePx)));
 };
 
 const buildSelectionStateFromElement = (element: HTMLElement): SelectionState => {
@@ -303,7 +293,7 @@ const App: React.FC = () => {
     alignRight: false,
     alignJustify: false,
     fontName: 'sans-serif',
-    fontSize: '3',
+    fontSize: '16',
     lineHeight: 'normal',
     letterSpacing: 'normal',
     foreColor: '#000000',
@@ -964,9 +954,10 @@ const App: React.FC = () => {
           
           // Parse current styles from the CLICKED footer (as representative)
           const computed = window.getComputedStyle(footer);
+          const footerFontSize = parseFloat(computed.fontSize || '12');
           setSelectionState(prev => ({
               ...prev,
-              fontSize: '3', 
+              fontSize: String(Math.round(footerFontSize)),
               fontName: computed.fontFamily.replace(/['"]/g, ''),
               bold: computed.fontWeight === 'bold' || parseInt(computed.fontWeight) >= 700,
               italic: computed.fontStyle === 'italic',
@@ -1042,10 +1033,8 @@ const App: React.FC = () => {
         footers.forEach((footerEl) => {
             const footer = footerEl as HTMLElement;
             if (command === 'fontSize') {
-                const sizes = { '1': '8pt', '2': '10pt', '3': '12pt', '4': '14pt', '5': '18pt', '6': '24pt', '7': '36pt' };
-                // @ts-ignore
-                const pt = sizes[value] || '12pt';
-                footer.style.fontSize = pt;
+                const size = value || '12';
+                footer.style.fontSize = size.includes('px') ? size : `${size}px`;
             } else if (command === 'fontName') {
                 footer.style.fontFamily = value || 'inherit';
             } else if (command === 'bold') {
@@ -1158,6 +1147,61 @@ const App: React.FC = () => {
             }
 
             // Force history update
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            }
+        }
+        return;
+    }
+
+    if (command === 'fontSize') {
+        const sizeValue = value || '16';
+        const sizePx = sizeValue.includes('px') ? sizeValue : `${sizeValue}px`;
+        const selection = window.getSelection();
+
+        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+            const range = selection.getRangeAt(0);
+            const span = document.createElement('span');
+            span.style.fontSize = sizePx;
+            span.appendChild(range.extractContents());
+            range.insertNode(span);
+
+            selection.removeAllRanges();
+            const newRange = document.createRange();
+            newRange.selectNodeContents(span);
+            selection.addRange(newRange);
+
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            }
+            setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
+            return;
+        }
+
+        let targetBlock = activeBlock;
+        if (targetBlock && !targetBlock.isConnected) {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                const node = sel.getRangeAt(0).commonAncestorContainer;
+                const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+                targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
+            }
+        }
+
+        if (!targetBlock) {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                const node = sel.getRangeAt(0).commonAncestorContainer;
+                const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+                targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
+            }
+        }
+
+        if (targetBlock) {
+            targetBlock.style.fontSize = sizePx;
+            setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
             const workspace = document.querySelector('.editor-workspace');
             if (workspace) {
                 updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);

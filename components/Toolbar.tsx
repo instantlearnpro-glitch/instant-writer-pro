@@ -484,20 +484,27 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 {/* Linear Formatting Icons */}
                 <div className="flex items-center h-full gap-3 mr-4">
                     {/* Font Size */}
-                    <select 
-                        className="h-8 border border-gray-200 rounded text-xs text-gray-800 focus:outline-none w-14 px-1 cursor-pointer bg-white"
-                        onChange={(e) => onFormat('fontSize', e.target.value)}
-                        value={selectionState.fontSize || '3'}
+                    <input
+                        type="number"
+                        min={6}
+                        max={200}
+                        step={1}
+                        value={selectionState.fontSize || '16'}
+                        onMouseDown={onCaptureSelection}
+                        onFocus={onCaptureSelection}
+                        onKeyDown={(e) => {
+                            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                                onCaptureSelection();
+                            }
+                        }}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '') return;
+                            onFormat('fontSize', val);
+                        }}
+                        className="h-8 border border-gray-200 rounded text-xs text-gray-800 focus:outline-none w-14 px-1 bg-white"
                         title="Font Size"
-                    >
-                        <option value="1">10</option>
-                        <option value="2">13</option>
-                        <option value="3">16px</option>
-                        <option value="4">18px</option>
-                        <option value="5">24px</option>
-                        <option value="6">32px</option>
-                        <option value="7">48px</option>
-                    </select>
+                    />
 
                     <div className="w-px h-8 bg-gray-200"></div>
 
@@ -849,19 +856,27 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                     <option key={idx} value={font.value}>{font.name}</option>
                                 ))}
                             </select>
-                            <select 
+                            <input
+                                type="number"
+                                min={6}
+                                max={200}
+                                step={1}
                                 className="text-xs border border-gray-300 rounded p-1 w-12"
-                                value={selectionState.fontSize || '3'}
-                                onChange={(e) => onFormat('fontSize', e.target.value)}
-                            >
-                                <option value="1">8</option>
-                                <option value="2">10</option>
-                                <option value="3">12</option>
-                                <option value="4">14</option>
-                                <option value="5">18</option>
-                                <option value="6">24</option>
-                                <option value="7">36</option>
-                            </select>
+                                value={selectionState.fontSize || '16'}
+                                onMouseDown={onCaptureSelection}
+                                onFocus={onCaptureSelection}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                                        onCaptureSelection();
+                                    }
+                                }}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '') return;
+                                    onFormat('fontSize', val);
+                                }}
+                                title="Font Size"
+                            />
                         </div>
                     </div>
 
