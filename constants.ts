@@ -263,6 +263,22 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
     background-color: rgba(141, 85, 241, 0.03);
 }
 
+/* Floating text layer (free position) */
+.floating-text {
+    position: absolute;
+    z-index: 5;
+    min-width: 120px;
+    min-height: 24px;
+    padding: 2px 4px;
+    background: transparent;
+    outline: none;
+}
+
+.floating-text:focus {
+    outline: 1px dashed #8d55f1;
+    outline-offset: 2px;
+}
+
 /* --- Table of Contents Styles --- */
 .toc-container {
     padding: 20px;

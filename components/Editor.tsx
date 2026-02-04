@@ -19,9 +19,11 @@ interface EditorProps {
   onSelectionChange: (state: SelectionState, activeBlock: HTMLElement | null) => void;
   onBlockClick?: (block: HTMLElement | null) => void;
   onImageSelect: (img: HTMLImageElement | null) => void;
+  onTextLayerSelect: (el: HTMLElement | null) => void;
   onHRSelect: (hr: HTMLHRElement | null) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
   selectedImage: HTMLImageElement | null;
+  selectedTextLayer: HTMLElement | null;
   selectedHR: HTMLHRElement | null;
   selectedFooter: HTMLElement | null;
   onFooterSelect: (footer: HTMLElement | null) => void;
@@ -31,6 +33,8 @@ interface EditorProps {
   onPageBreak: () => void;
   onInsertHorizontalRule: () => void;
   onInsertImage: () => void;
+  onInsertTextLayerAt: (page: HTMLElement, x: number, y: number) => void;
+  isTextLayerMode: boolean;
   showMarginGuides: boolean;
   showSmartGuides: boolean;
   pageMargins: { top: number, bottom: number, left: number, right: number };
@@ -88,11 +92,13 @@ const Editor: React.FC<EditorProps> = ({
   onSelectionChange,
   onBlockClick,
   onImageSelect,
+  onTextLayerSelect,
   onHRSelect,
   selectedFooter,
   onFooterSelect,
   containerRef,
   selectedImage,
+  selectedTextLayer,
   showMarginGuides,
   showSmartGuides,
   pageMargins,
@@ -106,6 +112,8 @@ const Editor: React.FC<EditorProps> = ({
   onPageBreak,
   onInsertHorizontalRule,
   onInsertImage,
+  onInsertTextLayerAt,
+  isTextLayerMode,
   zoom,
   viewMode
 }) => {
@@ -335,6 +343,12 @@ const Editor: React.FC<EditorProps> = ({
     if (!selection || selection.rangeCount === 0) return;
     const range = selection.getRangeAt(0);
     if (!contentRef.current?.contains(range.commonAncestorContainer)) return;
+
+    const selectionNode = range.commonAncestorContainer;
+    const selectionEl = selectionNode.nodeType === Node.ELEMENT_NODE
+        ? (selectionNode as HTMLElement)
+        : selectionNode.parentElement;
+    if (selectionEl?.closest('.floating-text')) return;
 
     const startNode = range.startContainer;
     const targetElement = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode as HTMLElement;
@@ -859,6 +873,27 @@ const Editor: React.FC<EditorProps> = ({
       const handleClick = (e: MouseEvent) => {
           const target = e.target as HTMLElement;
 
+          if (isTextLayerMode) {
+              let page = target.closest('.page') as HTMLElement | null;
+              if (!page) {
+                  const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
+                  page = elementsAtPoint
+                      .map(el => (el as HTMLElement).closest('.page') as HTMLElement | null)
+                      .find(p => p) || null;
+              }
+              if (page) {
+                  console.log('[TextLayer] insert at click', { x: e.clientX, y: e.clientY });
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const rect = page.getBoundingClientRect();
+                  const scale = zoom / 100 || 1;
+                  const x = (e.clientX - rect.left) / scale;
+                  const y = (e.clientY - rect.top) / scale;
+                  onInsertTextLayerAt(page, x, y);
+                  return;
+              }
+          }
+
           const tocPageCell = target.closest('td[data-toc-page], th[data-toc-page]') as HTMLElement | null;
           if (tocPageCell) {
               const row = tocPageCell.closest('tr[data-toc-target]') as HTMLTableRowElement | null;
@@ -1034,8 +1069,14 @@ const Editor: React.FC<EditorProps> = ({
               onImageSelect(target as unknown as HTMLImageElement);
               target.setAttribute('data-selected', 'true');
               setActiveBlock(target);
+          } else if (target.closest('.floating-text')) {
+              const floating = target.closest('.floating-text') as HTMLElement;
+              onTextLayerSelect(floating);
+              floating.setAttribute('data-selected', 'true');
+              setActiveBlock(floating);
           } else {
               onImageSelect(null);
+              onTextLayerSelect(null);
           }
 
           // Find and select block elements
@@ -1073,14 +1114,18 @@ const Editor: React.FC<EditorProps> = ({
 
       let reflowTimeout: number | null = null;
       
-      const handleInput = () => {
+      const handleInput = (e?: Event) => {
+          const target = (e?.target as HTMLElement | null) || null;
+          const isFloatingText = !!target?.closest?.('.floating-text');
           if (contentRef.current) {
               // Debounce reflow to avoid excessive calls
               if (reflowTimeout) clearTimeout(reflowTimeout);
               reflowTimeout = window.setTimeout(() => {
                   if (contentRef.current) {
-                      reflowPages(contentRef.current);
-                      updateTocTablePageNumbers(contentRef.current);
+                      if (!isFloatingText) {
+                          reflowPages(contentRef.current);
+                          updateTocTablePageNumbers(contentRef.current);
+                      }
                       onContentChange(contentRef.current.innerHTML);
                   }
               }, 50);
@@ -1101,7 +1146,44 @@ const Editor: React.FC<EditorProps> = ({
           container.removeEventListener('mouseup', handleSelectionChange);
           document.removeEventListener('selectionchange', handleSelectionChange);
       };
-  }, [handleSelectionChange, onImageSelect, onContentChange, selectionMode, onBlockSelection, buildSelectionStateFromElement, onSelectionChange]);
+  }, [handleSelectionChange, onImageSelect, onContentChange, selectionMode, onBlockSelection, buildSelectionStateFromElement, onSelectionChange, isTextLayerMode, onInsertTextLayerAt]);
+
+  useEffect(() => {
+      if (!isTextLayerMode) return;
+      const handleGlobalInsert = (e: MouseEvent) => {
+          const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
+          const page = elementsAtPoint
+              .map(el => (el as HTMLElement).closest('.page') as HTMLElement | null)
+              .find(p => p) || null;
+          if (!page) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const rect = page.getBoundingClientRect();
+          const scale = zoom / 100 || 1;
+          const x = (e.clientX - rect.left) / scale;
+          const y = (e.clientY - rect.top) / scale;
+          onInsertTextLayerAt(page, x, y);
+      };
+      document.addEventListener('mousedown', handleGlobalInsert, true);
+      return () => {
+          document.removeEventListener('mousedown', handleGlobalInsert, true);
+      };
+  }, [isTextLayerMode, onInsertTextLayerAt, zoom]);
+
+  useEffect(() => {
+      const workspace = contentRef.current;
+      const container = containerRef.current;
+      if (workspace) {
+          workspace.classList.toggle('text-layer-mode', isTextLayerMode);
+      }
+      if (container) {
+          container.classList.toggle('text-layer-mode', isTextLayerMode);
+      }
+      document.body.style.cursor = isTextLayerMode ? 'crosshair' : '';
+      return () => {
+          document.body.style.cursor = '';
+      };
+  }, [isTextLayerMode, containerRef]);
 
   const zoomStyle = {
     transform: `scale(${zoom / 100})`,
@@ -1115,7 +1197,7 @@ const Editor: React.FC<EditorProps> = ({
   return (
     <div 
         ref={containerRef}
-        className="flex-1 bg-gray-200 overflow-auto h-[calc(100vh-68px)] relative p-8 flex flex-col items-center"
+        className={`flex-1 bg-gray-200 overflow-auto h-[calc(100vh-68px)] relative p-8 flex flex-col items-center ${isTextLayerMode ? 'text-layer-mode' : ''}`}
     >
         <style dangerouslySetInnerHTML={{ __html: cssContent }} />
         <style>{selectionStyle}</style>
@@ -1148,6 +1230,12 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace blockquote {
                 cursor: text;
             }
+            .editor-workspace.text-layer-mode {
+                cursor: crosshair !important;
+            }
+            .editor-workspace.text-layer-mode * {
+                cursor: crosshair !important;
+            }
             .editor-workspace .spacer {
                 cursor: pointer;
                 min-height: 20px;
@@ -1164,6 +1252,20 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace hr:hover {
                 outline: 2px dashed #8d55f1;
                 outline-offset: 2px;
+            }
+            .text-mode-badge {
+                position: fixed;
+                top: 90px;
+                left: 16px;
+                z-index: 9999;
+                background: #111827;
+                color: #fff;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                padding: 6px 10px;
+                border-radius: 999px;
+                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
             }
             .editor-workspace table.toc-table tr[data-toc-target] {
                 cursor: pointer;
@@ -1240,9 +1342,13 @@ const Editor: React.FC<EditorProps> = ({
             ` : ''}
         `}</style>
 
+        {isTextLayerMode && (
+            <div className="text-mode-badge">TEXT MODE ON</div>
+        )}
+
         <div 
             ref={contentRef}
-            className={`${workspaceClasses} ${selectionMode?.active ? 'cursor-crosshair' : ''} ${tableTocModal.isOpen ? 'toc-modal-open' : ''}`}
+            className={`${workspaceClasses} ${selectionMode?.active ? 'cursor-crosshair' : ''} ${isTextLayerMode ? 'text-layer-mode' : ''} ${tableTocModal.isOpen ? 'toc-modal-open' : ''}`}
             style={zoomStyle}
             contentEditable={!imageProperties.isCropping && !selectionMode?.active}
             suppressContentEditableWarning={true}
@@ -1294,6 +1400,23 @@ const Editor: React.FC<EditorProps> = ({
             />
         )}
 
+        {selectedTextLayer && (
+            <ImageOverlay
+                image={selectedTextLayer}
+                containerRef={containerRef}
+                isCropping={false}
+                showSmartGuides={showSmartGuides}
+                onCropComplete={() => {}}
+                onCancelCrop={() => {}}
+                onResize={() => {
+                    if (contentRef.current) {
+                        reflowPages(contentRef.current);
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                }}
+            />
+        )}
+
         {contextMenu && (
             <BlockContextMenu
                 x={contextMenu.x}
@@ -1312,7 +1435,7 @@ const Editor: React.FC<EditorProps> = ({
             />
         )}
 
-        {activeBlock && !contextMenu && (
+        {activeBlock && !contextMenu && !activeBlock.classList.contains('floating-text') && (
             <DragHandle
                 element={activeBlock}
                 containerRef={containerRef}

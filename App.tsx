@@ -154,6 +154,7 @@ const App: React.FC = () => {
       if (storedKey) setOpenAiApiKey(storedKey);
   }, []);
 
+
   const handleReloadFonts = async () => {
       const fonts = await getSystemFonts();
       setAvailableFonts(fonts);
@@ -203,6 +204,7 @@ const App: React.FC = () => {
     fontName: 'sans-serif',
     fontSize: '3',
     lineHeight: 'normal',
+    letterSpacing: 'normal',
     foreColor: '#000000',
     // Defaults
     borderWidth: '0',
@@ -218,6 +220,13 @@ const App: React.FC = () => {
   const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
 
   const [selectedImage, setSelectedImage] = useState<HTMLImageElement | null>(null);
+  const [selectedTextLayer, setSelectedTextLayer] = useState<HTMLElement | null>(null);
+  const [isTextLayerMode, setIsTextLayerMode] = useState(false);
+
+  useEffect(() => {
+      document.body.classList.remove('text-layer-mode');
+  }, []);
+
   const [imageProperties, setImageProperties] = useState<ImageProperties>({
     brightness: 100,
     contrast: 100,
@@ -342,6 +351,14 @@ const App: React.FC = () => {
 
   // Helper for text input (debounced history)
   const handleContentChange = (html: string) => {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+          const node = selection.getRangeAt(0).commonAncestorContainer;
+          const el = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+          if (el?.closest('.floating-text')) {
+              return;
+          }
+      }
       const newState = { ...docState, htmlContent: html };
       setDocState(newState); // Immediate update for UI
 
@@ -683,6 +700,45 @@ const App: React.FC = () => {
     e.target.value = ''; 
   };
 
+  const handleInsertTextLayerMode = () => {
+      setIsTextLayerMode(prev => !prev);
+  };
+
+  const handleInsertTextLayerAt = (page: HTMLElement, x: number, y: number) => {
+      const workspace = document.querySelector('.editor-workspace');
+      if (!workspace) return;
+
+      const textLayer = document.createElement('div');
+      textLayer.className = 'floating-text';
+      textLayer.contentEditable = 'true';
+      textLayer.style.position = 'absolute';
+      textLayer.style.left = `${Math.max(0, x)}px`;
+      textLayer.style.top = `${Math.max(0, y)}px`;
+      textLayer.style.fontSize = '16px';
+      textLayer.style.fontFamily = 'inherit';
+      textLayer.style.zIndex = '5';
+      textLayer.style.minWidth = '120px';
+      textLayer.style.minHeight = '24px';
+      textLayer.style.color = '#111';
+      textLayer.style.cursor = 'text';
+      textLayer.innerHTML = '<br>';
+
+      page.appendChild(textLayer);
+
+      textLayer.focus();
+
+      const range = document.createRange();
+      range.selectNodeContents(textLayer);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+
+      reflowPages(workspace as HTMLElement);
+      updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+      handleTextLayerSelect(textLayer);
+  };
+
   const handleImageSelect = (img: HTMLImageElement | null) => {
       if (selectedImage && selectedImage !== img) {
           selectedImage.removeAttribute('data-selected');
@@ -741,6 +797,20 @@ const App: React.FC = () => {
 
       setSelectedImage(img);
       if (img) {
+          setSelectedHR(null);
+          setSelectedFooter(null);
+          setSelectedTextLayer(null);
+      }
+  };
+
+  const handleTextLayerSelect = (el: HTMLElement | null) => {
+      if (selectedTextLayer && selectedTextLayer !== el) {
+          selectedTextLayer.removeAttribute('data-selected');
+      }
+
+      setSelectedTextLayer(el);
+      if (el) {
+          setSelectedImage(null);
           setSelectedHR(null);
           setSelectedFooter(null);
       }
@@ -963,20 +1033,41 @@ const App: React.FC = () => {
     }
 
     if (command === 'letterSpacing') {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+            const range = selection.getRangeAt(0);
+            const span = document.createElement('span');
+            span.style.letterSpacing = value || 'normal';
+            span.appendChild(range.extractContents());
+            range.insertNode(span);
+
+            selection.removeAllRanges();
+            const newRange = document.createRange();
+            newRange.selectNodeContents(span);
+            selection.addRange(newRange);
+
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            }
+            setSelectionState(prev => ({ ...prev, letterSpacing: value || 'normal' }));
+            return;
+        }
+
         let targetBlock = activeBlock;
         if (targetBlock && !targetBlock.isConnected) {
-            const selection = window.getSelection();
-            if (selection && selection.rangeCount > 0) {
-                const node = selection.getRangeAt(0).commonAncestorContainer;
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                const node = sel.getRangeAt(0).commonAncestorContainer;
                 const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
                 targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
             }
         }
 
         if (!targetBlock) {
-            const selection = window.getSelection();
-            if (selection && selection.rangeCount > 0) {
-                const node = selection.getRangeAt(0).commonAncestorContainer;
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                const node = sel.getRangeAt(0).commonAncestorContainer;
                 const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
                 targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
             }
@@ -984,26 +1075,7 @@ const App: React.FC = () => {
 
         if (targetBlock) {
             targetBlock.style.letterSpacing = value || 'normal';
-
-            const selection = window.getSelection();
-            if (selection && !selection.isCollapsed) {
-                const range = selection.getRangeAt(0);
-                const wrapper = document.createElement('div');
-                wrapper.appendChild(range.cloneContents());
-                const blocks = wrapper.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div, li, blockquote');
-                if (blocks.length > 0) {
-                    let current = targetBlock;
-                    const endNode = selection.focusNode?.parentElement?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page), li, blockquote');
-                    let loops = 0;
-                    while (current && loops < 50) {
-                        (current as HTMLElement).style.letterSpacing = value || 'normal';
-                        if (current === endNode || !current.nextElementSibling) break;
-                        current = current.nextElementSibling as HTMLElement;
-                        loops++;
-                    }
-                }
-            }
-
+            setSelectionState(prev => ({ ...prev, letterSpacing: value || 'normal' }));
             const workspace = document.querySelector('.editor-workspace');
             if (workspace) {
                 updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
@@ -2769,12 +2841,14 @@ ${contentHtml}
         onOpenTOCModal={() => setIsTOCModalOpen(true)}
         onOpenPageNumberModal={preparePageAnchors} 
         onInsertHorizontalRule={handleInsertHorizontalRule}
+        onInsertTextLayer={handleInsertTextLayerMode}
         onToggleCrop={handleToggleCrop}
         onPageBreak={handlePageBreak}
         onBlockStyleUpdate={handleBlockStyleUpdate}
         showFrameTools={showFrameTools}
         onToggleFrameTools={() => setShowFrameTools(!showFrameTools)}
         selectionState={selectionState}
+        isTextLayerMode={isTextLayerMode}
         fileName={docState.fileName}
         selectedImage={selectedImage}
         selectedHR={selectedHR}
@@ -2832,9 +2906,11 @@ ${contentHtml}
                     setActiveBlock(block);
                 }}
                 onImageSelect={handleImageSelect}
+                onTextLayerSelect={handleTextLayerSelect}
                 onHRSelect={handleHRSelect}
                 onFooterSelect={handleFooterSelect}
                 selectedImage={selectedImage}
+                selectedTextLayer={selectedTextLayer}
                 selectedHR={selectedHR}
                 selectedFooter={selectedFooter}
                 containerRef={editorContainerRef}
@@ -2844,6 +2920,7 @@ ${contentHtml}
                 onPageBreak={handlePageBreak}
                 onInsertHorizontalRule={handleInsertHorizontalRule}
                 onInsertImage={handleInsertImage}
+                onInsertTextLayerAt={handleInsertTextLayerAt}
                 showMarginGuides={showMarginGuides}
                 showSmartGuides={showSmartGuides}
                 pageMargins={pageMargins}
@@ -2851,6 +2928,7 @@ ${contentHtml}
                 selectionMode={selectionMode}
                 onBlockSelection={handleBlockSelection}
                 suppressSelectionRef={suppressSelectionRef}
+                isTextLayerMode={isTextLayerMode}
                 zoom={zoom}
                 viewMode={viewMode}
             />

@@ -5,7 +5,7 @@ import {
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
   RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
-  ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus
+  ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus, FileText
 } from 'lucide-react';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
@@ -27,12 +27,14 @@ interface ToolbarProps {
   onOpenTOCModal: () => void;
   onOpenPageNumberModal: () => void;
   onInsertHorizontalRule: () => void;
+  onInsertTextLayer: () => void;
   onToggleCrop: () => void;
   onPageBreak: () => void;
   onBlockStyleUpdate: (style: Record<string, string>) => void;
   showFrameTools: boolean;
   onToggleFrameTools: () => void;
   selectionState: SelectionState;
+  isTextLayerMode: boolean;
   fileName: string;
   selectedImage: HTMLImageElement | null;
   selectedHR: HTMLHRElement | null;
@@ -72,12 +74,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onOpenTOCModal,
   onOpenPageNumberModal,
   onInsertHorizontalRule,
+  onInsertTextLayer,
   onToggleCrop,
   onPageBreak,
   onBlockStyleUpdate,
   showFrameTools,
   onToggleFrameTools,
   selectionState,
+  isTextLayerMode,
   fileName,
   selectedImage,
   selectedHR,
@@ -292,6 +296,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </button>
                     <button onClick={onInsertHorizontalRule} className={ButtonClass(false)} title="Insert Horizontal Line">
                         <Minus size={18} />
+                    </button>
+                    <button onClick={onInsertTextLayer} className={ButtonClass(isTextLayerMode)} title="Insert Text Layer">
+                        <FileText size={18} />
                     </button>
                     <button 
                         onClick={onToggleFrameTools} 

@@ -77,8 +77,11 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     e.preventDefault();
     e.stopPropagation();
     
-    const startX = e.clientX;
-    const startY = e.clientY;
+    let startX = e.clientX;
+    let startY = e.clientY;
+    const elementRect = image.getBoundingClientRect();
+    const offsetX = e.clientX - elementRect.left;
+    const offsetY = e.clientY - elementRect.top;
     const startRect = image.getBoundingClientRect();
     const startWidth = startRect.width;
     const startHeight = startRect.height;
@@ -165,17 +168,22 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     e.preventDefault();
     e.stopPropagation();
     
-    const startX = e.clientX;
-    const startY = e.clientY;
+    let startX = e.clientX;
+    let startY = e.clientY;
+    const elementRect = image.getBoundingClientRect();
+    const offsetX = e.clientX - elementRect.left;
+    const offsetY = e.clientY - elementRect.top;
     
     const computedStyle = window.getComputedStyle(image);
-    if (computedStyle.position === 'static') {
+    if (image.classList.contains('floating-text')) {
+      image.style.position = 'absolute';
+    } else if (computedStyle.position === 'static') {
       image.style.position = 'relative';
     }
     
     // We rely on relative positioning offsets
-    const startLeft = parseFloat(image.style.left) || 0;
-    const startTop = parseFloat(image.style.top) || 0;
+    let startLeft = parseFloat(image.style.left) || 0;
+    let startTop = parseFloat(image.style.top) || 0;
 
     // Smart Guides Setup: Pre-calculate snap targets
     let snapTargets: { x: number[], y: number[] } = { x: [], y: [] };
@@ -213,6 +221,29 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     const onMove = (moveEvent: MouseEvent) => {
       let dx = moveEvent.clientX - startX;
       let dy = moveEvent.clientY - startY;
+
+      if (image.classList.contains('floating-text')) {
+        const elementsAtPoint = document.elementsFromPoint(moveEvent.clientX, moveEvent.clientY);
+        const overPage = elementsAtPoint
+          .map(el => (el as HTMLElement).closest('.page') as HTMLElement | null)
+          .find(page => page);
+        const currentPage = image.closest('.page') as HTMLElement | null;
+
+        if (overPage && currentPage && overPage !== currentPage) {
+          const pageRect = overPage.getBoundingClientRect();
+          const newLeft = moveEvent.clientX - pageRect.left - offsetX;
+          const newTop = moveEvent.clientY - pageRect.top - offsetY;
+          image.style.left = `${newLeft}px`;
+          image.style.top = `${newTop}px`;
+          overPage.appendChild(image);
+          startLeft = newLeft;
+          startTop = newTop;
+          startX = moveEvent.clientX;
+          startY = moveEvent.clientY;
+          updatePosition();
+          return;
+        }
+      }
       
       const activeGuides: typeof guides = [];
       const THRESHOLD = 5;
@@ -330,7 +361,9 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
       setGuides(activeGuides);
 
       // Always apply movement
-      image.style.position = 'relative';
+      if (!image.classList.contains('floating-text')) {
+        image.style.position = 'relative';
+      }
       image.style.left = `${startLeft + dx}px`;
       image.style.top = `${startTop + dy}px`;
       
