@@ -52,6 +52,9 @@ interface EditorProps {
   suppressSelectionRef?: React.MutableRefObject<boolean>;
   zoom: number;
   viewMode: 'single' | 'double';
+  onCopyStyle: () => void;
+  onPasteStyle: () => void;
+  hasStyleClipboard: boolean;
 }
 
 // Helper to convert RGB/RGBA to Hex
@@ -121,7 +124,10 @@ const Editor: React.FC<EditorProps> = ({
   onStartDistributeAdjust = (_axis: 'x' | 'y') => {},
   onEndDistributeAdjust = () => {},
   zoom,
-  viewMode
+  viewMode,
+  onCopyStyle,
+  onPasteStyle,
+  hasStyleClipboard
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [pageRects, setPageRects] = useState<{ top: number; left: number; width: number; height: number }[]>([]);
@@ -1938,6 +1944,9 @@ const Editor: React.FC<EditorProps> = ({
                 onCopy={handleCopy}
                 onCut={handleCut}
                 onPaste={handlePaste}
+                onCopyStyle={onCopyStyle}
+                onPasteStyle={onPasteStyle}
+                canPasteStyle={hasStyleClipboard}
                 onCreateQRCode={() => setQrModal({ isOpen: true, url: contextMenu.linkUrl || '' })}
                 onTransformToTOC={contextMenu.block?.closest('table') ? () => openTableTocModal(contextMenu.block!.closest('table') as HTMLTableElement) : undefined}
                 onDistributeHoriz={multiSelectedElements.length > 1 ? () => onStartDistributeAdjust('x') : undefined}

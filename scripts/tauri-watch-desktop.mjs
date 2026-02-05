@@ -30,7 +30,7 @@ const runBuild = () => {
     return;
   }
   buildInProgress = true;
-  const child = exec('npm run tauri:build:desktop', { cwd: root, env: process.env });
+  const child = exec('npm run tauri:build:dock', { cwd: root, env: process.env });
   child.stdout?.pipe(process.stdout);
   child.stderr?.pipe(process.stderr);
   child.on('exit', () => {

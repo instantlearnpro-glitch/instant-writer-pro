@@ -40,7 +40,34 @@ const mapFontSizeToCommandValue = (fontSizePx: number) => {
   return String(Math.max(1, Math.round(fontSizePx)));
 };
 
-const AUTOSAVE_PATH = 'autosave.html';
+const AUTOSAVE_PATH_SAVED = 'autosave_saved_list.json';
+const AUTOSAVE_LOCAL_KEY_SAVED = 'instant_writer_pro_draft_saved_list';
+const serializeDraft = (state: DocumentState) => JSON.stringify({
+  htmlContent: state.htmlContent,
+  cssContent: state.cssContent,
+  fileName: state.fileName
+});
+
+type DraftEntry = {
+  id: string;
+  fileName: string;
+  htmlContent: string;
+  cssContent: string;
+  updatedAt: number;
+};
+
+const MAX_DRAFTS = 3;
+
+type StyleClipboard =
+  | {
+      type: 'text';
+      inline: Record<string, string>;
+      block: Record<string, string>;
+    }
+  | {
+      type: 'image';
+      image: Record<string, string>;
+    };
 
 const buildSelectionStateFromElement = (element: HTMLElement): SelectionState => {
   const selection = window.getSelection();
@@ -322,6 +349,7 @@ const App: React.FC = () => {
   const [isTextLayerMode, setIsTextLayerMode] = useState(false);
   const [multiSelectedElements, setMultiSelectedElements] = useState<string[]>([]);
   const [distributeAdjustAxis, setDistributeAdjustAxis] = useState<'x' | 'y' | null>(null);
+  const [styleClipboard, setStyleClipboard] = useState<StyleClipboard | null>(null);
 
   useEffect(() => {
       document.body.classList.remove('text-layer-mode');
@@ -424,32 +452,162 @@ const App: React.FC = () => {
 
   // --- HISTORY MANAGEMENT ---
 
-  const scheduleAutosave = useCallback((html: string) => {
-      if (!isTauri) return;
-      if (html === lastAutosaveRef.current) return;
-      if (autosaveTimeoutRef.current) {
-          window.clearTimeout(autosaveTimeoutRef.current);
-      }
+  const [draftStore, setDraftStore] = useState<{ activeId: string | null; drafts: DraftEntry[]; autosaveEnabled: boolean }>(
+      { activeId: null, drafts: [], autosaveEnabled: false }
+  );
+  const draftStoreRef = useRef(draftStore);
+  const latestDocStateRef = useRef(docState);
 
-      autosaveTimeoutRef.current = window.setTimeout(async () => {
-          autosaveTimeoutRef.current = null;
-          if (autosaveInFlightRef.current) return;
-          autosaveInFlightRef.current = true;
+  useEffect(() => {
+      latestDocStateRef.current = docState;
+  }, [docState]);
+
+  useEffect(() => {
+      draftStoreRef.current = draftStore;
+  }, [draftStore]);
+
+  const parseDraftStore = (raw: string | null) => {
+      if (!raw) return { activeId: null, drafts: [], autosaveEnabled: false };
+      try {
+          const parsed = JSON.parse(raw) as { activeId?: string | null; drafts?: DraftEntry[]; autosaveEnabled?: boolean };
+          return {
+              activeId: parsed.activeId || null,
+              drafts: Array.isArray(parsed.drafts) ? parsed.drafts : [],
+              autosaveEnabled: !!parsed.autosaveEnabled
+          };
+      } catch {
+          return { activeId: null, drafts: [], autosaveEnabled: false };
+      }
+  };
+
+  const readDraftStore = useCallback(async () => {
+      if (isTauri) {
           try {
-              await writeTextFile(AUTOSAVE_PATH, html, { baseDir: BaseDirectory.AppData });
-              lastAutosaveRef.current = html;
-          } catch (err) {
-              console.warn('Autosave failed', err);
-          } finally {
-              autosaveInFlightRef.current = false;
+              const raw = await readTextFile(AUTOSAVE_PATH_SAVED, { baseDir: BaseDirectory.AppData });
+              return parseDraftStore(raw || '');
+          } catch {
+              return parseDraftStore('');
           }
-      }, 800);
+      }
+      const raw = localStorage.getItem(AUTOSAVE_LOCAL_KEY_SAVED) || '';
+      return parseDraftStore(raw);
   }, [isTauri]);
+
+  const persistDraftStore = useCallback(async (store: { activeId: string | null; drafts: DraftEntry[]; autosaveEnabled: boolean }) => {
+      const payload = JSON.stringify(store);
+      if (isTauri) {
+          await writeTextFile(AUTOSAVE_PATH_SAVED, payload, { baseDir: BaseDirectory.AppData });
+      } else {
+          localStorage.setItem(AUTOSAVE_LOCAL_KEY_SAVED, payload);
+      }
+  }, [isTauri]);
+
+  const updateDraftStore = useCallback((updater: (prev: { activeId: string | null; drafts: DraftEntry[]; autosaveEnabled: boolean }) => { activeId: string | null; drafts: DraftEntry[]; autosaveEnabled: boolean }) => {
+      const next = updater(draftStoreRef.current);
+      draftStoreRef.current = next;
+      setDraftStore(next);
+      persistDraftStore(next);
+  }, [persistDraftStore]);
+
+  const saveDraft = useCallback(async (name?: string, options?: { silent?: boolean; state?: DocumentState }) => {
+      const state = options?.state || latestDocStateRef.current;
+      const silent = options?.silent;
+      updateDraftStore((prev) => {
+          let drafts = [...prev.drafts];
+          let activeId = prev.activeId;
+          let draftName = name?.trim() || '';
+
+          if (!activeId) {
+              if (!draftName && !silent) {
+                  draftName = window.prompt('Draft name', state.fileName.replace(/\.html?$/i, '') || 'Untitled')?.trim() || '';
+              }
+              if (!draftName) return prev;
+              if (drafts.length >= MAX_DRAFTS) {
+                  if (!silent) {
+                      alert('You can keep up to 3 local drafts. Export one to keep a permanent copy.');
+                  }
+                  return prev;
+              }
+              activeId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          }
+
+          const index = drafts.findIndex(d => d.id === activeId);
+          const fileName = draftName || (index >= 0 ? drafts[index].fileName : state.fileName);
+          const entry: DraftEntry = {
+              id: activeId,
+              fileName,
+              htmlContent: state.htmlContent,
+              cssContent: state.cssContent,
+              updatedAt: Date.now()
+          };
+
+          if (index >= 0) {
+              drafts[index] = entry;
+          } else {
+              drafts.unshift(entry);
+          }
+
+          drafts = drafts.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_DRAFTS);
+          if (state.fileName !== fileName) {
+              setDocState(prevState => ({ ...prevState, fileName }));
+          }
+
+          lastAutosaveRef.current = serializeDraft(state);
+          return { ...prev, drafts, activeId };
+      });
+  }, [updateDraftStore]);
+
+  const loadDraft = useCallback((id: string) => {
+      const store = draftStoreRef.current;
+      const draft = store.drafts.find(d => d.id === id);
+      if (!draft) return;
+      const nextState = {
+          ...docState,
+          htmlContent: draft.htmlContent,
+          cssContent: draft.cssContent,
+          fileName: draft.fileName
+      };
+      setDocState(nextState);
+      setHistory([nextState]);
+      setHistoryIndex(0);
+      updateDraftStore(prev => ({ ...prev, activeId: id }));
+  }, [docState, updateDraftStore]);
+
+  const clearDraftMemory = useCallback(async () => {
+      updateDraftStore(() => ({ activeId: null, drafts: [], autosaveEnabled: false }));
+      const nextState = { ...docState, htmlContent: DEFAULT_HTML, cssContent: DEFAULT_CSS, fileName: 'untitled_mission.html' };
+      setDocState(nextState);
+      setHistory([nextState]);
+      setHistoryIndex(0);
+  }, [docState, updateDraftStore]);
+
+  const clearActiveDraft = useCallback(() => {
+      updateDraftStore(prev => {
+          if (!prev.activeId) return prev;
+          return {
+              ...prev,
+              activeId: null,
+              autosaveEnabled: false,
+              drafts: prev.drafts.filter(d => d.id !== prev.activeId)
+          };
+      });
+  }, [updateDraftStore]);
+
+  const resetToBlank = useCallback(() => {
+      const nextState = {
+          ...docState,
+          htmlContent: DEFAULT_HTML,
+          cssContent: DEFAULT_CSS,
+          fileName: 'untitled_mission.html'
+      };
+      setDocState(nextState);
+      setHistory([nextState]);
+      setHistoryIndex(0);
+  }, [docState]);
 
   // Unified function to update state and manage history
   const updateDocState = (newState: DocumentState, saveToHistory: boolean = false) => {
       setDocState(newState);
-      scheduleAutosave(newState.htmlContent);
 
       if (saveToHistory) {
           // Clear any pending debounce since we are forcing a save
@@ -469,19 +627,29 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-      if (!isTauri) return;
       let cancelled = false;
 
       const restoreAutosave = async () => {
           try {
-              const saved = await readTextFile(AUTOSAVE_PATH, { baseDir: BaseDirectory.AppData });
-              if (!saved || !saved.trim()) return;
+              const store = await readDraftStore();
               if (cancelled) return;
-              const nextState = { ...docState, htmlContent: saved };
-              setDocState(nextState);
-              setHistory([nextState]);
-              setHistoryIndex(0);
-              lastAutosaveRef.current = saved;
+              setDraftStore(store);
+              draftStoreRef.current = store;
+              if (store.activeId) {
+                  const draft = store.drafts.find(d => d.id === store.activeId);
+                  if (draft) {
+                      const nextState = {
+                          ...docState,
+                          htmlContent: draft.htmlContent,
+                          cssContent: draft.cssContent,
+                          fileName: draft.fileName
+                      };
+                      setDocState(nextState);
+                      setHistory([nextState]);
+                      setHistoryIndex(0);
+                      lastAutosaveRef.current = serializeDraft(nextState);
+                  }
+              }
           } catch {
               // no autosave yet
           }
@@ -495,7 +663,15 @@ const App: React.FC = () => {
               window.clearTimeout(autosaveTimeoutRef.current);
           }
       };
-  }, [isTauri]);
+  }, [isTauri, readDraftStore]);
+
+  useEffect(() => {
+      if (!draftStore.autosaveEnabled || !draftStore.activeId) return;
+      const interval = window.setInterval(() => {
+          saveDraft(undefined, { silent: true, state: latestDocStateRef.current });
+      }, 300000);
+      return () => window.clearInterval(interval);
+  }, [draftStore.autosaveEnabled, draftStore.activeId, saveDraft]);
 
   const handleUndo = () => {
       if (historyIndex > 0) {
@@ -546,7 +722,6 @@ const App: React.FC = () => {
       }
       const newState = { ...docState, htmlContent: html };
       setDocState(newState); // Immediate update for UI
-      scheduleAutosave(html);
 
       // Debounce history save
       if (debounceTimeoutRef.current) {
@@ -758,6 +933,174 @@ const App: React.FC = () => {
       window.setTimeout(() => {
           suppressSelectionRef.current = false;
       }, 0);
+  };
+
+  const getTextStyleSource = () => {
+      const selection = window.getSelection();
+      let textEl: HTMLElement | null = null;
+      if (selection && selection.rangeCount > 0) {
+          const node = selection.getRangeAt(0).commonAncestorContainer;
+          textEl = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+      }
+
+      const blockEl =
+          textEl?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace), .floating-text') as HTMLElement | null
+          || selectedTextLayer
+          || (activeBlock && activeBlock.tagName !== 'IMG' ? activeBlock : null);
+
+      const inlineEl = textEl || blockEl;
+      return { inlineEl, blockEl };
+  };
+
+  const handleCopyStyle = () => {
+      if (selectedImage) {
+          const computed = window.getComputedStyle(selectedImage);
+          const width = selectedImage.style.width || `${selectedImage.offsetWidth}px`;
+          const height = selectedImage.style.height || `${selectedImage.offsetHeight}px`;
+          const imageStyles: Record<string, string> = {
+              width,
+              height,
+              filter: computed.filter !== 'none' ? computed.filter : selectedImage.style.filter,
+              objectFit: computed.objectFit,
+              borderRadius: computed.borderRadius,
+              opacity: computed.opacity,
+              display: computed.display,
+              float: computed.float,
+              margin: computed.margin
+          };
+          setStyleClipboard({ type: 'image', image: imageStyles });
+          return;
+      }
+
+      const { inlineEl, blockEl } = getTextStyleSource();
+      if (!inlineEl || !blockEl) {
+          alert('Select text to copy the style.');
+          return;
+      }
+
+      const inlineComputed = window.getComputedStyle(inlineEl);
+      const blockComputed = window.getComputedStyle(blockEl);
+      const inlineStyles: Record<string, string> = {
+          'font-family': inlineComputed.fontFamily,
+          'font-size': inlineComputed.fontSize,
+          'font-weight': inlineComputed.fontWeight,
+          'font-style': inlineComputed.fontStyle,
+          'text-decoration': inlineComputed.textDecorationLine || inlineComputed.textDecoration,
+          'color': inlineComputed.color,
+          'letter-spacing': inlineComputed.letterSpacing,
+          'text-transform': inlineComputed.textTransform
+      };
+      const blockStyles: Record<string, string> = {
+          'line-height': blockComputed.lineHeight,
+          'text-align': blockComputed.textAlign
+      };
+      setStyleClipboard({ type: 'text', inline: inlineStyles, block: blockStyles });
+  };
+
+  const applyTextStyles = (inlineStyles: Record<string, string>, blockStyles: Record<string, string>) => {
+      if (multiSelectedElements.length > 1) {
+          multiSelectedElements.forEach(id => {
+              const el = document.getElementById(id) as HTMLElement | null;
+              if (!el || el.tagName === 'IMG') return;
+              Object.entries(blockStyles).forEach(([key, val]) => {
+                  el.style.setProperty(key, val, 'important');
+              });
+              Object.entries(inlineStyles).forEach(([key, val]) => {
+                  el.style.setProperty(key, val, 'important');
+              });
+          });
+      } else {
+          const selection = window.getSelection();
+          const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+          const hasRange = range && !range.collapsed;
+
+          const blockEl =
+              (range
+                  ? (range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+                      ? (range.commonAncestorContainer as HTMLElement)
+                      : range.commonAncestorContainer.parentElement)
+                  : null)?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace), .floating-text') as HTMLElement | null
+              || selectedTextLayer
+              || (activeBlock && activeBlock.tagName !== 'IMG' ? activeBlock : null);
+
+          if (blockEl) {
+              Object.entries(blockStyles).forEach(([key, val]) => {
+                  blockEl.style.setProperty(key, val, 'important');
+              });
+          }
+
+          if (hasRange && range) {
+              const span = document.createElement('span');
+              Object.entries(inlineStyles).forEach(([key, val]) => {
+                  span.style.setProperty(key, val, 'important');
+              });
+              span.appendChild(range.extractContents());
+              range.insertNode(span);
+              selection?.removeAllRanges();
+              const newRange = document.createRange();
+              newRange.selectNodeContents(span);
+              newRange.collapse(false);
+              selection?.addRange(newRange);
+          } else if (blockEl) {
+              Object.entries(inlineStyles).forEach(([key, val]) => {
+                  blockEl.style.setProperty(key, val, 'important');
+              });
+          }
+      }
+
+      const workspace = document.querySelector('.editor-workspace');
+      if (workspace) {
+          updateDocStatePreserveScroll(workspace.innerHTML);
+      }
+  };
+
+  const applyImageStyles = (imageStyles: Record<string, string>) => {
+      const targets: HTMLImageElement[] = [];
+      if (multiSelectedElements.length > 1) {
+          multiSelectedElements.forEach(id => {
+              const el = document.getElementById(id);
+              if (el && el.tagName === 'IMG') targets.push(el as HTMLImageElement);
+          });
+      } else if (selectedImage) {
+          targets.push(selectedImage);
+      } else if (activeBlock && activeBlock.tagName === 'IMG') {
+          targets.push(activeBlock as HTMLImageElement);
+      }
+
+      if (targets.length === 0) return;
+
+      targets.forEach(img => {
+          Object.entries(imageStyles).forEach(([key, val]) => {
+              if (!val) return;
+              if (key === 'float') {
+                  img.style.float = val;
+                  return;
+              }
+              img.style.setProperty(key, val, 'important');
+          });
+      });
+
+      const workspace = document.querySelector('.editor-workspace');
+      if (workspace) {
+          updateDocStatePreserveScroll(workspace.innerHTML);
+      }
+
+      if (selectedImage) {
+          handleImageSelect(selectedImage);
+      }
+  };
+
+  const handlePasteStyle = () => {
+      if (!styleClipboard) {
+          alert('Copy a style first.');
+          return;
+      }
+
+      if (styleClipboard.type === 'text') {
+          applyTextStyles(styleClipboard.inline, styleClipboard.block);
+      } else if (styleClipboard.type === 'image') {
+          applyImageStyles(styleClipboard.image);
+      }
   };
 
   const applyAiActions = (actions: Array<{ type: string; selector?: string; fontFamily?: string; style?: Record<string, string> }>) => {
@@ -2735,34 +3078,16 @@ ${markerEnd}
     return clone;
   };
 
-  const handleSave = () => {
-    const workspace = getCleanWorkspace();
-    if (!workspace) return;
+  const handleSave = async () => {
+    await saveDraft();
+  };
 
-    const fullHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${docState.fileName}</title>
-    <style>
-${docState.cssContent}
-    </style>
-</head>
-<body>
-${workspace.innerHTML}
-</body>
-</html>`;
-    
-    const blob = new Blob([fullHtml], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = docState.fileName.endsWith('.html') ? docState.fileName : `${docState.fileName}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleToggleAutosave = () => {
+      if (!draftStoreRef.current.activeId) {
+          alert('Save a draft name first to enable autosave.');
+          return;
+      }
+      updateDraftStore(prev => ({ ...prev, autosaveEnabled: !prev.autosaveEnabled }));
   };
 
   const handleExportHTML = (fileName: string) => {
@@ -2800,6 +3125,8 @@ ${workspace.innerHTML}
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    clearActiveDraft();
+    resetToBlank();
   };
 
   const handleExportPDF = async (fileName: string) => {
@@ -2926,6 +3253,8 @@ ${pagesHTML}
     `);
     
     printWindow.document.close();
+    clearActiveDraft();
+    resetToBlank();
   };
   
   // Helper function to inline computed styles for export
@@ -3239,6 +3568,8 @@ ${contentHtml}
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    clearActiveDraft();
+    resetToBlank();
   };
 
   const scrollToPage = (pageIndex: number) => {
@@ -3464,6 +3795,12 @@ ${contentHtml}
         onReloadFonts={handleReloadFonts}
         onAddFont={handleAddFont}
         onCaptureSelection={handleCaptureSelection}
+        drafts={draftStore.drafts}
+        activeDraftId={draftStore.activeId}
+        autosaveEnabled={draftStore.autosaveEnabled}
+        onToggleAutosave={handleToggleAutosave}
+        onLoadDraft={loadDraft}
+        onClearDrafts={clearDraftMemory}
       />
 
       {fontUploadMessage && (
@@ -3537,6 +3874,9 @@ ${contentHtml}
                 distributeAdjustAxis={distributeAdjustAxis}
                 onStartDistributeAdjust={startDistributeAdjust}
                 onEndDistributeAdjust={endDistributeAdjust}
+                onCopyStyle={handleCopyStyle}
+                onPasteStyle={handlePasteStyle}
+                hasStyleClipboard={!!styleClipboard}
             />
             <ZoomControls
                 zoom={zoom}

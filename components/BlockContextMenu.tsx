@@ -9,6 +9,9 @@ interface BlockContextMenuProps {
   onCopy: () => void;
   onCut: () => void;
   onPaste: () => void;
+  onCopyStyle?: () => void;
+  onPasteStyle?: () => void;
+  canPasteStyle?: boolean;
   onCreateQRCode?: () => void;
   onTransformToTOC?: () => void;
   onDistributeHoriz?: () => void;
@@ -39,6 +42,9 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
   onCopy,
   onCut,
   onPaste,
+  onCopyStyle,
+  onPasteStyle,
+  canPasteStyle,
   onCreateQRCode,
   onTransformToTOC,
   onDistributeHoriz,
@@ -132,6 +138,35 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
           Paste
           <span className="ml-auto text-xs text-gray-400">⌘V</span>
         </button>
+
+        {(onCopyStyle || onPasteStyle) && (
+          <div className="border-t border-gray-100 my-1" />
+        )}
+
+        {onCopyStyle && (
+          <button
+            onClick={() => { onCopyStyle(); onClose(); }}
+            className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            Copy style
+          </button>
+        )}
+
+        {onPasteStyle && (
+          <button
+            onClick={() => { if (canPasteStyle) { onPasteStyle(); onClose(); } }}
+            className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 pointer-events-auto ${canPasteStyle ? 'hover:bg-brand-50 hover:text-brand-700' : 'text-gray-300 cursor-not-allowed'}`}
+            disabled={!canPasteStyle}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            Paste style
+          </button>
+        )}
 
         {hasBlock && (
           <button

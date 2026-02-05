@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  Image as ImageIcon, FileUp, Download, Save, Sun, Contrast, Settings, ImagePlus,
+  Image as ImageIcon, FileUp, Download, Sun, Contrast, Settings, ImagePlus,
   ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
   Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
   RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
   ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus, FileText
 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
 import { PAGE_FORMATS } from '../constants';
 import { FontDefinition } from '../utils/fontUtils';
@@ -56,6 +57,12 @@ interface ToolbarProps {
   onReloadFonts: () => void;
   onAddFont: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onCaptureSelection: () => void;
+  drafts: { id: string; fileName: string; updatedAt: number }[];
+  activeDraftId: string | null;
+  autosaveEnabled: boolean;
+  onToggleAutosave: () => void;
+  onLoadDraft: (id: string) => void;
+  onClearDrafts: () => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -102,7 +109,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onOpenSettings,
   onReloadFonts,
   onAddFont,
-  onCaptureSelection
+  onCaptureSelection,
+  drafts,
+  activeDraftId,
+  autosaveEnabled,
+  onToggleAutosave,
+  onLoadDraft,
+  onClearDrafts
 }) => {
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const [isLineHeightMenuOpen, setIsLineHeightMenuOpen] = useState(false);
@@ -112,16 +125,21 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const [isFontSearchActive, setIsFontSearchActive] = useState(false);
   const [fontSearch, setFontSearch] = useState('');
   const [fontInput, setFontInput] = useState('');
+  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
   const styleMenuRef = useRef<HTMLDivElement>(null);
   const lineHeightMenuRef = useRef<HTMLDivElement>(null);
   const textCaseMenuRef = useRef<HTMLDivElement>(null);
   const listMenuRef = useRef<HTMLDivElement>(null);
   const fontMenuRef = useRef<HTMLDivElement>(null);
+  const fileUploadRef = useRef<HTMLInputElement>(null);
+  const imageUploadRef = useRef<HTMLInputElement>(null);
   const styleMenuAnchorRef = useRef<HTMLElement | null>(null);
   const fontMenuAnchorRef = useRef<HTMLElement | null>(null);
   const lineHeightAnchorRef = useRef<HTMLElement | null>(null);
   const textCaseAnchorRef = useRef<HTMLElement | null>(null);
   const listMenuAnchorRef = useRef<HTMLElement | null>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
+  const settingsMenuAnchorRef = useRef<HTMLElement | null>(null);
 
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
     `p-2.5 rounded transition-colors cursor-pointer ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-[#efe5ff] hover:text-[#7539d3] ' + (isActive ? 'bg-[#efe5ff] text-[#7539d3]' : 'text-gray-700')}`;
@@ -146,6 +164,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
               setIsFontListOpen(false);
               setIsFontSearchActive(false);
           }
+          if (
+              settingsMenuRef.current &&
+              !settingsMenuRef.current.contains(target) &&
+              !(settingsMenuAnchorRef.current && settingsMenuAnchorRef.current.contains(target))
+          ) {
+              setIsSettingsMenuOpen(false);
+          }
       };
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -158,7 +183,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           position: 'fixed',
           top: rect.bottom + offsetY,
           left: rect.left,
-          zIndex: 80
+          zIndex: 200
       };
   };
 
@@ -170,8 +195,60 @@ const Toolbar: React.FC<ToolbarProps> = ({
           top: rect.top - offsetY,
           left: rect.left,
           transform: 'translateY(-100%)',
-          zIndex: 80
+          zIndex: 200
       };
+  };
+
+  const renderMenuBelow = (
+      isOpen: boolean,
+      anchorRef: React.RefObject<HTMLElement>,
+      className: string,
+      children: React.ReactNode,
+      offsetY: number = 6,
+      menuRef?: React.RefObject<HTMLDivElement>
+  ) => {
+      if (!isOpen || !anchorRef.current || typeof document === 'undefined') return null;
+      return createPortal(
+          <div
+              ref={menuRef}
+              className={className}
+              style={getMenuStyleBelow(anchorRef, offsetY)}
+              onMouseDown={(e) => e.stopPropagation()}
+          >
+              {children}
+          </div>,
+          document.body
+      );
+  };
+
+  const renderMenuAbove = (
+      isOpen: boolean,
+      anchorRef: React.RefObject<HTMLElement>,
+      className: string,
+      children: React.ReactNode,
+      offsetY: number = 6,
+      menuRef?: React.RefObject<HTMLDivElement>
+  ) => {
+      if (!isOpen || !anchorRef.current || typeof document === 'undefined') return null;
+      return createPortal(
+          <div
+              ref={menuRef}
+              className={className}
+              style={getMenuStyleAbove(anchorRef, offsetY)}
+              onMouseDown={(e) => e.stopPropagation()}
+          >
+              {children}
+          </div>,
+          document.body
+      );
+  };
+
+  const formatDraftTime = (ts: number) => {
+      try {
+          return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } catch {
+          return '';
+      }
   };
 
   const styles = [
@@ -271,8 +348,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 className="flex items-center px-4 h-full justify-between min-w-max"
                 onMouseDown={onCaptureSelection}
             >
-                <div className="flex items-center space-x-2">
-                <div className="mr-4 flex items-center space-x-2 border-r border-gray-200 pr-4">
+                <div className="flex items-center space-x-1.5">
+                <div className="mr-2 flex items-center space-x-1.5 border-r border-gray-200 pr-2">
                 <h1 className="font-bold text-lg text-gray-800 tracking-tight flex items-center gap-2 h-full leading-none">
                     <div className="h-14 w-14 overflow-hidden rounded flex items-center justify-center">
                         <img
@@ -288,7 +365,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
 
                 {/* Undo / Redo */}
-                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2">
+                <div className="flex items-center space-x-0.5 border-r border-gray-200 pr-1.5">
                     <button onClick={onUndo} disabled={!canUndo} className={ButtonClass(false, !canUndo)} title="Undo (Ctrl+Z)">
                         <RotateCcw size={18} />
                     </button>
@@ -297,23 +374,40 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     </button>
                 </div>
 
-                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 mr-2">
-                    <label className={`${ButtonClass(false)} cursor-pointer relative block`} title="Open File">
-                        <input type="file" multiple accept=".html,.htm,.docx,image/*" onChange={onFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-auto z-10" />
-                        <span className="relative z-0 cursor-pointer block">
-                            <FileUp size={18} />
-                        </span>
-                    </label>
-                    <label className={`${ButtonClass(false)} cursor-pointer relative block`} title="Insert Image">
-                        <input type="file" accept="image/*" onChange={onInsertImage} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-auto z-10" />
-                        <span className="relative z-0 cursor-pointer block">
-                            <ImagePlus size={18} />
-                        </span>
-                    </label>
+                <div className="flex items-center space-x-0.5 border-r border-gray-200 pr-1.5 mr-1.5">
+                    <button
+                        onClick={() => fileUploadRef.current?.click()}
+                        className={ButtonClass(false)}
+                        title="Open File"
+                    >
+                        <FileUp size={18} />
+                    </button>
+                    <input
+                        ref={fileUploadRef}
+                        type="file"
+                        multiple
+                        accept=".html,.htm,.docx,image/*"
+                        onChange={onFileUpload}
+                        className="hidden"
+                    />
+                    <button
+                        onClick={() => imageUploadRef.current?.click()}
+                        className={ButtonClass(false)}
+                        title="Insert Image"
+                    >
+                        <ImagePlus size={18} />
+                    </button>
+                    <input
+                        ref={imageUploadRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={onInsertImage}
+                        className="hidden"
+                    />
                 </div>
                 
                 {/* Insertions */}
-                <div className="flex items-center space-x-1 border-r border-gray-200 pr-2 mr-2 pl-2">
+                <div className="flex items-center space-x-0.5 border-r border-gray-200 pr-1.5 mr-1.5 pl-1.5">
                     <button onClick={onPageBreak} className={ButtonClass(false)} title="Insert Page Break (Cmd+Enter)">
                         <FilePlus size={18} />
                     </button>
@@ -396,7 +490,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     {/* Top: Style Selector */}
                     <div className="relative w-full flex items-center gap-1">
                         <button
-                            onClick={(e) => {
+                            onMouseDown={(e) => {
+                                e.preventDefault();
                                 styleMenuAnchorRef.current = e.currentTarget;
                                 setIsStyleMenuOpen(!isStyleMenuOpen);
                             }}
@@ -578,7 +673,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     {/* Spacing */}
                     <div className="relative flex items-center" ref={lineHeightMenuRef}>
                         <button 
-                            onClick={(e) => {
+                            onMouseDown={(e) => {
+                                e.preventDefault();
                                 lineHeightAnchorRef.current = e.currentTarget;
                                 setIsLineHeightMenuOpen(!isLineHeightMenuOpen);
                             }}
@@ -633,7 +729,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     {/* Case */}
                     <div className="relative flex items-center" ref={textCaseMenuRef}>
                         <button 
-                            onClick={(e) => {
+                            onMouseDown={(e) => {
+                                e.preventDefault();
                                 textCaseAnchorRef.current = e.currentTarget;
                                 setIsTextCaseMenuOpen(!isTextCaseMenuOpen);
                             }}
@@ -680,7 +777,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     {/* Lists */}
                     <div className="relative flex items-center" ref={listMenuRef}>
                         <button 
-                            onClick={(e) => {
+                            onMouseDown={(e) => {
+                                e.preventDefault();
                                 listMenuAnchorRef.current = e.currentTarget;
                                 setIsListMenuOpen(!isListMenuOpen);
                             }}
@@ -714,12 +812,87 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     <Download size={18} />
                 </button>
                 <button
-                    onClick={onOpenSettings}
-                    className={ButtonClass(false)}
+                    onMouseDown={(e) => {
+                        e.preventDefault();
+                        settingsMenuAnchorRef.current = e.currentTarget;
+                        setIsSettingsMenuOpen(!isSettingsMenuOpen);
+                    }}
+                    className={ButtonClass(isSettingsMenuOpen)}
                     title="Settings"
                 >
                     <Settings size={18} />
                 </button>
+                {renderMenuBelow(
+                    isSettingsMenuOpen,
+                    settingsMenuAnchorRef,
+                    'bg-white border border-gray-200 shadow-xl rounded-md p-2 w-64',
+                    <>
+                        <div className="text-[10px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">
+                            Settings
+                        </div>
+                        <button
+                            onClick={() => {
+                                onOpenSettings();
+                                setIsSettingsMenuOpen(false);
+                            }}
+                            className="w-full text-left text-xs px-2 py-2 rounded hover:bg-brand-50 text-gray-700"
+                        >
+                            API Key
+                        </button>
+                        <button
+                            onClick={() => {
+                                onSave();
+                                setIsSettingsMenuOpen(false);
+                            }}
+                            className="w-full text-left text-xs px-2 py-2 rounded hover:bg-brand-50 text-gray-700"
+                        >
+                            Save Draft
+                        </button>
+                        <div className="h-px bg-gray-100 my-2"></div>
+                        <div className="text-[10px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">
+                            History
+                        </div>
+                        {drafts.length === 0 ? (
+                            <div className="text-xs text-gray-400 px-2 py-2">No drafts saved</div>
+                        ) : (
+                            <div className="flex flex-col gap-1">
+                                {drafts.map(draft => (
+                                    <button
+                                        key={draft.id}
+                                        onClick={() => {
+                                            onLoadDraft(draft.id);
+                                            setIsSettingsMenuOpen(false);
+                                        }}
+                                        className={`text-left text-xs px-2 py-2 rounded hover:bg-brand-50 flex items-center justify-between ${activeDraftId === draft.id ? 'bg-brand-50 text-brand-700' : 'text-gray-700'}`}
+                                    >
+                                        <span className="truncate pr-2">{draft.fileName}</span>
+                                        <span className="text-[10px] text-gray-400">{formatDraftTime(draft.updatedAt)}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        <button
+                            onClick={() => {
+                                onToggleAutosave();
+                            }}
+                            className={`w-full text-left text-xs px-2 py-2 rounded hover:bg-brand-50 ${autosaveEnabled ? 'text-brand-700 bg-brand-50' : 'text-gray-700'}`}
+                        >
+                            Autosave every 5 minutes: {autosaveEnabled ? 'On' : 'Off'}
+                        </button>
+                        <button
+                            onClick={() => {
+                                onClearDrafts();
+                                setIsSettingsMenuOpen(false);
+                            }}
+                            className="w-full text-left text-xs px-2 py-2 rounded hover:bg-red-50 text-red-600"
+                        >
+                            Clear local memory
+                        </button>
+                    </>
+                    ,
+                    6,
+                    settingsMenuRef
+                )}
                 </div>
             </div>
         </div>
@@ -974,7 +1147,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                              {/* Line Height */}
                             <div className="relative flex items-center" ref={lineHeightMenuRef}>
                                 <button 
-                                    onClick={(e) => {
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
                                         lineHeightAnchorRef.current = e.currentTarget;
                                         setIsLineHeightMenuOpen(!isLineHeightMenuOpen);
                                     }}
@@ -998,7 +1172,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             {/* Text Case */}
                             <div className="relative flex items-center" ref={textCaseMenuRef}>
                                 <button 
-                                    onClick={(e) => {
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
                                         textCaseAnchorRef.current = e.currentTarget;
                                         setIsTextCaseMenuOpen(!isTextCaseMenuOpen);
                                     }}
