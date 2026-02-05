@@ -238,11 +238,12 @@ const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <div className="flex flex-col border-b border-gray-200 shadow-sm z-10 sticky top-0 bg-white">
         {/* === MAIN TOOLBAR (Always Visible) === */}
-        <div
-            className="h-[68px] flex items-center px-4 justify-between bg-white z-20 relative"
-            onMouseDown={onCaptureSelection}
-        >
-            <div className="flex items-center space-x-2">
+        <div className="h-[68px] bg-white z-20 relative overflow-x-auto overflow-y-hidden">
+            <div
+                className="flex items-center px-4 h-full justify-between min-w-max"
+                onMouseDown={onCaptureSelection}
+            >
+                <div className="flex items-center space-x-2">
                 <div className="mr-4 flex items-center space-x-2 border-r border-gray-200 pr-4">
                 <h1 className="font-bold text-lg text-gray-800 tracking-tight flex items-center gap-2 h-full leading-none">
                     <div className="h-14 w-14 overflow-hidden rounded flex items-center justify-center">
@@ -662,6 +663,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 >
                     <Settings size={18} />
                 </button>
+                </div>
             </div>
         </div>
 
@@ -670,16 +672,19 @@ const Toolbar: React.FC<ToolbarProps> = ({
         {/* 1. Image Tools */}
         {selectedImage && (
             imageProperties.isCropping ? (
-                <div className="h-14 border-b border-gray-200 bg-gray-800 text-white flex items-center px-4 justify-between shadow-inner">
-                    <div className="flex items-center gap-2 font-semibold">
-                        <Crop size={18} />
-                        <span>Crop Mode</span>
+                <div className="h-14 border-b border-gray-200 bg-gray-800 text-white shadow-inner overflow-x-auto overflow-y-hidden">
+                    <div className="flex items-center justify-between px-4 h-full min-w-max">
+                        <div className="flex items-center gap-2 font-semibold">
+                            <Crop size={18} />
+                            <span>Crop Mode</span>
+                        </div>
+                        <div className="text-xs text-gray-300">Drag corners to crop.</div>
+                        <div>{/* Controls are in overlay */}</div>
                     </div>
-                    <div className="text-xs text-gray-300">Drag corners to crop.</div>
-                    <div>{/* Controls are in overlay */}</div>
                 </div>
             ) : (
-                <div className="h-16 border-b border-gray-200 bg-brand-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
+                <div className="h-16 border-b border-gray-200 bg-brand-50 shadow-inner overflow-x-auto overflow-y-hidden">
+                    <div className="flex items-center justify-between px-4 h-full min-w-max">
                     <div className="flex items-center space-x-6">
                         <div className="flex items-center gap-2 text-brand-800 font-semibold border-r border-brand-200 pr-4">
                             <ImageIcon size={18} />
@@ -754,14 +759,16 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     <div>
                         <button onClick={() => onFormat('removeSelection')} className="text-xs text-brand-600 underline font-medium ml-4">Close Tools</button>
                     </div>
+                    </div>
                 </div>
             )
         )}
 
         {/* 2. HR Tools */}
-        {selectedHR && (
-             <div className="h-16 border-b border-gray-200 bg-brand-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
-                <div className="flex items-center space-x-6">
+         {selectedHR && (
+              <div className="h-16 border-b border-gray-200 bg-brand-50 shadow-inner overflow-x-auto overflow-y-hidden">
+                 <div className="flex items-center justify-between px-4 h-full min-w-max">
+                 <div className="flex items-center space-x-6">
                    <div className="flex items-center gap-2 text-brand-800 font-semibold border-r border-brand-200 pr-4">
                        <Minus size={18} />
                        <span className="hidden sm:inline text-sm">Line</span>
@@ -828,15 +835,17 @@ const Toolbar: React.FC<ToolbarProps> = ({
                    </div>
    
                 </div>
-                <div>
-                    <button onClick={() => onFormat('removeSelection')} className="text-xs text-brand-600 underline font-medium ml-4">Close Tools</button>
-                </div>
-           </div>
+                 <div>
+                     <button onClick={() => onFormat('removeSelection')} className="text-xs text-brand-600 underline font-medium ml-4">Close Tools</button>
+                 </div>
+                 </div>
+            </div>
         )}
         
         {/* 3. Footer Tools */}
         {selectedFooter && (
-            <div className="h-16 border-b border-gray-200 bg-brand-50 flex items-center px-4 justify-between shadow-inner overflow-x-auto">
+            <div className="h-16 border-b border-gray-200 bg-brand-50 shadow-inner overflow-x-auto overflow-y-hidden">
+                <div className="flex items-center justify-between px-4 h-full min-w-max">
                 <div className="flex items-center space-x-6">
                     <div className="flex items-center gap-2 text-brand-800 font-semibold border-r border-brand-200 pr-4">
                         <Hash size={18} />
@@ -957,12 +966,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 <div>
                     <button onClick={() => onFormat('removeSelection')} className="text-xs text-brand-600 underline font-medium ml-4">Close</button>
                 </div>
+                </div>
             </div>
         )}
 
         {/* 4. Frame / Border Tools (Contextual or toggled) */}
         {showFrameTools && !selectedImage && !selectedHR && !selectedFooter && (
-            <div className="h-12 bg-gray-50 border-b border-gray-200 flex items-center px-4 space-x-6 overflow-x-auto shadow-inner">
+            <div className="h-12 bg-gray-50 border-b border-gray-200 shadow-inner overflow-x-auto overflow-y-hidden">
+                <div className="flex items-center px-4 h-full space-x-6 min-w-max">
                 <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase">
                     <Square size={14} />
                     <span>Frame Tools</span>
@@ -1093,6 +1104,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                      </div>
                 </div>
 
+                </div>
             </div>
         )}
     </div>
