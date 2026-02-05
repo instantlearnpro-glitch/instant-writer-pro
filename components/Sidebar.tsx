@@ -184,7 +184,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                 <span className="text-[9px] text-gray-400 font-mono">p.{entry.page}</span>
                                                 <button 
                                                     onClick={(e) => { e.stopPropagation(); onUpdateEntryStatus(entry.id, 'rejected'); }}
-                                                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity"
+                                                    className="text-brand-600 hover:text-brand-700 transition-colors"
                                                     title="Remove from TOC"
                                                 >
                                                     <X size={12} />

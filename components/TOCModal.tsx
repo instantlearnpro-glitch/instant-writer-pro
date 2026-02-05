@@ -23,7 +23,7 @@ const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert }) => {
       <div className="bg-white rounded-lg shadow-xl w-96 p-6">
         <div className="flex justify-between items-center mb-4 border-b pb-2">
           <h3 className="font-bold text-lg text-gray-800">Table of Contents</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-brand-600 hover:text-brand-700">
             <X size={20} />
           </button>
         </div>
@@ -79,16 +79,16 @@ const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert }) => {
         <div className="mt-6 flex justify-end space-x-3">
            <button 
              onClick={onClose}
-             className="px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-600 rounded"
+             className="px-4 py-2 text-sm text-brand-700 bg-brand-50 hover:bg-brand-100 rounded"
            >
-             Cancel
-           </button>
+              Cancel
+            </button>
            <button 
              onClick={() => onInsert(settings)}
-             className="px-4 py-2 text-sm text-white bg-brand-600 hover:bg-brand-700 rounded shadow-sm"
+             className="px-4 py-2 text-sm text-white bg-[#8d55f1] hover:bg-[#7539d3] rounded shadow-sm"
            >
-             Insert Table of Contents
-           </button>
+              Insert Table of Contents
+            </button>
         </div>
       </div>
     </div>

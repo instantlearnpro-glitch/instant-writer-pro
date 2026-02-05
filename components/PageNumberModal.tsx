@@ -40,7 +40,7 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
       <div className="bg-white rounded-lg shadow-xl w-96 border border-gray-200">
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-800">Page Numbering Settings</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+          <button onClick={onClose} className="text-brand-600 hover:text-brand-700 transition-colors">
             <X size={20} />
           </button>
         </div>
@@ -66,17 +66,17 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
               {/* Position Controls */}
               <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Position:</label>
-                  <div className="flex border border-gray-300 rounded overflow-hidden">
+                  <div className="flex border border-brand-200 rounded overflow-hidden">
                       <button 
                         onClick={() => setPosition('top')}
-                        className={`flex-1 flex justify-center py-2 ${position === 'top' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
+                        className={`flex-1 flex justify-center py-2 text-brand-600 hover:text-brand-700 ${position === 'top' ? 'bg-brand-100 text-brand-700' : 'bg-white hover:bg-brand-50'}`}
                       >
                           <ArrowUpFromLine size={18} />
                       </button>
-                      <div className="w-px bg-gray-300"></div>
+                      <div className="w-px bg-brand-200"></div>
                       <button 
                         onClick={() => setPosition('bottom')}
-                        className={`flex-1 flex justify-center py-2 ${position === 'bottom' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
+                        className={`flex-1 flex justify-center py-2 text-brand-600 hover:text-brand-700 ${position === 'bottom' ? 'bg-brand-100 text-brand-700' : 'bg-white hover:bg-brand-50'}`}
                       >
                           <ArrowDownFromLine size={18} />
                       </button>
@@ -86,24 +86,24 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
               {/* Alignment Controls */}
               <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Alignment:</label>
-                  <div className="flex border border-gray-300 rounded overflow-hidden">
+                  <div className="flex border border-brand-200 rounded overflow-hidden">
                       <button 
                         onClick={() => setAlign('left')}
-                        className={`flex-1 flex justify-center py-2 ${align === 'left' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
+                        className={`flex-1 flex justify-center py-2 text-brand-600 hover:text-brand-700 ${align === 'left' ? 'bg-brand-100 text-brand-700' : 'bg-white hover:bg-brand-50'}`}
                       >
                           <AlignLeft size={18} />
                       </button>
-                      <div className="w-px bg-gray-300"></div>
+                      <div className="w-px bg-brand-200"></div>
                       <button 
                         onClick={() => setAlign('center')}
-                        className={`flex-1 flex justify-center py-2 ${align === 'center' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
+                        className={`flex-1 flex justify-center py-2 text-brand-600 hover:text-brand-700 ${align === 'center' ? 'bg-brand-100 text-brand-700' : 'bg-white hover:bg-brand-50'}`}
                       >
                           <AlignCenter size={18} />
                       </button>
-                      <div className="w-px bg-gray-300"></div>
+                      <div className="w-px bg-brand-200"></div>
                       <button 
                         onClick={() => setAlign('right')}
-                        className={`flex-1 flex justify-center py-2 ${align === 'right' ? 'bg-brand-100 text-brand-600' : 'hover:bg-brand-50'}`}
+                        className={`flex-1 flex justify-center py-2 text-brand-600 hover:text-brand-700 ${align === 'right' ? 'bg-brand-100 text-brand-700' : 'bg-white hover:bg-brand-50'}`}
                       >
                           <AlignRight size={18} />
                       </button>
@@ -169,13 +169,13 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-2 rounded-b-lg">
           <button 
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded transition-colors"
+            className="px-4 py-2 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 rounded transition-colors"
           >
             Cancel
           </button>
           <button 
             onClick={() => onApply(selectedAnchorId, font, fontSize, position, align, margin)}
-            className="px-6 py-2 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded shadow-md transition-all active:scale-95"
+            className="px-6 py-2 text-sm font-bold text-white bg-[#8d55f1] hover:bg-[#7539d3] rounded shadow-md transition-all active:scale-95"
           >
             Finish
           </button>

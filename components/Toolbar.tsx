@@ -403,7 +403,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                                 onUpdateStyle(style.tag);
                                                 setIsStyleMenuOpen(false);
                                             }}
-                                            className="text-gray-400 hover:text-brand-600 p-1 rounded hover:bg-brand-100 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px]"
+                                            className="text-brand-600 hover:text-brand-700 p-1 rounded bg-brand-50/60 hover:bg-brand-100 transition-colors flex items-center gap-1 text-[10px]"
                                             title="Update style"
                                         >
                                             <RefreshCw size={10} />

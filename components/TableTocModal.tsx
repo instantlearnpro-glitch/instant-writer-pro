@@ -83,7 +83,7 @@ const TableTocModal: React.FC<TableTocModalProps> = ({ isOpen, rows, anchors, on
           </button>
           <button
             onClick={() => onApply(localRows)}
-            className="px-4 py-2 text-sm text-white bg-violet-600 hover:bg-violet-700 rounded shadow-md font-semibold"
+            className="px-4 py-2 text-sm text-white bg-[#8d55f1] hover:bg-[#7539d3] rounded shadow-md font-semibold"
           >
             Apply
           </button>
