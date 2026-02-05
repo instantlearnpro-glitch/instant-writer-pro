@@ -8,6 +8,7 @@ interface ImageOverlayProps {
   onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
   onResize?: () => void;
+  multiSelectedElements?: string[];
 }
 
 const ImageOverlay: React.FC<ImageOverlayProps> = ({ 
@@ -17,7 +18,8 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   showSmartGuides,
   onCropComplete,
   onCancelCrop,
-  onResize
+  onResize,
+  multiSelectedElements
 }) => {
   const isImage = image.tagName === 'IMG';
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -76,7 +78,152 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   const handleResizeStart = (e: React.MouseEvent, direction: string) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
+    const multiIds = Array.isArray(multiSelectedElements) ? multiSelectedElements : [];
+    const selectedElement = image as HTMLElement;
+    const selectedPage = selectedElement.closest('.page');
+    const groupSet = new Set<HTMLElement>();
+    multiIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) groupSet.add(el);
+    });
+    groupSet.add(selectedElement);
+
+    let elements = Array.from(groupSet);
+    if (selectedPage) {
+        elements = elements.filter(el => el.closest('.page') === selectedPage);
+    }
+
+    if (elements.length > 1) {
+            const elementData = elements.map(el => ({
+                el,
+                rect: el.getBoundingClientRect(),
+                position: window.getComputedStyle(el).position
+            }));
+
+            const startLeft = Math.min(...elementData.map(item => item.rect.left));
+            const startTop = Math.min(...elementData.map(item => item.rect.top));
+            const startRight = Math.max(...elementData.map(item => item.rect.right));
+            const startBottom = Math.max(...elementData.map(item => item.rect.bottom));
+            const startWidth = Math.max(1, startRight - startLeft);
+            const startHeight = Math.max(1, startBottom - startTop);
+
+            const hasE = direction.includes('e');
+            const hasW = direction.includes('w');
+            const hasS = direction.includes('s');
+            const hasN = direction.includes('n');
+            const hasH = hasE || hasW;
+            const hasV = hasN || hasS;
+
+            elementData.forEach(({ el }) => {
+                el.style.setProperty('max-width', 'none', 'important');
+                el.style.setProperty('max-height', 'none', 'important');
+                el.style.setProperty('min-width', '0', 'important');
+                el.style.setProperty('min-height', '0', 'important');
+                el.style.setProperty('aspect-ratio', 'auto', 'important');
+                el.style.setProperty('object-fit', 'fill', 'important');
+            });
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+
+            const onMove = (moveEvent: MouseEvent) => {
+                const dx = moveEvent.clientX - startX;
+                const dy = moveEvent.clientY - startY;
+
+                let newLeft = startLeft;
+                let newRight = startRight;
+                let newTop = startTop;
+                let newBottom = startBottom;
+
+                if (hasE) newRight = startRight + dx;
+                if (hasW) newLeft = startLeft + dx;
+                if (hasS) newBottom = startBottom + dy;
+                if (hasN) newTop = startTop + dy;
+
+                let newWidth = newRight - newLeft;
+                let newHeight = newBottom - newTop;
+
+                const minSize = 20;
+                if (newWidth < minSize) newWidth = minSize;
+                if (newHeight < minSize) newHeight = minSize;
+
+                if (lockAspect && isImage) {
+                    const aspect = startWidth / startHeight;
+                    if (hasH && !hasV) {
+                        newHeight = newWidth / aspect;
+                    } else if (hasV && !hasH) {
+                        newWidth = newHeight * aspect;
+                    } else if (hasH && hasV) {
+                        if (Math.abs(dx) >= Math.abs(dy)) {
+                            newHeight = newWidth / aspect;
+                        } else {
+                            newWidth = newHeight * aspect;
+                        }
+                    }
+
+                    const anchorLeft = hasE || (!hasE && !hasW);
+                    const anchorTop = hasS || (!hasS && !hasN);
+                    if (anchorLeft) {
+                        newLeft = startLeft;
+                        newRight = newLeft + newWidth;
+                    } else {
+                        newRight = startRight;
+                        newLeft = newRight - newWidth;
+                    }
+                    if (anchorTop) {
+                        newTop = startTop;
+                        newBottom = newTop + newHeight;
+                    } else {
+                        newBottom = startBottom;
+                        newTop = newBottom - newHeight;
+                    }
+                }
+
+                elementData.forEach(({ el, rect, position }) => {
+                    const relLeft = (rect.left - startLeft) / startWidth;
+                    const relTop = (rect.top - startTop) / startHeight;
+                    const relRight = (rect.right - startLeft) / startWidth;
+                    const relBottom = (rect.bottom - startTop) / startHeight;
+
+                    const nextLeft = newLeft + relLeft * newWidth;
+                    const nextTop = newTop + relTop * newHeight;
+                    const nextWidth = (relRight - relLeft) * newWidth;
+                    const nextHeight = (relBottom - relTop) * newHeight;
+
+                    if (nextWidth > 0) {
+                        el.style.setProperty('width', `${nextWidth}px`, 'important');
+                    }
+                    if (nextHeight > 0) {
+                        el.style.setProperty('height', `${nextHeight}px`, 'important');
+                    }
+
+                    if (position === 'absolute' || position === 'fixed') {
+                        const parent = el.offsetParent as HTMLElement | null;
+                        if (parent) {
+                            const parentRect = parent.getBoundingClientRect();
+                            const left = nextLeft - parentRect.left;
+                            const top = nextTop - parentRect.top;
+                            el.style.setProperty('left', `${left}px`, 'important');
+                            el.style.setProperty('top', `${top}px`, 'important');
+                        }
+                    }
+                });
+
+                updatePosition();
+            };
+
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                if (onResize) onResize();
+            };
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+            return;
+    }
+
     let startX = e.clientX;
     let startY = e.clientY;
     const elementRect = image.getBoundingClientRect();

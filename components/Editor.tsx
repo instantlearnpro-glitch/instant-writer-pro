@@ -129,7 +129,15 @@ const Editor: React.FC<EditorProps> = ({
   const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
   const [qrModal, setQrModal] = useState<{ isOpen: boolean; url: string }>({ isOpen: false, url: '' });
   const [activeLink, setActiveLink] = useState<{ url: string; x: number; y: number; element: HTMLAnchorElement } | null>(null);
+  const [marqueeBox, setMarqueeBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const distributeDragRef = useRef<{ active: boolean; lastClient: number }>({ active: false, lastClient: 0 });
+  const marqueeRef = useRef<{ active: boolean; startX: number; startY: number; didDrag: boolean; suppressClick: boolean }>({
+      active: false,
+      startX: 0,
+      startY: 0,
+      didDrag: false,
+      suppressClick: false
+  });
   const [tableTocModal, setTableTocModal] = useState<{
       isOpen: boolean;
       tableId: string;
@@ -542,6 +550,58 @@ const Editor: React.FC<EditorProps> = ({
     };
   }, []);
 
+  const getMarqueeCandidates = useCallback(() => {
+    if (!contentRef.current) return [] as HTMLElement[];
+    const selector = [
+        'p',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'blockquote',
+        'li',
+        'div:not(.page):not(.editor-workspace)',
+        'span.mission-box',
+        'span.shape-circle',
+        'span.shape-pill',
+        'span.shape-speech',
+        'span.shape-cloud',
+        'span.shape-rectangle',
+        'table',
+        'img',
+        'hr',
+        '.floating-text',
+        '.writing-lines',
+        '.tracing-line',
+        'textarea'
+    ].join(', ');
+
+    const nestedContainers = [
+        '.floating-text',
+        '.writing-lines',
+        '.tracing-line',
+        '.mission-box',
+        '.shape-rectangle',
+        '.shape-circle',
+        '.shape-pill',
+        '.shape-speech',
+        '.shape-cloud'
+    ];
+
+    const elements = Array.from(contentRef.current.querySelectorAll(selector)) as HTMLElement[];
+    return elements.filter(el => {
+        if (el.classList.contains('page') || el.classList.contains('editor-workspace')) return false;
+        if (el.closest('table') && el.tagName !== 'TABLE') return false;
+        for (const selector of nestedContainers) {
+            const container = el.closest(selector);
+            if (container && container !== el) return false;
+        }
+        return true;
+    });
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
           const selection = window.getSelection();
@@ -950,6 +1010,10 @@ const Editor: React.FC<EditorProps> = ({
       if (!container) return;
 
       const handleClick = (e: MouseEvent) => {
+          if (marqueeRef.current.suppressClick) {
+              marqueeRef.current.suppressClick = false;
+              return;
+          }
           const target = e.target as HTMLElement;
 
           if (e.metaKey || e.ctrlKey) {
@@ -1466,6 +1530,82 @@ const Editor: React.FC<EditorProps> = ({
             contentEditable={!imageProperties.isCropping && !selectionMode?.active}
             suppressContentEditableWarning={true}
             onMouseDown={(e) => {
+                if (e.metaKey && e.button === 0 && !isTextLayerMode && !imageProperties.isCropping && !selectionMode?.active) {
+                    const container = containerRef.current;
+                    if (!container) return;
+                    marqueeRef.current.active = true;
+                    marqueeRef.current.startX = e.clientX;
+                    marqueeRef.current.startY = e.clientY;
+                    marqueeRef.current.didDrag = false;
+                    marqueeRef.current.suppressClick = false;
+
+                    const containerRect = container.getBoundingClientRect();
+
+                    const updateBox = (clientX: number, clientY: number) => {
+                        const left = Math.min(clientX, marqueeRef.current.startX) - containerRect.left + container.scrollLeft;
+                        const top = Math.min(clientY, marqueeRef.current.startY) - containerRect.top + container.scrollTop;
+                        const width = Math.abs(clientX - marqueeRef.current.startX);
+                        const height = Math.abs(clientY - marqueeRef.current.startY);
+                        setMarqueeBox({ x: left, y: top, width, height });
+                    };
+
+                    const handleMove = (ev: MouseEvent) => {
+                        if (!marqueeRef.current.active) return;
+                        const dx = Math.abs(ev.clientX - marqueeRef.current.startX);
+                        const dy = Math.abs(ev.clientY - marqueeRef.current.startY);
+                        if (!marqueeRef.current.didDrag && (dx > 4 || dy > 4)) {
+                            marqueeRef.current.didDrag = true;
+                            marqueeRef.current.suppressClick = true;
+                            document.body.style.userSelect = 'none';
+                        }
+                        if (marqueeRef.current.didDrag) {
+                            updateBox(ev.clientX, ev.clientY);
+                        }
+                    };
+
+                    const handleUp = (ev: MouseEvent) => {
+                        if (!marqueeRef.current.active) return;
+                        marqueeRef.current.active = false;
+                        window.removeEventListener('mousemove', handleMove);
+                        window.removeEventListener('mouseup', handleUp);
+                        document.body.style.userSelect = '';
+
+                        if (!marqueeRef.current.didDrag) {
+                            setMarqueeBox(null);
+                            return;
+                        }
+
+                        const left = Math.min(ev.clientX, marqueeRef.current.startX);
+                        const right = Math.max(ev.clientX, marqueeRef.current.startX);
+                        const top = Math.min(ev.clientY, marqueeRef.current.startY);
+                        const bottom = Math.max(ev.clientY, marqueeRef.current.startY);
+
+                        const selected = getMarqueeCandidates().filter(el => {
+                            const rect = el.getBoundingClientRect();
+                            return !(rect.right < left || rect.left > right || rect.bottom < top || rect.top > bottom);
+                        });
+
+                        if (selected.length > 0) {
+                            const existing = new Set(multiSelectedElements);
+                            selected.forEach(el => {
+                                if (!el.id) {
+                                    el.id = `multi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                                }
+                                if (!existing.has(el.id)) {
+                                    onToggleMultiSelect(el);
+                                }
+                            });
+                        }
+
+                        setMarqueeBox(null);
+                    };
+
+                    window.addEventListener('mousemove', handleMove);
+                    window.addEventListener('mouseup', handleUp);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
                 const target = e.target as HTMLElement;
                 const tocLink = target.closest('a[data-toc-link="true"]') as HTMLAnchorElement | null;
                 if (tocLink) {
@@ -1478,6 +1618,23 @@ const Editor: React.FC<EditorProps> = ({
             onDragOver={(e) => e.preventDefault()}
             onContextMenu={handleContextMenu}
         />
+
+        {marqueeBox && marqueeBox.width > 0 && marqueeBox.height > 0 && (
+            <div
+                style={{
+                    position: 'absolute',
+                    left: marqueeBox.x,
+                    top: marqueeBox.y,
+                    width: marqueeBox.width,
+                    height: marqueeBox.height,
+                    border: '1px dashed #8d55f1',
+                    background: 'rgba(141, 85, 241, 0.12)',
+                    boxShadow: '0 0 0 1px rgba(141, 85, 241, 0.2) inset',
+                    pointerEvents: 'none',
+                    zIndex: 50
+                }}
+            />
+        )}
 
         {distributeAdjustAxis && multiSelectedElements.length > 1 && (() => {
             const elements = multiSelectedElements
@@ -1556,6 +1713,7 @@ const Editor: React.FC<EditorProps> = ({
                 showSmartGuides={showSmartGuides}
                 onCropComplete={onCropComplete}
                 onCancelCrop={onCancelCrop}
+                multiSelectedElements={multiSelectedElements}
                 onResize={() => {
                     if (contentRef.current) {
                         reflowPages(contentRef.current);
@@ -1573,6 +1731,7 @@ const Editor: React.FC<EditorProps> = ({
                 showSmartGuides={showSmartGuides}
                 onCropComplete={() => {}}
                 onCancelCrop={() => {}}
+                multiSelectedElements={multiSelectedElements}
                 onResize={() => {
                     if (contentRef.current) {
                         reflowPages(contentRef.current);
