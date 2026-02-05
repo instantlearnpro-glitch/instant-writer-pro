@@ -56,6 +56,13 @@ type DraftEntry = {
   updatedAt: number;
 };
 
+type DraftStore = {
+  activeId: string | null;
+  drafts: DraftEntry[];
+  autosaveEnabled: boolean;
+  current?: DraftEntry | null;
+};
+
 const MAX_DRAFTS = 3;
 
 type StyleClipboard =
@@ -452,11 +459,15 @@ const App: React.FC = () => {
 
   // --- HISTORY MANAGEMENT ---
 
-  const [draftStore, setDraftStore] = useState<{ activeId: string | null; drafts: DraftEntry[]; autosaveEnabled: boolean }>(
-      { activeId: null, drafts: [], autosaveEnabled: false }
-  );
+  const [draftStore, setDraftStore] = useState<DraftStore>({
+      activeId: null,
+      drafts: [],
+      autosaveEnabled: false,
+      current: null
+  });
   const draftStoreRef = useRef(draftStore);
   const latestDocStateRef = useRef(docState);
+  const sessionSnapshotRef = useRef<number | null>(null);
 
   useEffect(() => {
       latestDocStateRef.current = docState;
@@ -466,17 +477,18 @@ const App: React.FC = () => {
       draftStoreRef.current = draftStore;
   }, [draftStore]);
 
-  const parseDraftStore = (raw: string | null) => {
-      if (!raw) return { activeId: null, drafts: [], autosaveEnabled: false };
+  const parseDraftStore = (raw: string | null): DraftStore => {
+      if (!raw) return { activeId: null, drafts: [], autosaveEnabled: false, current: null };
       try {
-          const parsed = JSON.parse(raw) as { activeId?: string | null; drafts?: DraftEntry[]; autosaveEnabled?: boolean };
+          const parsed = JSON.parse(raw) as { activeId?: string | null; drafts?: DraftEntry[]; autosaveEnabled?: boolean; current?: DraftEntry | null };
           return {
               activeId: parsed.activeId || null,
               drafts: Array.isArray(parsed.drafts) ? parsed.drafts : [],
-              autosaveEnabled: !!parsed.autosaveEnabled
+              autosaveEnabled: !!parsed.autosaveEnabled,
+              current: parsed.current || null
           };
       } catch {
-          return { activeId: null, drafts: [], autosaveEnabled: false };
+          return { activeId: null, drafts: [], autosaveEnabled: false, current: null };
       }
   };
 
@@ -493,7 +505,7 @@ const App: React.FC = () => {
       return parseDraftStore(raw);
   }, [isTauri]);
 
-  const persistDraftStore = useCallback(async (store: { activeId: string | null; drafts: DraftEntry[]; autosaveEnabled: boolean }) => {
+  const persistDraftStore = useCallback(async (store: DraftStore) => {
       const payload = JSON.stringify(store);
       if (isTauri) {
           await writeTextFile(AUTOSAVE_PATH_SAVED, payload, { baseDir: BaseDirectory.AppData });
@@ -502,11 +514,30 @@ const App: React.FC = () => {
       }
   }, [isTauri]);
 
-  const updateDraftStore = useCallback((updater: (prev: { activeId: string | null; drafts: DraftEntry[]; autosaveEnabled: boolean }) => { activeId: string | null; drafts: DraftEntry[]; autosaveEnabled: boolean }) => {
+  const updateDraftStore = useCallback((updater: (prev: DraftStore) => DraftStore) => {
       const next = updater(draftStoreRef.current);
       draftStoreRef.current = next;
       setDraftStore(next);
       persistDraftStore(next);
+  }, [persistDraftStore]);
+
+  const scheduleSessionSnapshot = useCallback((state: DocumentState) => {
+      if (sessionSnapshotRef.current) {
+          window.clearTimeout(sessionSnapshotRef.current);
+      }
+      sessionSnapshotRef.current = window.setTimeout(() => {
+          const prev = draftStoreRef.current;
+          const snapshot: DraftEntry = {
+              id: prev.activeId || `session-${Date.now()}`,
+              fileName: state.fileName,
+              htmlContent: state.htmlContent,
+              cssContent: state.cssContent,
+              updatedAt: Date.now()
+          };
+          const next = { ...prev, current: snapshot };
+          draftStoreRef.current = next;
+          persistDraftStore(next);
+      }, 1200);
   }, [persistDraftStore]);
 
   const saveDraft = useCallback(async (name?: string, options?: { silent?: boolean; state?: DocumentState }) => {
@@ -553,7 +584,7 @@ const App: React.FC = () => {
           }
 
           lastAutosaveRef.current = serializeDraft(state);
-          return { ...prev, drafts, activeId };
+          return { ...prev, drafts, activeId, current: { ...entry } };
       });
   }, [updateDraftStore]);
 
@@ -574,7 +605,7 @@ const App: React.FC = () => {
   }, [docState, updateDraftStore]);
 
   const clearDraftMemory = useCallback(async () => {
-      updateDraftStore(() => ({ activeId: null, drafts: [], autosaveEnabled: false }));
+      updateDraftStore(() => ({ activeId: null, drafts: [], autosaveEnabled: false, current: null }));
       const nextState = { ...docState, htmlContent: DEFAULT_HTML, cssContent: DEFAULT_CSS, fileName: 'untitled_mission.html' };
       setDocState(nextState);
       setHistory([nextState]);
@@ -588,7 +619,8 @@ const App: React.FC = () => {
               ...prev,
               activeId: null,
               autosaveEnabled: false,
-              drafts: prev.drafts.filter(d => d.id !== prev.activeId)
+              drafts: prev.drafts.filter(d => d.id !== prev.activeId),
+              current: null
           };
       });
   }, [updateDraftStore]);
@@ -608,6 +640,7 @@ const App: React.FC = () => {
   // Unified function to update state and manage history
   const updateDocState = (newState: DocumentState, saveToHistory: boolean = false) => {
       setDocState(newState);
+      scheduleSessionSnapshot(newState);
 
       if (saveToHistory) {
           // Clear any pending debounce since we are forcing a save
@@ -635,8 +668,23 @@ const App: React.FC = () => {
               if (cancelled) return;
               setDraftStore(store);
               draftStoreRef.current = store;
-              if (store.activeId) {
-                  const draft = store.drafts.find(d => d.id === store.activeId);
+              let nextStore = store;
+              if (!store.activeId && store.current) {
+                  const recoveredId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                  const recovered: DraftEntry = {
+                      ...store.current,
+                      id: recoveredId,
+                      fileName: store.current.fileName || 'Recovered Draft',
+                      updatedAt: Date.now()
+                  };
+                  const mergedDrafts = [recovered, ...store.drafts]
+                      .sort((a, b) => b.updatedAt - a.updatedAt)
+                      .slice(0, MAX_DRAFTS);
+                  nextStore = { ...store, drafts: mergedDrafts, activeId: recoveredId };
+              }
+
+              if (nextStore.activeId) {
+                  const draft = nextStore.drafts.find(d => d.id === nextStore.activeId) || nextStore.current;
                   if (draft) {
                       const nextState = {
                           ...docState,
@@ -650,6 +698,10 @@ const App: React.FC = () => {
                       lastAutosaveRef.current = serializeDraft(nextState);
                   }
               }
+
+              setDraftStore(nextStore);
+              draftStoreRef.current = nextStore;
+              persistDraftStore(nextStore);
           } catch {
               // no autosave yet
           }
@@ -661,6 +713,9 @@ const App: React.FC = () => {
           cancelled = true;
           if (autosaveTimeoutRef.current) {
               window.clearTimeout(autosaveTimeoutRef.current);
+          }
+          if (sessionSnapshotRef.current) {
+              window.clearTimeout(sessionSnapshotRef.current);
           }
       };
   }, [isTauri, readDraftStore]);
@@ -722,6 +777,7 @@ const App: React.FC = () => {
       }
       const newState = { ...docState, htmlContent: html };
       setDocState(newState); // Immediate update for UI
+      scheduleSessionSnapshot(newState);
 
       // Debounce history save
       if (debounceTimeoutRef.current) {

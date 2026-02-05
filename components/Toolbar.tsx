@@ -126,6 +126,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const [fontSearch, setFontSearch] = useState('');
   const [fontInput, setFontInput] = useState('');
   const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
+  const [letterSpacingInput, setLetterSpacingInput] = useState('0');
+  const [lineHeightInput, setLineHeightInput] = useState('1');
   const styleMenuRef = useRef<HTMLDivElement>(null);
   const lineHeightMenuRef = useRef<HTMLDivElement>(null);
   const textCaseMenuRef = useRef<HTMLDivElement>(null);
@@ -140,6 +142,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const listMenuAnchorRef = useRef<HTMLElement | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const settingsMenuAnchorRef = useRef<HTMLElement | null>(null);
+  const letterSpacingDebounceRef = useRef<number | null>(null);
+  const lineHeightDebounceRef = useRef<number | null>(null);
 
   const ButtonClass = (isActive: boolean, disabled?: boolean) => 
     `p-2.5 rounded transition-colors cursor-pointer ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-[#efe5ff] hover:text-[#7539d3] ' + (isActive ? 'bg-[#efe5ff] text-[#7539d3]' : 'text-gray-700')}`;
@@ -175,6 +179,41 @@ const Toolbar: React.FC<ToolbarProps> = ({
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+      const raw = selectionState.letterSpacing || '0';
+      const parsed = parseFloat(raw);
+      if (!isNaN(parsed)) {
+          setLetterSpacingInput(String(parsed));
+      } else if (raw === 'normal') {
+          setLetterSpacingInput('0');
+      }
+  }, [selectionState.letterSpacing]);
+
+  useEffect(() => {
+      const fontSizePx = parseFloat(selectionState.fontSize || '16');
+      const raw = selectionState.lineHeight || 'normal';
+      let ratio = 1;
+
+      if (raw === 'normal') {
+          ratio = 1;
+      } else if (raw.includes('calc')) {
+          const match = raw.match(/calc\(\s*1em\s*\+\s*([\-\d.]+)px\s*\)/);
+          if (match && !isNaN(fontSizePx)) {
+              ratio = 1 + parseFloat(match[1]) / fontSizePx;
+          }
+      } else {
+          const numeric = parseFloat(raw);
+          if (!isNaN(numeric)) {
+              ratio = raw.includes('px') && !isNaN(fontSizePx) ? numeric / fontSizePx : numeric;
+          }
+      }
+
+      if (!isNaN(ratio)) {
+          const rounded = Math.round(ratio * 100) / 100;
+          setLineHeightInput(String(rounded));
+      }
+  }, [selectionState.lineHeight, selectionState.fontSize]);
 
   const getMenuStyleBelow = (ref: React.RefObject<HTMLElement>, offsetY: number = 6): React.CSSProperties => {
       const rect = ref.current?.getBoundingClientRect();
@@ -689,18 +728,37 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 style={getMenuStyleBelow(lineHeightAnchorRef, 8)}
                             >
                                 <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Line Height</div>
-                                {[1.0, 1.15, 1.5, 2.0, 2.5, 3.0].map(val => (
-                                    <button 
-                                        key={val}
-                                        onClick={() => {
-                                            onFormat('lineHeight', val.toString());
-                                        }} 
-                                        className="hover:bg-brand-50 text-xs p-2 rounded text-left flex justify-between items-center"
-                                    >
-                                        {val === 1.0 ? 'Single' : val.toFixed(2)}
-                                        {selectionState.lineHeight === val.toString() && <div className="w-1.5 h-1.5 bg-brand-600 rounded-full"></div>}
-                                    </button>
-                                ))}
+                                <div className="px-2 pb-2">
+                                    <input
+                                        type="number"
+                                        step="0.15"
+                                        min="0.5"
+                                        max="3"
+                                        value={lineHeightInput}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setLineHeightInput(val);
+                                            if (val === '') return;
+                                            const num = parseFloat(val);
+                                            if (isNaN(num)) return;
+                                            if (lineHeightDebounceRef.current) {
+                                                window.clearTimeout(lineHeightDebounceRef.current);
+                                            }
+                                            lineHeightDebounceRef.current = window.setTimeout(() => {
+                                                onFormat('lineHeight', num.toString());
+                                            }, 150);
+                                        }}
+                                        onBlur={() => {
+                                            const num = parseFloat(lineHeightInput);
+                                            if (!isNaN(num)) {
+                                                onFormat('lineHeight', num.toString());
+                                            }
+                                        }}
+                                        className="w-full h-7 border border-gray-200 rounded px-2 text-xs text-gray-700"
+                                        placeholder="1.15"
+                                    />
+                                    <div className="text-[10px] text-gray-400 mt-1">Tip: 1.00, 1.15, 1.30… (Word style)</div>
+                                </div>
                                 <div className="h-px bg-gray-100 my-1"></div>
                                 <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Letter Spacing</div>
                                 <div className="px-2 pb-2">
@@ -709,13 +767,25 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                         step="0.1"
                                         min="-5"
                                         max="10"
-                                        value={parseFloat(selectionState.letterSpacing || '0') || 0}
+                                        value={letterSpacingInput}
                                         onChange={(e) => {
                                             const val = e.target.value;
+                                            setLetterSpacingInput(val);
                                             if (val === '') return;
                                             const num = parseFloat(val);
                                             if (isNaN(num)) return;
-                                            onFormat('letterSpacing', `${num}px`);
+                                            if (letterSpacingDebounceRef.current) {
+                                                window.clearTimeout(letterSpacingDebounceRef.current);
+                                            }
+                                            letterSpacingDebounceRef.current = window.setTimeout(() => {
+                                                onFormat('letterSpacing', `${num}px`);
+                                            }, 150);
+                                        }}
+                                        onBlur={() => {
+                                            const num = parseFloat(letterSpacingInput);
+                                            if (!isNaN(num)) {
+                                                onFormat('letterSpacing', `${num}px`);
+                                            }
                                         }}
                                         className="w-full h-7 border border-gray-200 rounded px-2 text-xs text-gray-700"
                                         placeholder="px"
