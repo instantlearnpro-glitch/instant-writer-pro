@@ -1260,6 +1260,17 @@ const Editor: React.FC<EditorProps> = ({
 
           const isPageSurface = target.classList.contains('page') || target.classList.contains('editor-workspace');
           if (isPageSurface) {
+              if (activeBlock) {
+                  activeBlock.removeAttribute('data-selected');
+                  setActiveBlock(null);
+              }
+              const selectedElements = contentRef.current?.querySelectorAll('[data-selected="true"]');
+              selectedElements?.forEach(el => el.removeAttribute('data-selected'));
+              onImageSelect(null);
+              onTextLayerSelect(null);
+              onHRSelect(null);
+              setActiveLink(null);
+
               const page = target.classList.contains('page') ? target : target.closest('.page');
               if (page) {
                   const doc = page.ownerDocument;
