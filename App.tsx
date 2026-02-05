@@ -1332,7 +1332,10 @@ const App: React.FC = () => {
             if (applyStyleToMultiSelection({ 'line-height': value })) return;
         }
         if (command === 'letterSpacing' && value) {
-            if (applyStyleToMultiSelection({ 'letter-spacing': value })) return;
+            if (applyStyleToMultiSelection({ 'letter-spacing': value })) {
+                setSelectionState(prev => ({ ...prev, letterSpacing: value || 'normal' }));
+                return;
+            }
         }
         if (command === 'textTransform' && value) {
             if (applyStyleToMultiSelection({ 'text-transform': value })) return;
@@ -1568,9 +1571,14 @@ const App: React.FC = () => {
     }
 
     if (command === 'letterSpacing') {
+        restoreSelection();
         const selection = window.getSelection();
+        const workspace = document.querySelector('.editor-workspace');
         if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
             const range = selection.getRangeAt(0);
+            if (workspace && !workspace.contains(range.commonAncestorContainer)) {
+                return;
+            }
             const span = document.createElement('span');
             span.style.letterSpacing = value || 'normal';
             span.appendChild(range.extractContents());
@@ -1581,7 +1589,6 @@ const App: React.FC = () => {
             newRange.selectNodeContents(span);
             selection.addRange(newRange);
 
-            const workspace = document.querySelector('.editor-workspace');
             if (workspace) {
                 updateDocStatePreserveScroll(workspace.innerHTML);
             }
@@ -1611,7 +1618,6 @@ const App: React.FC = () => {
         if (targetBlock) {
             targetBlock.style.letterSpacing = value || 'normal';
             setSelectionState(prev => ({ ...prev, letterSpacing: value || 'normal' }));
-            const workspace = document.querySelector('.editor-workspace');
             if (workspace) {
                 updateDocStatePreserveScroll(workspace.innerHTML);
             }
