@@ -89,7 +89,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
       <div className="fixed inset-0 z-[990]" onClick={onClose} />
       <div
         ref={menuRef}
-        className="fixed z-[1000] bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[200px] pointer-events-auto"
+        className="fixed z-[1000] bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[170px] pointer-events-auto"
         style={{ left: position.x, top: position.y }}
         onMouseDown={(e) => {
           e.stopPropagation();
@@ -167,50 +167,50 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
         )}
 
         {(onDistributeHoriz || onDistributeVert || onAlignLeft || onAlignCenter || onAlignRight || onAlignTop || onAlignMiddle || onAlignBottom) && (
-          <div className="border-t border-gray-100 px-1.5 py-1.5">
-            <div className="grid grid-cols-3 gap-1">
+          <div className="border-t border-gray-100 px-2 py-2">
+            <div className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Align</div>
+            <div className="grid grid-cols-3 gap-1 bg-gray-50/60 rounded-md p-1">
               {onAlignLeft && (
-                <button onClick={() => { onAlignLeft(); onClose(); }} className="p-1 rounded hover:bg-brand-50" title="Align Left">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h12M4 12h8M4 18h16" /></svg>
+                <button onClick={() => { onAlignLeft(); onClose(); }} className="w-7 h-7 rounded hover:bg-white border border-transparent hover:border-brand-200" title="Align Left">
+                  <svg className="w-3.5 h-3.5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h12M4 12h8M4 18h16" /></svg>
                 </button>
               )}
               {onAlignCenter && (
-                <button onClick={() => { onAlignCenter(); onClose(); }} className="p-1 rounded hover:bg-brand-50" title="Align Center">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6h12M4 12h16M6 18h12" /></svg>
+                <button onClick={() => { onAlignCenter(); onClose(); }} className="w-7 h-7 rounded hover:bg-white border border-transparent hover:border-brand-200" title="Align Center">
+                  <svg className="w-3.5 h-3.5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6h12M4 12h16M6 18h12" /></svg>
                 </button>
               )}
               {onAlignRight && (
-                <button onClick={() => { onAlignRight(); onClose(); }} className="p-1 rounded hover:bg-brand-50" title="Align Right">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M12 12h8M4 18h16" /></svg>
+                <button onClick={() => { onAlignRight(); onClose(); }} className="w-7 h-7 rounded hover:bg-white border border-transparent hover:border-brand-200" title="Align Right">
+                  <svg className="w-3.5 h-3.5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M12 12h8M4 18h16" /></svg>
                 </button>
               )}
-            </div>
-            <div className="grid grid-cols-3 gap-1 mt-1">
               {onAlignTop && (
-                <button onClick={() => { onAlignTop(); onClose(); }} className="p-1 rounded hover:bg-brand-50" title="Align Top">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6h12M8 10v8M12 10v8M16 10v8" /></svg>
+                <button onClick={() => { onAlignTop(); onClose(); }} className="w-7 h-7 rounded hover:bg-white border border-transparent hover:border-brand-200" title="Align Top">
+                  <svg className="w-3.5 h-3.5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6h12M8 10v8M12 10v8M16 10v8" /></svg>
                 </button>
               )}
               {onAlignMiddle && (
-                <button onClick={() => { onAlignMiddle(); onClose(); }} className="p-1 rounded hover:bg-brand-50" title="Align Middle">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12h12M8 7v10M12 7v10M16 7v10" /></svg>
+                <button onClick={() => { onAlignMiddle(); onClose(); }} className="w-7 h-7 rounded hover:bg-white border border-transparent hover:border-brand-200" title="Align Middle">
+                  <svg className="w-3.5 h-3.5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12h12M8 7v10M12 7v10M16 7v10" /></svg>
                 </button>
               )}
               {onAlignBottom && (
-                <button onClick={() => { onAlignBottom(); onClose(); }} className="p-1 rounded hover:bg-brand-50" title="Align Bottom">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18h12M8 6v8M12 6v8M16 6v8" /></svg>
+                <button onClick={() => { onAlignBottom(); onClose(); }} className="w-7 h-7 rounded hover:bg-white border border-transparent hover:border-brand-200" title="Align Bottom">
+                  <svg className="w-3.5 h-3.5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18h12M8 6v8M12 6v8M16 6v8" /></svg>
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-1 mt-1">
+            <div className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide mt-2 mb-1">Distribute</div>
+            <div className="grid grid-cols-2 gap-1 bg-gray-50/60 rounded-md p-1">
               {onDistributeHoriz && (
-                <button onClick={() => { onDistributeHoriz(); onClose(); }} className="p-1.5 h-7 rounded hover:bg-brand-50 flex items-center justify-center" title="Distribute Horiz">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16M7 8v8M17 8v8" /></svg>
+                <button onClick={() => { onDistributeHoriz(); onClose(); }} className="w-7 h-7 rounded hover:bg-white border border-transparent hover:border-brand-200" title="Distribute Horiz">
+                  <svg className="w-3.5 h-3.5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16M7 8v8M17 8v8" /></svg>
                 </button>
               )}
               {onDistributeVert && (
-                <button onClick={() => { onDistributeVert(); onClose(); }} className="p-1.5 h-7 rounded hover:bg-brand-50 flex items-center justify-center" title="Distribute Vert">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16M8 7h8M8 17h8" /></svg>
+                <button onClick={() => { onDistributeVert(); onClose(); }} className="w-7 h-7 rounded hover:bg-white border border-transparent hover:border-brand-200" title="Distribute Vert">
+                  <svg className="w-3.5 h-3.5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16M8 7h8M8 17h8" /></svg>
                 </button>
               )}
             </div>
