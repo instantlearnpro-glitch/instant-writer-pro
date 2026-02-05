@@ -313,7 +313,8 @@ const App: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState<HTMLImageElement | null>(null);
   const [selectedTextLayer, setSelectedTextLayer] = useState<HTMLElement | null>(null);
   const [isTextLayerMode, setIsTextLayerMode] = useState(false);
-  const [multiSelectedElements, setMultiSelectedElements] = useState<HTMLElement[]>([]);
+  const [multiSelectedElements, setMultiSelectedElements] = useState<string[]>([]);
+  const [distributeAdjustAxis, setDistributeAdjustAxis] = useState<'x' | 'y' | null>(null);
 
   useEffect(() => {
       document.body.classList.remove('text-layer-mode');
@@ -955,8 +956,12 @@ const App: React.FC = () => {
   const handleToggleMultiSelect = (el: HTMLElement | null) => {
       if (!el) return;
       setMultiSelectedElements(prev => {
-          const exists = prev.includes(el);
-          const next = exists ? prev.filter(item => item !== el) : [...prev, el];
+          if (!el.id) {
+              el.id = `multi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          }
+          const id = el.id;
+          const exists = prev.includes(id);
+          const next = exists ? prev.filter(item => item !== id) : [...prev, id];
           if (exists) {
               el.removeAttribute('data-multi-selected');
           } else {
@@ -968,9 +973,243 @@ const App: React.FC = () => {
 
   const handleClearMultiSelect = () => {
       setMultiSelectedElements(prev => {
-          prev.forEach(el => el.removeAttribute('data-multi-selected'));
+          prev.forEach(id => {
+              const el = document.getElementById(id);
+              el?.removeAttribute('data-multi-selected');
+          });
           return [];
       });
+  };
+
+  const distributeMultiSelection = (axis: 'x' | 'y', delta: number = 0) => {
+      const fallbackSelected = Array.from(document.querySelectorAll('.editor-workspace [data-multi-selected="true"]')) as HTMLElement[];
+      const selectedIds = multiSelectedElements.length > 0
+          ? multiSelectedElements
+          : fallbackSelected.map(el => el.id).filter(Boolean);
+      if ((selectedIds.length || fallbackSelected.length) < 2) return;
+
+      const getRelativeToPage = (el: HTMLElement, page: HTMLElement) => {
+          const pageRect = page.getBoundingClientRect();
+          const scaleX = pageRect.width / page.offsetWidth || 1;
+          const scaleY = pageRect.height / page.offsetHeight || 1;
+          const rect = el.getBoundingClientRect();
+          return {
+              x: (rect.left - pageRect.left) / scaleX,
+              y: (rect.top - pageRect.top) / scaleY,
+              w: rect.width / scaleX,
+              h: rect.height / scaleY
+          };
+      };
+
+      const grouped = new Map<HTMLElement, HTMLElement[]>();
+      let elements = selectedIds.length > 0
+          ? selectedIds.map(id => document.getElementById(id)).filter(Boolean) as HTMLElement[]
+          : fallbackSelected;
+      if (elements.length === 0) {
+          elements = fallbackSelected;
+      }
+
+      elements.forEach(el => {
+          if (!el) return;
+          const page = el.closest('.page') as HTMLElement | null;
+          if (!page) return;
+          const list = grouped.get(page) || [];
+          list.push(el);
+          grouped.set(page, list);
+      });
+
+      grouped.forEach((elements, page) => {
+          if (elements.length < 2) return;
+
+          const allFloating = elements.every(el => el.classList.contains('floating-text'));
+          if (allFloating) {
+              const items = elements.map(el => {
+                  const left = parseFloat(el.style.left) || el.offsetLeft;
+                  const top = parseFloat(el.style.top) || el.offsetTop;
+                  const width = el.offsetWidth;
+                  const height = el.offsetHeight;
+                  return {
+                      el,
+                      left,
+                      top,
+                      width,
+                      height,
+                      centerX: left + width / 2,
+                      centerY: top + height / 2
+                  };
+              });
+
+              const sorted = items.sort((a, b) => axis === 'x' ? a.centerX - b.centerX : a.centerY - b.centerY);
+              const first = sorted[0];
+              const last = sorted[sorted.length - 1];
+              const span = axis === 'x'
+                  ? (last.centerX - first.centerX)
+                  : (last.centerY - first.centerY);
+              const gap = span / (sorted.length - 1) + delta;
+
+              let cursorCenter = axis === 'x' ? first.centerX : first.centerY;
+              sorted.forEach((item, index) => {
+                  if (index === 0) {
+                      cursorCenter = axis === 'x' ? item.centerX : item.centerY;
+                  }
+                  if (axis === 'x') {
+                      item.el.style.left = `${cursorCenter - item.width / 2}px`;
+                      item.el.style.top = `${item.top}px`;
+                      cursorCenter += gap;
+                  } else {
+                      item.el.style.top = `${cursorCenter - item.height / 2}px`;
+                      item.el.style.left = `${item.left}px`;
+                      cursorCenter += gap;
+                  }
+              });
+
+              return;
+          }
+          const items = elements.map(el => {
+              const pos = getRelativeToPage(el, page);
+              return {
+                  el,
+                  left: pos.x,
+                  top: pos.y,
+                  width: pos.w,
+                  height: pos.h,
+                  centerX: pos.x + pos.w / 2,
+                  centerY: pos.y + pos.h / 2
+              };
+          });
+
+          const sorted = items.sort((a, b) => axis === 'x' ? a.centerX - b.centerX : a.centerY - b.centerY);
+          const first = sorted[0];
+          const last = sorted[sorted.length - 1];
+          const span = axis === 'x'
+              ? (last.centerX - first.centerX)
+              : (last.centerY - first.centerY);
+          const gap = span / (sorted.length - 1) + delta;
+
+          let cursorCenter = axis === 'x' ? first.centerX : first.centerY;
+          sorted.forEach((item, index) => {
+              if (index === 0) {
+                  cursorCenter = axis === 'x' ? item.centerX : item.centerY;
+              }
+
+              if (item.el.parentElement !== page) {
+                  page.appendChild(item.el);
+              }
+
+              item.el.style.position = 'absolute';
+              item.el.style.margin = '0';
+              item.el.style.float = 'none';
+              item.el.style.display = 'inline-block';
+              if (axis === 'x') {
+                  item.el.style.left = `${cursorCenter - item.width / 2}px`;
+                  item.el.style.top = `${item.top}px`;
+                  cursorCenter += gap;
+              } else {
+                  item.el.style.top = `${cursorCenter - item.height / 2}px`;
+                  item.el.style.left = `${item.left}px`;
+                  cursorCenter += gap;
+              }
+          });
+      });
+
+      const workspace = document.querySelector('.editor-workspace');
+      if (workspace) {
+          updateDocStatePreserveScroll(workspace.innerHTML);
+      }
+  };
+
+  const startDistributeAdjust = (axis: 'x' | 'y') => {
+      distributeMultiSelection(axis, 0);
+      setDistributeAdjustAxis(axis);
+  };
+
+  const endDistributeAdjust = () => {
+      setDistributeAdjustAxis(null);
+  };
+
+  const alignMultiSelection = (mode: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+      const fallbackSelected = Array.from(document.querySelectorAll('.editor-workspace [data-multi-selected="true"]')) as HTMLElement[];
+      const selectedIds = multiSelectedElements.length > 0
+          ? multiSelectedElements
+          : fallbackSelected.map(el => el.id).filter(Boolean);
+      if ((selectedIds.length || fallbackSelected.length) < 2) return;
+
+      const elements = selectedIds.length > 0
+          ? selectedIds.map(id => document.getElementById(id)).filter(Boolean) as HTMLElement[]
+          : fallbackSelected;
+
+      const grouped = new Map<HTMLElement, HTMLElement[]>();
+      elements.forEach(el => {
+          const page = el.closest('.page') as HTMLElement | null;
+          if (!page) return;
+          const list = grouped.get(page) || [];
+          list.push(el);
+          grouped.set(page, list);
+      });
+
+      grouped.forEach((elements, page) => {
+          if (elements.length < 2) return;
+          const pageRect = page.getBoundingClientRect();
+          const scaleX = pageRect.width / page.offsetWidth || 1;
+          const scaleY = pageRect.height / page.offsetHeight || 1;
+
+          const items = elements.map(el => {
+              const rect = el.getBoundingClientRect();
+              const x = (rect.left - pageRect.left) / scaleX;
+              const y = (rect.top - pageRect.top) / scaleY;
+              const w = rect.width / scaleX;
+              const h = rect.height / scaleY;
+              return {
+                  el,
+                  left: x,
+                  top: y,
+                  width: w,
+                  height: h,
+                  centerX: x + w / 2,
+                  centerY: y + h / 2,
+                  right: x + w,
+                  bottom: y + h
+              };
+          });
+
+          const minLeft = Math.min(...items.map(i => i.left));
+          const maxRight = Math.max(...items.map(i => i.right));
+          const minTop = Math.min(...items.map(i => i.top));
+          const maxBottom = Math.max(...items.map(i => i.bottom));
+          const ref = items[0];
+
+          items.forEach(item => {
+              item.el.style.position = 'absolute';
+              item.el.style.margin = '0';
+              item.el.style.float = 'none';
+              item.el.style.display = 'inline-block';
+
+              if (mode === 'left') {
+                  item.el.style.left = `${minLeft}px`;
+                  item.el.style.top = `${item.top}px`;
+              } else if (mode === 'center') {
+                  item.el.style.left = `${ref.centerX - item.width / 2}px`;
+                  item.el.style.top = `${item.top}px`;
+              } else if (mode === 'right') {
+                  item.el.style.left = `${maxRight - item.width}px`;
+                  item.el.style.top = `${item.top}px`;
+              } else if (mode === 'top') {
+                  item.el.style.top = `${minTop}px`;
+                  item.el.style.left = `${item.left}px`;
+              } else if (mode === 'middle') {
+                  item.el.style.top = `${ref.centerY - item.height / 2}px`;
+                  item.el.style.left = `${item.left}px`;
+              } else if (mode === 'bottom') {
+                  item.el.style.top = `${maxBottom - item.height}px`;
+                  item.el.style.left = `${item.left}px`;
+              }
+          });
+      });
+
+      const workspace = document.querySelector('.editor-workspace');
+      if (workspace) {
+          updateDocStatePreserveScroll(workspace.innerHTML);
+      }
   };
 
   const handleFooterSelect = (footer: HTMLElement | null) => {
@@ -1033,7 +1272,9 @@ const App: React.FC = () => {
 
   const applyStyleToMultiSelection = (styles: Record<string, string>) => {
       if (multiSelectedElements.length === 0) return false;
-      multiSelectedElements.forEach(el => {
+      multiSelectedElements.forEach(id => {
+          const el = document.getElementById(id);
+          if (!el) return;
           Object.entries(styles).forEach(([key, val]) => {
               el.style.setProperty(key, val, 'important');
           });
@@ -1070,7 +1311,9 @@ const App: React.FC = () => {
             const sizeValue = value || '16';
             const sizePx = sizeValue.includes('px') ? sizeValue : `${sizeValue}px`;
             const textTargets = multiSelectedElements
-                .map(el => el.closest('.floating-text, .writing-lines, textarea.writing-lines, p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)') as HTMLElement | null)
+                .map(id => document.getElementById(id))
+                .filter(Boolean)
+                .map(el => (el as HTMLElement).closest('.floating-text, .writing-lines, textarea.writing-lines, p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)') as HTMLElement | null)
                 .filter(Boolean) as HTMLElement[];
             if (textTargets.length > 0) {
                 textTargets.forEach(el => el.style.setProperty('font-size', sizePx, 'important'));
@@ -3223,6 +3466,11 @@ ${contentHtml}
                 onToggleMultiSelect={handleToggleMultiSelect}
                 onClearMultiSelect={handleClearMultiSelect}
                 multiSelectedElements={multiSelectedElements}
+                onDistributeMultiSelection={distributeMultiSelection}
+                onAlignMultiSelection={alignMultiSelection}
+                distributeAdjustAxis={distributeAdjustAxis}
+                onStartDistributeAdjust={startDistributeAdjust}
+                onEndDistributeAdjust={endDistributeAdjust}
             />
             <ZoomControls
                 zoom={zoom}

@@ -539,6 +539,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                 zIndex: 50,
                 pointerEvents: 'none'
             }}
+            data-overlay="true"
         >
             <div className="absolute inset-0 bg-black/60 pointer-events-auto"></div>
             
@@ -583,15 +584,16 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   }
 
   return (
-    <div 
-        style={{ 
-            position: 'absolute', 
-            top: rect.top, left: rect.left, width: rect.width, height: rect.height,
-            pointerEvents: 'none', 
-            border: '1px solid #8d55f1',
-            zIndex: 40
-        }}
-    >
+        <div 
+            style={{ 
+                position: 'absolute', 
+                top: rect.top, left: rect.left, width: rect.width, height: rect.height,
+                pointerEvents: 'none', 
+                border: '1px solid #8d55f1',
+                zIndex: 40
+            }}
+            data-overlay="true"
+        >
         <div 
             style={{
                 position: 'absolute',

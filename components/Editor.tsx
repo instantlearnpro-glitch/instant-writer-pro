@@ -37,7 +37,12 @@ interface EditorProps {
   isTextLayerMode: boolean;
   onToggleMultiSelect: (el: HTMLElement | null) => void;
   onClearMultiSelect: () => void;
-  multiSelectedElements: HTMLElement[];
+  multiSelectedElements: string[];
+  onDistributeMultiSelection: (axis: 'x' | 'y', delta?: number) => void;
+  onAlignMultiSelection: (mode: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
+  distributeAdjustAxis: 'x' | 'y' | null;
+  onStartDistributeAdjust: (axis: 'x' | 'y') => void;
+  onEndDistributeAdjust: () => void;
   showMarginGuides: boolean;
   showSmartGuides: boolean;
   pageMargins: { top: number, bottom: number, left: number, right: number };
@@ -110,6 +115,11 @@ const Editor: React.FC<EditorProps> = ({
   onToggleMultiSelect,
   onClearMultiSelect,
   multiSelectedElements,
+  onDistributeMultiSelection = (_axis: 'x' | 'y', _delta?: number) => {},
+  onAlignMultiSelection = (_mode: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {},
+  distributeAdjustAxis = null,
+  onStartDistributeAdjust = (_axis: 'x' | 'y') => {},
+  onEndDistributeAdjust = () => {},
   zoom,
   viewMode
 }) => {
@@ -119,12 +129,52 @@ const Editor: React.FC<EditorProps> = ({
   const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
   const [qrModal, setQrModal] = useState<{ isOpen: boolean; url: string }>({ isOpen: false, url: '' });
   const [activeLink, setActiveLink] = useState<{ url: string; x: number; y: number; element: HTMLAnchorElement } | null>(null);
+  const distributeDragRef = useRef<{ active: boolean; lastClient: number }>({ active: false, lastClient: 0 });
   const [tableTocModal, setTableTocModal] = useState<{
       isOpen: boolean;
       tableId: string;
       rows: { index: number; label: string; selectedId: string }[];
       anchors: { id: string; label: string; page: number }[];
   }>({ isOpen: false, tableId: '', rows: [], anchors: [] });
+
+  const safeDistribute = (axis: 'x' | 'y', delta: number = 0) => {
+      if (typeof onDistributeMultiSelection === 'function') {
+          onDistributeMultiSelection(axis, delta);
+      }
+  };
+
+  const startDistributeDrag = (e: React.MouseEvent) => {
+      if (!distributeAdjustAxis) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const startClient = distributeAdjustAxis === 'x' ? e.clientX : e.clientY;
+      distributeDragRef.current = { active: true, lastClient: startClient };
+
+      const onMove = (ev: MouseEvent) => {
+          if (!distributeDragRef.current.active) return;
+          const current = distributeAdjustAxis === 'x' ? ev.clientX : ev.clientY;
+          const delta = current - distributeDragRef.current.lastClient;
+          if (delta !== 0) {
+              onDistributeMultiSelection(distributeAdjustAxis, delta);
+              distributeDragRef.current.lastClient = current;
+          }
+      };
+
+      const onUp = () => {
+          distributeDragRef.current.active = false;
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+      };
+
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+  };
+
+  const safeAlign = (mode: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+      if (typeof onAlignMultiSelection === 'function') {
+          onAlignMultiSelection(mode);
+      }
+  };
 
   const normalizeText = (text: string) => text
       .toLowerCase()
@@ -903,7 +953,14 @@ const Editor: React.FC<EditorProps> = ({
           const target = e.target as HTMLElement;
 
           if (e.metaKey || e.ctrlKey) {
-              const block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img, .floating-text, .writing-lines') as HTMLElement | null;
+              const overlay = target.closest('[data-overlay="true"]');
+              let block: HTMLElement | null = null;
+              if (overlay) {
+                  block = (selectedTextLayer || selectedImage) as HTMLElement | null;
+              }
+              if (!block) {
+                  block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img, .floating-text, .writing-lines') as HTMLElement | null;
+              }
               if (block) {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1226,6 +1283,17 @@ const Editor: React.FC<EditorProps> = ({
       };
   }, [isTextLayerMode, containerRef]);
 
+  useEffect(() => {
+      if (!distributeAdjustAxis) return;
+      const handleKey = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') {
+              onEndDistributeAdjust();
+          }
+      };
+      window.addEventListener('keydown', handleKey);
+      return () => window.removeEventListener('keydown', handleKey);
+  }, [distributeAdjustAxis, onEndDistributeAdjust]);
+
   const zoomStyle = {
     transform: `scale(${zoom / 100})`,
     transformOrigin: 'top center',
@@ -1410,6 +1478,58 @@ const Editor: React.FC<EditorProps> = ({
             onDragOver={(e) => e.preventDefault()}
             onContextMenu={handleContextMenu}
         />
+
+        {distributeAdjustAxis && multiSelectedElements.length > 1 && (() => {
+            const elements = multiSelectedElements
+                .map(id => document.getElementById(id))
+                .filter(Boolean) as HTMLElement[];
+            if (elements.length < 2) return null;
+            const container = containerRef.current;
+            if (!container) return null;
+            const containerRect = container.getBoundingClientRect();
+            const rects = elements.map(el => el.getBoundingClientRect());
+            const minX = Math.min(...rects.map(r => r.left));
+            const maxX = Math.max(...rects.map(r => r.right));
+            const minY = Math.min(...rects.map(r => r.top));
+            const maxY = Math.max(...rects.map(r => r.bottom));
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+
+            const lineStyle = distributeAdjustAxis === 'x'
+                ? { left: minX - containerRect.left, top: centerY - containerRect.top, width: maxX - minX, height: 2 }
+                : { left: centerX - containerRect.left, top: minY - containerRect.top, width: 2, height: maxY - minY };
+
+            const handleStyle = distributeAdjustAxis === 'x'
+                ? { left: centerX - containerRect.left - 8, top: centerY - containerRect.top - 8 }
+                : { left: centerX - containerRect.left - 8, top: centerY - containerRect.top - 8 };
+
+            return (
+                <div className="absolute inset-0 pointer-events-none">
+                    <div
+                        style={{
+                            position: 'absolute',
+                            background: '#8d55f1',
+                            ...lineStyle
+                        }}
+                    />
+                    <div
+                        onMouseDown={startDistributeDrag}
+                        title="Drag to adjust spacing"
+                        style={{
+                            position: 'absolute',
+                            width: 16,
+                            height: 16,
+                            borderRadius: '999px',
+                            background: '#8d55f1',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                            cursor: distributeAdjustAxis === 'x' ? 'ew-resize' : 'ns-resize',
+                            pointerEvents: 'auto',
+                            ...handleStyle
+                        }}
+                    />
+                </div>
+            );
+        })()}
         
         {showMarginGuides && (
             <div className="absolute inset-0 pointer-events-none">
@@ -1472,6 +1592,14 @@ const Editor: React.FC<EditorProps> = ({
                 onPaste={handlePaste}
                 onCreateQRCode={() => setQrModal({ isOpen: true, url: contextMenu.linkUrl || '' })}
                 onTransformToTOC={contextMenu.block?.closest('table') ? () => openTableTocModal(contextMenu.block!.closest('table') as HTMLTableElement) : undefined}
+                onDistributeHoriz={multiSelectedElements.length > 1 ? () => onStartDistributeAdjust('x') : undefined}
+                onDistributeVert={multiSelectedElements.length > 1 ? () => onStartDistributeAdjust('y') : undefined}
+                onAlignLeft={multiSelectedElements.length > 1 ? () => safeAlign('left') : undefined}
+                onAlignCenter={multiSelectedElements.length > 1 ? () => safeAlign('center') : undefined}
+                onAlignRight={multiSelectedElements.length > 1 ? () => safeAlign('right') : undefined}
+                onAlignTop={multiSelectedElements.length > 1 ? () => safeAlign('top') : undefined}
+                onAlignMiddle={multiSelectedElements.length > 1 ? () => safeAlign('middle') : undefined}
+                onAlignBottom={multiSelectedElements.length > 1 ? () => safeAlign('bottom') : undefined}
                 onMoveUp={handleMoveUp}
                 onMoveDown={handleMoveDown}
                 onDelete={handleDeleteBlock}
