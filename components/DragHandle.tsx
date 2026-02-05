@@ -142,6 +142,17 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
   const handleResizeStart = (e: React.MouseEvent, direction: string) => {
     e.preventDefault();
     e.stopPropagation();
+    const allowOverflow = element.getAttribute('data-ignore-margins') === 'true';
+    let maxWidth: number | null = null;
+    if (!allowOverflow) {
+      const page = element.closest('.page') as HTMLElement | null;
+      if (page) {
+        const computed = window.getComputedStyle(page);
+        const paddingLeft = parseFloat(computed.paddingLeft) || 0;
+        const paddingRight = parseFloat(computed.paddingRight) || 0;
+        maxWidth = Math.max(50, page.clientWidth - paddingLeft - paddingRight);
+      }
+    }
     startPos.current = {
       x: e.clientX,
       y: e.clientY,
@@ -156,10 +167,14 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       const deltaY = e.clientY - startPos.current.y;
       
       if (direction.includes('e')) {
-        element.style.width = `${Math.max(50, startPos.current.width + deltaX)}px`;
+        let nextWidth = Math.max(50, startPos.current.width + deltaX);
+        if (maxWidth) nextWidth = Math.min(nextWidth, maxWidth);
+        element.style.width = `${nextWidth}px`;
       }
       if (direction.includes('w')) {
-        element.style.width = `${Math.max(50, startPos.current.width - deltaX)}px`;
+        let nextWidth = Math.max(50, startPos.current.width - deltaX);
+        if (maxWidth) nextWidth = Math.min(nextWidth, maxWidth);
+        element.style.width = `${nextWidth}px`;
       }
       if (direction.includes('s')) {
         element.style.height = `${Math.max(20, startPos.current.height + deltaY)}px`;

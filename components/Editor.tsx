@@ -130,6 +130,7 @@ const Editor: React.FC<EditorProps> = ({
   const [qrModal, setQrModal] = useState<{ isOpen: boolean; url: string }>({ isOpen: false, url: '' });
   const [activeLink, setActiveLink] = useState<{ url: string; x: number; y: number; element: HTMLAnchorElement } | null>(null);
   const [marqueeBox, setMarqueeBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [marginOverflowRects, setMarginOverflowRects] = useState<Array<{ x: number; y: number; width: number; height: number }>>([]);
   const distributeDragRef = useRef<{ active: boolean; lastClient: number }>({ active: false, lastClient: 0 });
   const marqueeRef = useRef<{ active: boolean; startX: number; startY: number; didDrag: boolean; suppressClick: boolean }>({
       active: false,
@@ -138,6 +139,7 @@ const Editor: React.FC<EditorProps> = ({
       didDrag: false,
       suppressClick: false
   });
+  const marginCheckRafRef = useRef<number | null>(null);
   const [tableTocModal, setTableTocModal] = useState<{
       isOpen: boolean;
       tableId: string;
@@ -602,6 +604,147 @@ const Editor: React.FC<EditorProps> = ({
     });
   }, []);
 
+  const getMarginCandidates = useCallback(() => {
+    if (!contentRef.current) return [] as HTMLElement[];
+    const selector = [
+        'p',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'blockquote',
+        'li',
+        'div:not(.page):not(.editor-workspace)',
+        'span.mission-box',
+        'span.shape-circle',
+        'span.shape-pill',
+        'span.shape-speech',
+        'span.shape-cloud',
+        'span.shape-rectangle',
+        'table',
+        'img',
+        'hr',
+        '.floating-text',
+        '.writing-lines',
+        '.tracing-line',
+        'textarea'
+    ].join(', ');
+
+    const nestedContainers = [
+        '.floating-text',
+        '.writing-lines',
+        '.tracing-line',
+        '.mission-box',
+        '.shape-rectangle',
+        '.shape-circle',
+        '.shape-pill',
+        '.shape-speech',
+        '.shape-cloud'
+    ];
+
+    const elements = Array.from(contentRef.current.querySelectorAll(selector)) as HTMLElement[];
+    return elements.filter(el => {
+        if (el.classList.contains('page') || el.classList.contains('editor-workspace')) return false;
+        if (el.classList.contains('page-footer')) return false;
+        if (el.closest('table') && el.tagName !== 'TABLE') return false;
+        for (const selector of nestedContainers) {
+            const container = el.closest(selector);
+            if (container && container !== el) return false;
+        }
+        return true;
+    });
+  }, []);
+
+  const updateMarginOverflows = useCallback(() => {
+    if (!contentRef.current || !containerRef.current) {
+        setMarginOverflowRects([]);
+        return;
+    }
+
+    const container = containerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const overflows: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const PPI = 96;
+
+    const elements = getMarginCandidates();
+    elements.forEach(el => {
+        if (el.getAttribute('data-ignore-margins') === 'true') return;
+        const page = el.closest('.page') as HTMLElement | null;
+        if (!page) return;
+        const pageRect = page.getBoundingClientRect();
+        const scale = pageRect.width / page.offsetWidth || 1;
+        const leftBound = pageRect.left + pageMargins.left * PPI * scale;
+        const rightBound = pageRect.right - pageMargins.right * PPI * scale;
+
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+
+        const top = rect.top - containerRect.top + container.scrollTop;
+        const height = rect.height;
+
+        if (rect.left < leftBound) {
+            const width = Math.min(leftBound, rect.right) - rect.left;
+            if (width > 0) {
+                overflows.push({
+                    x: rect.left - containerRect.left + container.scrollLeft,
+                    y: top,
+                    width,
+                    height
+                });
+            }
+        }
+
+        if (rect.right > rightBound) {
+            const start = Math.max(rect.left, rightBound);
+            const width = rect.right - start;
+            if (width > 0) {
+                overflows.push({
+                    x: start - containerRect.left + container.scrollLeft,
+                    y: top,
+                    width,
+                    height
+                });
+            }
+        }
+    });
+
+    setMarginOverflowRects(overflows);
+  }, [getMarginCandidates, pageMargins, containerRef]);
+
+  useEffect(() => {
+    if (!contentRef.current || !containerRef.current) return;
+
+    const container = containerRef.current;
+    const workspace = contentRef.current;
+
+    const scheduleUpdate = () => {
+        if (marginCheckRafRef.current) return;
+        marginCheckRafRef.current = window.requestAnimationFrame(() => {
+            marginCheckRafRef.current = null;
+            updateMarginOverflows();
+        });
+    };
+
+    scheduleUpdate();
+
+    const observer = new MutationObserver(scheduleUpdate);
+    observer.observe(workspace, { attributes: true, childList: true, subtree: true });
+    container.addEventListener('scroll', scheduleUpdate);
+    window.addEventListener('resize', scheduleUpdate);
+
+    return () => {
+        observer.disconnect();
+        container.removeEventListener('scroll', scheduleUpdate);
+        window.removeEventListener('resize', scheduleUpdate);
+        if (marginCheckRafRef.current) {
+            window.cancelAnimationFrame(marginCheckRafRef.current);
+            marginCheckRafRef.current = null;
+        }
+    };
+  }, [updateMarginOverflows, htmlContent, zoom, pageMargins]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
           const selection = window.getSelection();
@@ -755,6 +898,19 @@ const Editor: React.FC<EditorProps> = ({
       setActiveBlock(block);
       setContextMenu({ x: e.clientX, y: e.clientY, block, linkUrl });
   };
+
+  const handleToggleMarginOverride = useCallback((block: HTMLElement | null) => {
+      if (!block || block.classList.contains('page-footer')) return;
+      if (block.getAttribute('data-ignore-margins') === 'true') {
+          block.removeAttribute('data-ignore-margins');
+      } else {
+          block.setAttribute('data-ignore-margins', 'true');
+      }
+      if (contentRef.current) {
+          onContentChange(contentRef.current.innerHTML);
+      }
+      updateMarginOverflows();
+  }, [onContentChange, updateMarginOverflows]);
 
   const insertAtCursor = (html: string) => {
       const selection = window.getSelection();
@@ -1705,6 +1861,26 @@ const Editor: React.FC<EditorProps> = ({
             </div>
         )}
 
+        {marginOverflowRects.length > 0 && (
+            <div className="absolute inset-0 pointer-events-none">
+                {marginOverflowRects.map((rect, i) => (
+                    <div
+                        key={`margin-overflow-${i}`}
+                        style={{
+                            position: 'absolute',
+                            left: rect.x,
+                            top: rect.y,
+                            width: rect.width,
+                            height: rect.height,
+                            background: 'rgba(239, 68, 68, 0.35)',
+                            boxShadow: '0 0 0 1px rgba(239, 68, 68, 0.6) inset',
+                            zIndex: 55
+                        }}
+                    />
+                ))}
+            </div>
+        )}
+
         {selectedImage && (
             <ImageOverlay 
                 image={selectedImage}
@@ -1714,6 +1890,7 @@ const Editor: React.FC<EditorProps> = ({
                 onCropComplete={onCropComplete}
                 onCancelCrop={onCancelCrop}
                 multiSelectedElements={multiSelectedElements}
+                pageMargins={pageMargins}
                 onResize={() => {
                     if (contentRef.current) {
                         reflowPages(contentRef.current);
@@ -1732,6 +1909,7 @@ const Editor: React.FC<EditorProps> = ({
                 onCropComplete={() => {}}
                 onCancelCrop={() => {}}
                 multiSelectedElements={multiSelectedElements}
+                pageMargins={pageMargins}
                 onResize={() => {
                     if (contentRef.current) {
                         reflowPages(contentRef.current);
@@ -1759,6 +1937,8 @@ const Editor: React.FC<EditorProps> = ({
                 onAlignTop={multiSelectedElements.length > 1 ? () => safeAlign('top') : undefined}
                 onAlignMiddle={multiSelectedElements.length > 1 ? () => safeAlign('middle') : undefined}
                 onAlignBottom={multiSelectedElements.length > 1 ? () => safeAlign('bottom') : undefined}
+                onToggleMarginOverride={contextMenu.block && !contextMenu.block.classList.contains('page-footer') ? () => handleToggleMarginOverride(contextMenu.block) : undefined}
+                isMarginOverride={contextMenu.block?.getAttribute('data-ignore-margins') === 'true'}
                 onMoveUp={handleMoveUp}
                 onMoveDown={handleMoveDown}
                 onDelete={handleDeleteBlock}

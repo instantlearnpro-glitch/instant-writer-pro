@@ -27,6 +27,8 @@ interface BlockContextMenuProps {
   onMoveDown: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onToggleMarginOverride?: () => void;
+  isMarginOverride?: boolean;
   hasBlock: boolean;
 }
 
@@ -55,6 +57,8 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
   onMoveDown,
   onDelete,
   onDuplicate,
+  onToggleMarginOverride,
+  isMarginOverride,
   hasBlock
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -220,6 +224,18 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
         {hasBlock && (
           <>
             <div className="border-t border-gray-100 my-1" />
+
+            {onToggleMarginOverride && (
+              <button
+                onClick={() => { onToggleMarginOverride(); onClose(); }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5h16M7 5v14a2 2 0 002 2h6a2 2 0 002-2V5" />
+                </svg>
+                {isMarginOverride ? 'Use margins' : 'Ignore margins'}
+              </button>
+            )}
 
             <button
               onClick={() => { onMoveUp(); onClose(); }}

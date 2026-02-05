@@ -9,6 +9,7 @@ interface ImageOverlayProps {
   onCancelCrop: () => void;
   onResize?: () => void;
   multiSelectedElements?: string[];
+  pageMargins?: { top: number; bottom: number; left: number; right: number };
 }
 
 const ImageOverlay: React.FC<ImageOverlayProps> = ({ 
@@ -19,13 +20,25 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   onCropComplete,
   onCancelCrop,
   onResize,
-  multiSelectedElements
+  multiSelectedElements,
+  pageMargins
 }) => {
   const isImage = image.tagName === 'IMG';
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [cropRect, setCropRect] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
   const [guides, setGuides] = useState<{ type: 'horizontal' | 'vertical', x?: number, y?: number, length?: number }[]>([]);
   const [lockAspect, setLockAspect] = useState(true);
+  const PPI = 96;
+
+  const getMarginBounds = (page: HTMLElement | null) => {
+    if (!page || !pageMargins) return null;
+    const pageRect = page.getBoundingClientRect();
+    const scale = pageRect.width / page.offsetWidth || 1;
+    return {
+        left: pageRect.left + pageMargins.left * PPI * scale,
+        right: pageRect.right - pageMargins.right * PPI * scale
+    };
+  };
   
   // Sync overlay position with image
   const updatePosition = () => {
@@ -81,7 +94,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
 
     const multiIds = Array.isArray(multiSelectedElements) ? multiSelectedElements : [];
     const selectedElement = image as HTMLElement;
-    const selectedPage = selectedElement.closest('.page');
+    const selectedPage = selectedElement.closest('.page') as HTMLElement | null;
     const groupSet = new Set<HTMLElement>();
     multiIds.forEach(id => {
         const el = document.getElementById(id);
@@ -89,7 +102,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     });
     groupSet.add(selectedElement);
 
-    let elements = Array.from(groupSet);
+    let elements = Array.from(groupSet) as HTMLElement[];
     if (selectedPage) {
         elements = elements.filter(el => el.closest('.page') === selectedPage);
     }
@@ -126,6 +139,8 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
 
             const startX = e.clientX;
             const startY = e.clientY;
+            const allowOverflow = elements.every(el => el.getAttribute('data-ignore-margins') === 'true');
+            const bounds = allowOverflow ? null : getMarginBounds(selectedPage);
 
             const onMove = (moveEvent: MouseEvent) => {
                 const dx = moveEvent.clientX - startX;
@@ -147,6 +162,19 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                 const minSize = 20;
                 if (newWidth < minSize) newWidth = minSize;
                 if (newHeight < minSize) newHeight = minSize;
+
+                if (bounds) {
+                    let nextLeft = newLeft;
+                    if (nextLeft < bounds.left) {
+                        const diff = bounds.left - nextLeft;
+                        nextLeft = bounds.left;
+                        newWidth = Math.max(minSize, newWidth - diff);
+                    }
+                    if (nextLeft + newWidth > bounds.right) {
+                        newWidth = Math.max(minSize, bounds.right - nextLeft);
+                    }
+                    newLeft = nextLeft;
+                }
 
                 if (lockAspect && isImage) {
                     const aspect = startWidth / startHeight;
@@ -234,6 +262,8 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     const startHeight = startRect.height;
     const startLeft = parseFloat(image.style.left) || 0;
     const startTop = parseFloat(image.style.top) || 0;
+    const allowOverflow = (image as HTMLElement).getAttribute('data-ignore-margins') === 'true';
+    const bounds = allowOverflow ? null : getMarginBounds((image as HTMLElement).closest('.page') as HTMLElement | null);
 
     image.style.setProperty('max-width', 'none', 'important');
     image.style.setProperty('max-height', 'none', 'important');
@@ -269,6 +299,24 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             if (hasN) newTop = startTop + dy;
         }
 
+        const minSize = 20;
+
+        if (bounds) {
+            let nextLeft = startRect.left;
+            if (hasW) nextLeft = startRect.left + dx;
+            if (nextLeft < bounds.left) {
+                const diff = bounds.left - nextLeft;
+                nextLeft = bounds.left;
+                newWidth = Math.max(minSize, newWidth - diff);
+            }
+            if (nextLeft + newWidth > bounds.right) {
+                newWidth = Math.max(minSize, bounds.right - nextLeft);
+            }
+            if (image.classList.contains('floating-text') && hasW) {
+                newLeft = startLeft + (nextLeft - startRect.left);
+            }
+        }
+
         if (lockAspect && isImage) {
             const aspect = startWidth / startHeight;
             const hasH = hasE || hasW;
@@ -287,7 +335,6 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             }
         }
 
-        const minSize = 20;
         if (lockAspect && isImage) {
             const aspect = startWidth / startHeight;
             if (newWidth < minSize) {
@@ -342,6 +389,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     const elementRect = image.getBoundingClientRect();
     const offsetX = e.clientX - elementRect.left;
     const offsetY = e.clientY - elementRect.top;
+    const allowOverflow = (image as HTMLElement).getAttribute('data-ignore-margins') === 'true';
     
     const computedStyle = window.getComputedStyle(image);
     if (image.classList.contains('floating-text')) {
@@ -402,7 +450,14 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
           const pageRect = overPage.getBoundingClientRect();
           const newLeft = moveEvent.clientX - pageRect.left - offsetX;
           const newTop = moveEvent.clientY - pageRect.top - offsetY;
-          image.style.left = `${newLeft}px`;
+          let nextLeft = newLeft;
+          if (!allowOverflow && pageMargins) {
+            const scale = pageRect.width / overPage.offsetWidth || 1;
+            const minLeft = pageMargins.left * PPI * scale;
+            const maxLeft = pageRect.width - pageMargins.right * PPI * scale - elementRect.width;
+            nextLeft = Math.max(minLeft, Math.min(maxLeft, newLeft));
+          }
+          image.style.left = `${nextLeft}px`;
           image.style.top = `${newTop}px`;
           overPage.appendChild(image);
           startLeft = newLeft;
@@ -411,6 +466,21 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
           startY = moveEvent.clientY;
           updatePosition();
           return;
+        }
+      }
+
+      if (!allowOverflow) {
+        const page = image.closest('.page') as HTMLElement | null;
+        const bounds = getMarginBounds(page);
+        if (bounds) {
+          const nextLeft = elementRect.left + dx;
+          const nextRight = nextLeft + elementRect.width;
+          if (nextLeft < bounds.left) {
+            dx += bounds.left - nextLeft;
+          }
+          if (nextRight > bounds.right) {
+            dx -= nextRight - bounds.right;
+          }
         }
       }
       
