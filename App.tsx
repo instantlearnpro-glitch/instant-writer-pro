@@ -14,6 +14,7 @@ import PatternModal from './components/PatternModal';
 import ExportModal from './components/ExportModal';
 import SettingsModal from './components/SettingsModal';
 import { reflowPages } from './utils/pagination';
+import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 
 declare global {
   interface Window {
@@ -38,6 +39,8 @@ const rgbToHex = (rgb: string) => {
 const mapFontSizeToCommandValue = (fontSizePx: number) => {
   return String(Math.max(1, Math.round(fontSizePx)));
 };
+
+const AUTOSAVE_PATH = 'autosave.html';
 
 const buildSelectionStateFromElement = (element: HTMLElement): SelectionState => {
   const selection = window.getSelection();
@@ -280,6 +283,10 @@ const App: React.FC = () => {
   }]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const autosaveTimeoutRef = useRef<number | null>(null);
+  const autosaveInFlightRef = useRef(false);
+  const lastAutosaveRef = useRef('');
+  const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
 
   const [selectionState, setSelectionState] = useState<SelectionState>({
     bold: false,
@@ -417,9 +424,32 @@ const App: React.FC = () => {
 
   // --- HISTORY MANAGEMENT ---
 
+  const scheduleAutosave = useCallback((html: string) => {
+      if (!isTauri) return;
+      if (html === lastAutosaveRef.current) return;
+      if (autosaveTimeoutRef.current) {
+          window.clearTimeout(autosaveTimeoutRef.current);
+      }
+
+      autosaveTimeoutRef.current = window.setTimeout(async () => {
+          autosaveTimeoutRef.current = null;
+          if (autosaveInFlightRef.current) return;
+          autosaveInFlightRef.current = true;
+          try {
+              await writeTextFile(AUTOSAVE_PATH, html, { baseDir: BaseDirectory.AppData });
+              lastAutosaveRef.current = html;
+          } catch (err) {
+              console.warn('Autosave failed', err);
+          } finally {
+              autosaveInFlightRef.current = false;
+          }
+      }, 800);
+  }, [isTauri]);
+
   // Unified function to update state and manage history
   const updateDocState = (newState: DocumentState, saveToHistory: boolean = false) => {
       setDocState(newState);
+      scheduleAutosave(newState.htmlContent);
 
       if (saveToHistory) {
           // Clear any pending debounce since we are forcing a save
@@ -437,6 +467,35 @@ const App: React.FC = () => {
           setHistoryIndex(newHistory.length - 1);
       }
   };
+
+  useEffect(() => {
+      if (!isTauri) return;
+      let cancelled = false;
+
+      const restoreAutosave = async () => {
+          try {
+              const saved = await readTextFile(AUTOSAVE_PATH, { baseDir: BaseDirectory.AppData });
+              if (!saved || !saved.trim()) return;
+              if (cancelled) return;
+              const nextState = { ...docState, htmlContent: saved };
+              setDocState(nextState);
+              setHistory([nextState]);
+              setHistoryIndex(0);
+              lastAutosaveRef.current = saved;
+          } catch {
+              // no autosave yet
+          }
+      };
+
+      restoreAutosave();
+
+      return () => {
+          cancelled = true;
+          if (autosaveTimeoutRef.current) {
+              window.clearTimeout(autosaveTimeoutRef.current);
+          }
+      };
+  }, [isTauri]);
 
   const handleUndo = () => {
       if (historyIndex > 0) {
@@ -487,6 +546,7 @@ const App: React.FC = () => {
       }
       const newState = { ...docState, htmlContent: html };
       setDocState(newState); // Immediate update for UI
+      scheduleAutosave(html);
 
       // Debounce history save
       if (debounceTimeoutRef.current) {

@@ -6,16 +6,24 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:build:desktop": "tauri build && rm -rf \"$HOME/Desktop/Instant Writer Pro.app\" && cp -R \"src-tauri/target/release/bundle/macos/Instant Writer Pro.app\" \"$HOME/Desktop/Instant Writer Pro.app\"",
+    "tauri:watch:desktop": "node scripts/tauri-watch-desktop.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.39.0",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-fs": "^2.4.5",
     "lucide-react": "^0.563.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-qrcode-logo": "^4.0.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.10.0",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
