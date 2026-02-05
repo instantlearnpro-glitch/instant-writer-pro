@@ -303,7 +303,9 @@ export const reflowPages = (editor: HTMLElement) => {
     
     for (let i = 0; i < pages.length && iterations < maxIterations; i++) {
         const page = pages[i];
-        
+        const computed = window.getComputedStyle(page);
+        const pageHeight = page.clientHeight || parseFloat(computed.height) || 0;
+
         // Only handle overflow - push elements to next page
         while (isPageOverflowing(page) && iterations < maxIterations) {
             iterations++;
@@ -311,6 +313,12 @@ export const reflowPages = (editor: HTMLElement) => {
             // Get the last flow element (skip non-flow elements like footers)
             const lastEl = getLastFlowChild(page);
             if (!lastEl) break;
+
+            // If the element itself is taller than the page, don't keep moving it forever
+            const lastElHeight = lastEl.offsetHeight || lastEl.scrollHeight || 0;
+            if (pageHeight > 0 && lastElHeight > pageHeight + 1) {
+                break;
+            }
             
             // Get or create next page
             let nextPage = pages[i + 1];

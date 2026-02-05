@@ -316,10 +316,13 @@ const App: React.FC = () => {
     fileName: 'untitled_mission.html'
   }]);
   const [historyIndex, setHistoryIndex] = useState(0);
+  const historyRef = useRef(history);
+  const historyIndexRef = useRef(historyIndex);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const autosaveInFlightRef = useRef(false);
   const lastAutosaveRef = useRef('');
+  const structureScanTimeoutRef = useRef<number | null>(null);
   const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
 
   const [selectionState, setSelectionState] = useState<SelectionState>({
@@ -474,6 +477,14 @@ const App: React.FC = () => {
   }, [docState]);
 
   useEffect(() => {
+      historyRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
+      historyIndexRef.current = historyIndex;
+  }, [historyIndex]);
+
+  useEffect(() => {
       draftStoreRef.current = draftStore;
   }, [draftStore]);
 
@@ -521,24 +532,61 @@ const App: React.FC = () => {
       persistDraftStore(next);
   }, [persistDraftStore]);
 
+  const persistSessionSnapshot = useCallback((state: DocumentState, options?: { force?: boolean }) => {
+      const serialized = serializeDraft(state);
+      if (!options?.force && serialized === lastAutosaveRef.current) return;
+      const prev = draftStoreRef.current;
+      const snapshot: DraftEntry = {
+          id: prev.activeId || prev.current?.id || `session-${Date.now()}`,
+          fileName: state.fileName || prev.current?.fileName || 'Recovered Draft',
+          htmlContent: state.htmlContent,
+          cssContent: state.cssContent,
+          updatedAt: Date.now()
+      };
+      const next = { ...prev, current: snapshot };
+      draftStoreRef.current = next;
+      lastAutosaveRef.current = serialized;
+      persistDraftStore(next);
+  }, [persistDraftStore]);
+
   const scheduleSessionSnapshot = useCallback((state: DocumentState) => {
       if (sessionSnapshotRef.current) {
           window.clearTimeout(sessionSnapshotRef.current);
       }
       sessionSnapshotRef.current = window.setTimeout(() => {
-          const prev = draftStoreRef.current;
-          const snapshot: DraftEntry = {
-              id: prev.activeId || `session-${Date.now()}`,
-              fileName: state.fileName,
-              htmlContent: state.htmlContent,
-              cssContent: state.cssContent,
-              updatedAt: Date.now()
-          };
-          const next = { ...prev, current: snapshot };
-          draftStoreRef.current = next;
-          persistDraftStore(next);
+          persistSessionSnapshot(state);
       }, 1200);
-  }, [persistDraftStore]);
+  }, [persistSessionSnapshot]);
+
+  const resetHistory = useCallback((nextState: DocumentState) => {
+      if (debounceTimeoutRef.current) {
+          clearTimeout(debounceTimeoutRef.current);
+      }
+      setHistory([nextState]);
+      historyRef.current = [nextState];
+      setHistoryIndex(0);
+      historyIndexRef.current = 0;
+  }, []);
+
+  const pushHistoryState = useCallback((newState: DocumentState, options?: { skipIfSameHtml?: string }) => {
+      setHistory(prevHistory => {
+          const baseIndex = Math.min(historyIndexRef.current, prevHistory.length - 1);
+          const newHistory = prevHistory.slice(0, baseIndex + 1);
+          if (options?.skipIfSameHtml) {
+              const last = newHistory[newHistory.length - 1];
+              if (last && last.htmlContent === options.skipIfSameHtml) {
+                  return prevHistory;
+              }
+          }
+          newHistory.push(newState);
+          if (newHistory.length > 50) newHistory.shift();
+          const newIndex = newHistory.length - 1;
+          historyIndexRef.current = newIndex;
+          historyRef.current = newHistory;
+          setHistoryIndex(newIndex);
+          return newHistory;
+      });
+  }, []);
 
   const saveDraft = useCallback(async (name?: string, options?: { silent?: boolean; state?: DocumentState }) => {
       const state = options?.state || latestDocStateRef.current;
@@ -599,18 +647,16 @@ const App: React.FC = () => {
           fileName: draft.fileName
       };
       setDocState(nextState);
-      setHistory([nextState]);
-      setHistoryIndex(0);
+      resetHistory(nextState);
       updateDraftStore(prev => ({ ...prev, activeId: id }));
-  }, [docState, updateDraftStore]);
+  }, [docState, resetHistory, updateDraftStore]);
 
   const clearDraftMemory = useCallback(async () => {
       updateDraftStore(() => ({ activeId: null, drafts: [], autosaveEnabled: false, current: null }));
       const nextState = { ...docState, htmlContent: DEFAULT_HTML, cssContent: DEFAULT_CSS, fileName: 'untitled_mission.html' };
       setDocState(nextState);
-      setHistory([nextState]);
-      setHistoryIndex(0);
-  }, [docState, updateDraftStore]);
+      resetHistory(nextState);
+  }, [docState, resetHistory, updateDraftStore]);
 
   const clearActiveDraft = useCallback(() => {
       updateDraftStore(prev => {
@@ -633,9 +679,8 @@ const App: React.FC = () => {
           fileName: 'untitled_mission.html'
       };
       setDocState(nextState);
-      setHistory([nextState]);
-      setHistoryIndex(0);
-  }, [docState]);
+      resetHistory(nextState);
+  }, [docState, resetHistory]);
 
   // Unified function to update state and manage history
   const updateDocState = (newState: DocumentState, saveToHistory: boolean = false) => {
@@ -647,15 +692,7 @@ const App: React.FC = () => {
           if (debounceTimeoutRef.current) {
               clearTimeout(debounceTimeoutRef.current);
           }
-
-          const newHistory = history.slice(0, historyIndex + 1);
-          newHistory.push(newState);
-          
-          // Optional: Limit history size
-          if (newHistory.length > 50) newHistory.shift();
-
-          setHistory(newHistory);
-          setHistoryIndex(newHistory.length - 1);
+          pushHistoryState(newState);
       }
   };
 
@@ -693,8 +730,7 @@ const App: React.FC = () => {
                           fileName: draft.fileName
                       };
                       setDocState(nextState);
-                      setHistory([nextState]);
-                      setHistoryIndex(0);
+                      resetHistory(nextState);
                       lastAutosaveRef.current = serializeDraft(nextState);
                   }
               }
@@ -718,29 +754,63 @@ const App: React.FC = () => {
               window.clearTimeout(sessionSnapshotRef.current);
           }
       };
-  }, [isTauri, readDraftStore]);
+  }, [isTauri, readDraftStore, resetHistory]);
 
   useEffect(() => {
-      if (!draftStore.autosaveEnabled || !draftStore.activeId) return;
       const interval = window.setInterval(() => {
-          saveDraft(undefined, { silent: true, state: latestDocStateRef.current });
+          persistSessionSnapshot(latestDocStateRef.current);
+          if (draftStoreRef.current.autosaveEnabled && draftStoreRef.current.activeId) {
+              saveDraft(undefined, { silent: true, state: latestDocStateRef.current });
+          }
       }, 300000);
       return () => window.clearInterval(interval);
-  }, [draftStore.autosaveEnabled, draftStore.activeId, saveDraft]);
+  }, [persistSessionSnapshot, saveDraft]);
+
+  useEffect(() => {
+      const handleVisibilityChange = () => {
+          if (document.visibilityState === 'hidden') {
+              persistSessionSnapshot(latestDocStateRef.current);
+          }
+      };
+
+      const handleBeforeUnload = () => {
+          persistSessionSnapshot(latestDocStateRef.current);
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => {
+          document.removeEventListener('visibilitychange', handleVisibilityChange);
+          window.removeEventListener('beforeunload', handleBeforeUnload);
+      };
+  }, [persistSessionSnapshot]);
 
   const handleUndo = () => {
-      if (historyIndex > 0) {
-          const newIndex = historyIndex - 1;
+      const currentIndex = historyIndexRef.current;
+      if (currentIndex > 0) {
+          const newIndex = currentIndex - 1;
+          historyIndexRef.current = newIndex;
           setHistoryIndex(newIndex);
-          setDocState(history[newIndex]);
+          const nextState = historyRef.current[newIndex];
+          if (nextState) {
+              setDocState(nextState);
+              scheduleSessionSnapshot(nextState);
+          }
       }
   };
 
   const handleRedo = () => {
-      if (historyIndex < history.length - 1) {
-          const newIndex = historyIndex + 1;
+      const currentIndex = historyIndexRef.current;
+      const maxIndex = historyRef.current.length - 1;
+      if (currentIndex < maxIndex) {
+          const newIndex = currentIndex + 1;
+          historyIndexRef.current = newIndex;
           setHistoryIndex(newIndex);
-          setDocState(history[newIndex]);
+          const nextState = historyRef.current[newIndex];
+          if (nextState) {
+              setDocState(nextState);
+              scheduleSessionSnapshot(nextState);
+          }
       }
   };
 
@@ -785,17 +855,7 @@ const App: React.FC = () => {
       }
 
       debounceTimeoutRef.current = setTimeout(() => {
-          setHistory(prevHistory => {
-              const newHistory = prevHistory.slice(0, historyIndex + 1);
-              // Only push if different from last saved state
-              if (newHistory[newHistory.length - 1].htmlContent !== html) {
-                  newHistory.push(newState);
-                  if (newHistory.length > 50) newHistory.shift();
-                  setHistoryIndex(newHistory.length - 1);
-                  return newHistory;
-              }
-              return prevHistory;
-          });
+          pushHistoryState(newState, { skipIfSameHtml: html });
       }, 1000); // Wait 1s after typing stops
   };
 
@@ -819,19 +879,34 @@ const App: React.FC = () => {
     setPageCount(pages.length || 1);
   }, [docState.htmlContent]);
 
-  // Scan headings (H1/H2/H3) for Structure panel
+  // Scan headings (H1/H2/H3) for Structure panel (debounced)
   useEffect(() => {
-    const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
-    if (!workspace) return;
+    if (!isSidebarOpen && !selectionMode.active) return;
 
-    const { entries, modifiedHtml } = scanStructure(workspace);
-
-    if (modifiedHtml && modifiedHtml !== docState.htmlContent) {
-      updateDocState({ ...docState, htmlContent: modifiedHtml }, false);
+    if (structureScanTimeoutRef.current) {
+      window.clearTimeout(structureScanTimeoutRef.current);
     }
 
-    setStructureEntries(entries);
-  }, [docState.htmlContent]);
+    structureScanTimeoutRef.current = window.setTimeout(() => {
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+      if (!workspace) return;
+
+      const { entries, modifiedHtml } = scanStructure(workspace);
+
+      if (modifiedHtml && modifiedHtml !== latestDocStateRef.current.htmlContent) {
+        updateDocState({ ...latestDocStateRef.current, htmlContent: modifiedHtml }, false);
+      }
+
+      setStructureEntries(entries);
+    }, 350);
+
+    return () => {
+      if (structureScanTimeoutRef.current) {
+        window.clearTimeout(structureScanTimeoutRef.current);
+        structureScanTimeoutRef.current = null;
+      }
+    };
+  }, [docState.htmlContent, isSidebarOpen, selectionMode.active]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
@@ -2527,12 +2602,8 @@ const App: React.FC = () => {
       debounceTimeoutRef.current = setTimeout(() => {
           const workspace = document.querySelector('.editor-workspace');
           if (workspace) {
-             const newHistory = history.slice(0, historyIndex + 1);
              const newState = { ...docState, htmlContent: workspace.innerHTML };
-             newHistory.push(newState);
-             setHistory(newHistory);
-             setHistoryIndex(newHistory.length - 1);
-             setDocState(newState);
+             updateDocState(newState, true);
           }
       }, 500);
   };
@@ -2954,12 +3025,8 @@ ${markerEnd}
       debounceTimeoutRef.current = setTimeout(() => {
           const workspace = document.querySelector('.editor-workspace');
           if (workspace) {
-             const newHistory = history.slice(0, historyIndex + 1);
              const newState = { ...docState, htmlContent: workspace.innerHTML };
-             newHistory.push(newState);
-             setHistory(newHistory);
-             setHistoryIndex(newHistory.length - 1);
-             setDocState(newState);
+             updateDocState(newState, true);
           }
       }, 500);
   };
@@ -3079,12 +3146,8 @@ ${markerEnd}
       debounceTimeoutRef.current = setTimeout(() => {
           const workspace = document.querySelector('.editor-workspace');
           if (workspace) {
-             const newHistory = history.slice(0, historyIndex + 1);
              const newState = { ...docState, htmlContent: workspace.innerHTML };
-             newHistory.push(newState);
-             setHistory(newHistory);
-             setHistoryIndex(newHistory.length - 1);
-             setDocState(newState);
+             updateDocState(newState, true);
           }
       }, 500);
   };
