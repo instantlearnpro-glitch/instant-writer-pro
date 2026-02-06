@@ -725,12 +725,17 @@ const Editor: React.FC<EditorProps> = ({
     const container = containerRef.current;
     const workspace = contentRef.current;
 
+    let marginTimeout: number | null = null;
     const scheduleUpdate = () => {
-        if (marginCheckRafRef.current) return;
-        marginCheckRafRef.current = window.requestAnimationFrame(() => {
-            marginCheckRafRef.current = null;
-            updateMarginOverflows();
-        });
+        if (marginTimeout) return;
+        marginTimeout = window.setTimeout(() => {
+            marginTimeout = null;
+            if (marginCheckRafRef.current) return;
+            marginCheckRafRef.current = window.requestAnimationFrame(() => {
+                marginCheckRafRef.current = null;
+                updateMarginOverflows();
+            });
+        }, 120);
     };
 
     scheduleUpdate();
@@ -744,6 +749,10 @@ const Editor: React.FC<EditorProps> = ({
         observer.disconnect();
         container.removeEventListener('scroll', scheduleUpdate);
         window.removeEventListener('resize', scheduleUpdate);
+        if (marginTimeout) {
+            window.clearTimeout(marginTimeout);
+            marginTimeout = null;
+        }
         if (marginCheckRafRef.current) {
             window.cancelAnimationFrame(marginCheckRafRef.current);
             marginCheckRafRef.current = null;
@@ -1455,6 +1464,7 @@ const Editor: React.FC<EditorProps> = ({
           if (contentRef.current) {
               // Debounce reflow to avoid excessive calls
               if (reflowTimeout) clearTimeout(reflowTimeout);
+              const delay = isFloatingText ? 0 : 180;
               reflowTimeout = window.setTimeout(() => {
                   if (contentRef.current) {
                       if (!isFloatingText) {
@@ -1463,7 +1473,7 @@ const Editor: React.FC<EditorProps> = ({
                       }
                       onContentChange(contentRef.current.innerHTML);
                   }
-              }, 50);
+              }, delay);
           }
       };
 
@@ -1543,7 +1553,7 @@ const Editor: React.FC<EditorProps> = ({
   return (
     <div 
         ref={containerRef}
-        className={`flex-1 bg-gray-200 overflow-auto h-[calc(100vh-68px)] relative p-8 flex flex-col items-center ${isTextLayerMode ? 'text-layer-mode' : ''}`}
+        className={`editor-container flex-1 bg-gray-200 overflow-auto h-[calc(100vh-68px)] relative p-8 flex flex-col items-center ${isTextLayerMode ? 'text-layer-mode' : ''}`}
     >
         <style dangerouslySetInnerHTML={{ __html: cssContent }} />
         <style>{selectionStyle}</style>

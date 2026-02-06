@@ -300,14 +300,25 @@ export const reflowPages = (editor: HTMLElement) => {
     let changesMade = false;
     let iterations = 0;
     const maxIterations = 100; // Safety limit
+    const start = performance.now();
+    const timeBudgetMs = 14;
+    let budgetExceeded = false;
     
     for (let i = 0; i < pages.length && iterations < maxIterations; i++) {
+        if (performance.now() - start > timeBudgetMs) {
+            budgetExceeded = true;
+            break;
+        }
         const page = pages[i];
         const computed = window.getComputedStyle(page);
         const pageHeight = page.clientHeight || parseFloat(computed.height) || 0;
 
         // Only handle overflow - push elements to next page
         while (isPageOverflowing(page) && iterations < maxIterations) {
+            if (performance.now() - start > timeBudgetMs) {
+                budgetExceeded = true;
+                break;
+            }
             iterations++;
             
             // Get the last flow element (skip non-flow elements like footers)
@@ -338,6 +349,7 @@ export const reflowPages = (editor: HTMLElement) => {
             
             changesMade = true;
         }
+        if (budgetExceeded) break;
     }
 
     return changesMade;

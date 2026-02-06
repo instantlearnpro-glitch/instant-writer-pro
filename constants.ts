@@ -14,7 +14,7 @@ export const DEFAULT_CSS = `
     height: 11in;
     min-height: 11in;
     max-height: 11in;
-    padding: 0.5in 0.5in 0.5in 0.375in;
+    padding: calc(0.5in + var(--header-reserve, 0in)) 0.5in calc(0.5in + var(--footer-reserve, 0in)) 0.375in;
     margin: 0 auto 0.5in auto;
     position: relative;
     background: #fff;

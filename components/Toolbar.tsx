@@ -18,7 +18,6 @@ interface ToolbarProps {
   onFormat: (command: string, value?: string) => void;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onInsertImage: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onSave: () => void;
   onExport: () => void;
   onPageSizeChange: (formatId: string) => void;
   pageFormatId: string;
@@ -57,12 +56,6 @@ interface ToolbarProps {
   onReloadFonts: () => void;
   onAddFont: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onCaptureSelection: () => void;
-  drafts: { id: string; fileName: string; updatedAt: number }[];
-  activeDraftId: string | null;
-  autosaveEnabled: boolean;
-  onToggleAutosave: () => void;
-  onLoadDraft: (id: string) => void;
-  onClearDrafts: () => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -71,7 +64,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onFormat,
   onFileUpload, 
   onInsertImage,
-  onSave,
   onExport,
   onPageSizeChange,
   pageFormatId,
@@ -109,13 +101,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onOpenSettings,
   onReloadFonts,
   onAddFont,
-  onCaptureSelection,
-  drafts,
-  activeDraftId,
-  autosaveEnabled,
-  onToggleAutosave,
-  onLoadDraft,
-  onClearDrafts
+  onCaptureSelection
 }) => {
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const [isLineHeightMenuOpen, setIsLineHeightMenuOpen] = useState(false);
@@ -380,7 +366,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   }, [isFontSearchActive, fontInput, onFormat]);
 
   return (
-    <div className="flex flex-col border-b border-gray-200 shadow-sm z-10 sticky top-0 bg-white">
+    <div className="app-toolbar flex flex-col border-b border-gray-200 shadow-sm z-10 sticky top-0 bg-white">
         {/* === MAIN TOOLBAR (Always Visible) === */}
         <div className="h-[68px] bg-white z-20 relative overflow-x-auto overflow-y-hidden">
             <div
@@ -908,55 +894,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             className="w-full text-left text-xs px-2 py-2 rounded hover:bg-brand-50 text-gray-700"
                         >
                             API Key
-                        </button>
-                        <button
-                            onClick={() => {
-                                onSave();
-                                setIsSettingsMenuOpen(false);
-                            }}
-                            className="w-full text-left text-xs px-2 py-2 rounded hover:bg-brand-50 text-gray-700"
-                        >
-                            Save Draft
-                        </button>
-                        <div className="h-px bg-gray-100 my-2"></div>
-                        <div className="text-[10px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">
-                            History
-                        </div>
-                        {drafts.length === 0 ? (
-                            <div className="text-xs text-gray-400 px-2 py-2">No drafts saved</div>
-                        ) : (
-                            <div className="flex flex-col gap-1">
-                                {drafts.map(draft => (
-                                    <button
-                                        key={draft.id}
-                                        onClick={() => {
-                                            onLoadDraft(draft.id);
-                                            setIsSettingsMenuOpen(false);
-                                        }}
-                                        className={`text-left text-xs px-2 py-2 rounded hover:bg-brand-50 flex items-center justify-between ${activeDraftId === draft.id ? 'bg-brand-50 text-brand-700' : 'text-gray-700'}`}
-                                    >
-                                        <span className="truncate pr-2">{draft.fileName}</span>
-                                        <span className="text-[10px] text-gray-400">{formatDraftTime(draft.updatedAt)}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                        <button
-                            onClick={() => {
-                                onToggleAutosave();
-                            }}
-                            className={`w-full text-left text-xs px-2 py-2 rounded hover:bg-brand-50 ${autosaveEnabled ? 'text-brand-700 bg-brand-50' : 'text-gray-700'}`}
-                        >
-                            Autosave every 5 minutes: {autosaveEnabled ? 'On' : 'Off'}
-                        </button>
-                        <button
-                            onClick={() => {
-                                onClearDrafts();
-                                setIsSettingsMenuOpen(false);
-                            }}
-                            className="w-full text-left text-xs px-2 py-2 rounded hover:bg-red-50 text-red-600"
-                        >
-                            Clear local memory
                         </button>
                     </>
                     ,

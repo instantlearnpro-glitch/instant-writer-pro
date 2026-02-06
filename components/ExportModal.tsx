@@ -50,7 +50,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="app-modal fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
         <div className="p-6 border-b">
           <h2 className="text-xl font-semibold text-gray-800">Export document</h2>

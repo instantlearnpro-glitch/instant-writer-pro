@@ -14,7 +14,6 @@ import PatternModal from './components/PatternModal';
 import ExportModal from './components/ExportModal';
 import SettingsModal from './components/SettingsModal';
 import { reflowPages } from './utils/pagination';
-import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 
 declare global {
   interface Window {
@@ -39,31 +38,6 @@ const rgbToHex = (rgb: string) => {
 const mapFontSizeToCommandValue = (fontSizePx: number) => {
   return String(Math.max(1, Math.round(fontSizePx)));
 };
-
-const AUTOSAVE_PATH_SAVED = 'autosave_saved_list.json';
-const AUTOSAVE_LOCAL_KEY_SAVED = 'instant_writer_pro_draft_saved_list';
-const serializeDraft = (state: DocumentState) => JSON.stringify({
-  htmlContent: state.htmlContent,
-  cssContent: state.cssContent,
-  fileName: state.fileName
-});
-
-type DraftEntry = {
-  id: string;
-  fileName: string;
-  htmlContent: string;
-  cssContent: string;
-  updatedAt: number;
-};
-
-type DraftStore = {
-  activeId: string | null;
-  drafts: DraftEntry[];
-  autosaveEnabled: boolean;
-  current?: DraftEntry | null;
-};
-
-const MAX_DRAFTS = 3;
 
 type StyleClipboard =
   | {
@@ -319,11 +293,7 @@ const App: React.FC = () => {
   const historyRef = useRef(history);
   const historyIndexRef = useRef(historyIndex);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const autosaveTimeoutRef = useRef<number | null>(null);
-  const autosaveInFlightRef = useRef(false);
-  const lastAutosaveRef = useRef('');
   const structureScanTimeoutRef = useRef<number | null>(null);
-  const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
 
   const [selectionState, setSelectionState] = useState<SelectionState>({
     bold: false,
@@ -460,17 +430,9 @@ const App: React.FC = () => {
     applyStyle?: (el: HTMLElement) => void;
   }>({ isOpen: false, actionType: '', matches: [] });
 
-  // --- HISTORY MANAGEMENT ---
+  // --- HISTORY MANAGEMENT (Undo/Redo) ---
 
-  const [draftStore, setDraftStore] = useState<DraftStore>({
-      activeId: null,
-      drafts: [],
-      autosaveEnabled: false,
-      current: null
-  });
-  const draftStoreRef = useRef(draftStore);
   const latestDocStateRef = useRef(docState);
-  const sessionSnapshotRef = useRef<number | null>(null);
 
   useEffect(() => {
       latestDocStateRef.current = docState;
@@ -483,80 +445,6 @@ const App: React.FC = () => {
   useEffect(() => {
       historyIndexRef.current = historyIndex;
   }, [historyIndex]);
-
-  useEffect(() => {
-      draftStoreRef.current = draftStore;
-  }, [draftStore]);
-
-  const parseDraftStore = (raw: string | null): DraftStore => {
-      if (!raw) return { activeId: null, drafts: [], autosaveEnabled: false, current: null };
-      try {
-          const parsed = JSON.parse(raw) as { activeId?: string | null; drafts?: DraftEntry[]; autosaveEnabled?: boolean; current?: DraftEntry | null };
-          return {
-              activeId: parsed.activeId || null,
-              drafts: Array.isArray(parsed.drafts) ? parsed.drafts : [],
-              autosaveEnabled: !!parsed.autosaveEnabled,
-              current: parsed.current || null
-          };
-      } catch {
-          return { activeId: null, drafts: [], autosaveEnabled: false, current: null };
-      }
-  };
-
-  const readDraftStore = useCallback(async () => {
-      if (isTauri) {
-          try {
-              const raw = await readTextFile(AUTOSAVE_PATH_SAVED, { baseDir: BaseDirectory.AppData });
-              return parseDraftStore(raw || '');
-          } catch {
-              return parseDraftStore('');
-          }
-      }
-      const raw = localStorage.getItem(AUTOSAVE_LOCAL_KEY_SAVED) || '';
-      return parseDraftStore(raw);
-  }, [isTauri]);
-
-  const persistDraftStore = useCallback(async (store: DraftStore) => {
-      const payload = JSON.stringify(store);
-      if (isTauri) {
-          await writeTextFile(AUTOSAVE_PATH_SAVED, payload, { baseDir: BaseDirectory.AppData });
-      } else {
-          localStorage.setItem(AUTOSAVE_LOCAL_KEY_SAVED, payload);
-      }
-  }, [isTauri]);
-
-  const updateDraftStore = useCallback((updater: (prev: DraftStore) => DraftStore) => {
-      const next = updater(draftStoreRef.current);
-      draftStoreRef.current = next;
-      setDraftStore(next);
-      persistDraftStore(next);
-  }, [persistDraftStore]);
-
-  const persistSessionSnapshot = useCallback((state: DocumentState, options?: { force?: boolean }) => {
-      const serialized = serializeDraft(state);
-      if (!options?.force && serialized === lastAutosaveRef.current) return;
-      const prev = draftStoreRef.current;
-      const snapshot: DraftEntry = {
-          id: prev.activeId || prev.current?.id || `session-${Date.now()}`,
-          fileName: state.fileName || prev.current?.fileName || 'Recovered Draft',
-          htmlContent: state.htmlContent,
-          cssContent: state.cssContent,
-          updatedAt: Date.now()
-      };
-      const next = { ...prev, current: snapshot };
-      draftStoreRef.current = next;
-      lastAutosaveRef.current = serialized;
-      persistDraftStore(next);
-  }, [persistDraftStore]);
-
-  const scheduleSessionSnapshot = useCallback((state: DocumentState) => {
-      if (sessionSnapshotRef.current) {
-          window.clearTimeout(sessionSnapshotRef.current);
-      }
-      sessionSnapshotRef.current = window.setTimeout(() => {
-          persistSessionSnapshot(state);
-      }, 1200);
-  }, [persistSessionSnapshot]);
 
   const resetHistory = useCallback((nextState: DocumentState) => {
       if (debounceTimeoutRef.current) {
@@ -588,104 +476,9 @@ const App: React.FC = () => {
       });
   }, []);
 
-  const saveDraft = useCallback(async (name?: string, options?: { silent?: boolean; state?: DocumentState }) => {
-      const state = options?.state || latestDocStateRef.current;
-      const silent = options?.silent;
-      updateDraftStore((prev) => {
-          let drafts = [...prev.drafts];
-          let activeId = prev.activeId;
-          let draftName = name?.trim() || '';
-
-          if (!activeId) {
-              if (!draftName && !silent) {
-                  draftName = window.prompt('Draft name', state.fileName.replace(/\.html?$/i, '') || 'Untitled')?.trim() || '';
-              }
-              if (!draftName) return prev;
-              if (drafts.length >= MAX_DRAFTS) {
-                  if (!silent) {
-                      alert('You can keep up to 3 local drafts. Export one to keep a permanent copy.');
-                  }
-                  return prev;
-              }
-              activeId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          }
-
-          const index = drafts.findIndex(d => d.id === activeId);
-          const fileName = draftName || (index >= 0 ? drafts[index].fileName : state.fileName);
-          const entry: DraftEntry = {
-              id: activeId,
-              fileName,
-              htmlContent: state.htmlContent,
-              cssContent: state.cssContent,
-              updatedAt: Date.now()
-          };
-
-          if (index >= 0) {
-              drafts[index] = entry;
-          } else {
-              drafts.unshift(entry);
-          }
-
-          drafts = drafts.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_DRAFTS);
-          if (state.fileName !== fileName) {
-              setDocState(prevState => ({ ...prevState, fileName }));
-          }
-
-          lastAutosaveRef.current = serializeDraft(state);
-          return { ...prev, drafts, activeId, current: { ...entry } };
-      });
-  }, [updateDraftStore]);
-
-  const loadDraft = useCallback((id: string) => {
-      const store = draftStoreRef.current;
-      const draft = store.drafts.find(d => d.id === id);
-      if (!draft) return;
-      const nextState = {
-          ...docState,
-          htmlContent: draft.htmlContent,
-          cssContent: draft.cssContent,
-          fileName: draft.fileName
-      };
-      setDocState(nextState);
-      resetHistory(nextState);
-      updateDraftStore(prev => ({ ...prev, activeId: id }));
-  }, [docState, resetHistory, updateDraftStore]);
-
-  const clearDraftMemory = useCallback(async () => {
-      updateDraftStore(() => ({ activeId: null, drafts: [], autosaveEnabled: false, current: null }));
-      const nextState = { ...docState, htmlContent: DEFAULT_HTML, cssContent: DEFAULT_CSS, fileName: 'untitled_mission.html' };
-      setDocState(nextState);
-      resetHistory(nextState);
-  }, [docState, resetHistory, updateDraftStore]);
-
-  const clearActiveDraft = useCallback(() => {
-      updateDraftStore(prev => {
-          if (!prev.activeId) return prev;
-          return {
-              ...prev,
-              activeId: null,
-              autosaveEnabled: false,
-              drafts: prev.drafts.filter(d => d.id !== prev.activeId),
-              current: null
-          };
-      });
-  }, [updateDraftStore]);
-
-  const resetToBlank = useCallback(() => {
-      const nextState = {
-          ...docState,
-          htmlContent: DEFAULT_HTML,
-          cssContent: DEFAULT_CSS,
-          fileName: 'untitled_mission.html'
-      };
-      setDocState(nextState);
-      resetHistory(nextState);
-  }, [docState, resetHistory]);
-
   // Unified function to update state and manage history
   const updateDocState = (newState: DocumentState, saveToHistory: boolean = false) => {
       setDocState(newState);
-      scheduleSessionSnapshot(newState);
 
       if (saveToHistory) {
           // Clear any pending debounce since we are forcing a save
@@ -696,94 +489,6 @@ const App: React.FC = () => {
       }
   };
 
-  useEffect(() => {
-      let cancelled = false;
-
-      const restoreAutosave = async () => {
-          try {
-              const store = await readDraftStore();
-              if (cancelled) return;
-              setDraftStore(store);
-              draftStoreRef.current = store;
-              let nextStore = store;
-              if (!store.activeId && store.current) {
-                  const recoveredId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                  const recovered: DraftEntry = {
-                      ...store.current,
-                      id: recoveredId,
-                      fileName: store.current.fileName || 'Recovered Draft',
-                      updatedAt: Date.now()
-                  };
-                  const mergedDrafts = [recovered, ...store.drafts]
-                      .sort((a, b) => b.updatedAt - a.updatedAt)
-                      .slice(0, MAX_DRAFTS);
-                  nextStore = { ...store, drafts: mergedDrafts, activeId: recoveredId };
-              }
-
-              if (nextStore.activeId) {
-                  const draft = nextStore.drafts.find(d => d.id === nextStore.activeId) || nextStore.current;
-                  if (draft) {
-                      const nextState = {
-                          ...docState,
-                          htmlContent: draft.htmlContent,
-                          cssContent: draft.cssContent,
-                          fileName: draft.fileName
-                      };
-                      setDocState(nextState);
-                      resetHistory(nextState);
-                      lastAutosaveRef.current = serializeDraft(nextState);
-                  }
-              }
-
-              setDraftStore(nextStore);
-              draftStoreRef.current = nextStore;
-              persistDraftStore(nextStore);
-          } catch {
-              // no autosave yet
-          }
-      };
-
-      restoreAutosave();
-
-      return () => {
-          cancelled = true;
-          if (autosaveTimeoutRef.current) {
-              window.clearTimeout(autosaveTimeoutRef.current);
-          }
-          if (sessionSnapshotRef.current) {
-              window.clearTimeout(sessionSnapshotRef.current);
-          }
-      };
-  }, [isTauri, readDraftStore, resetHistory]);
-
-  useEffect(() => {
-      const interval = window.setInterval(() => {
-          persistSessionSnapshot(latestDocStateRef.current);
-          if (draftStoreRef.current.autosaveEnabled && draftStoreRef.current.activeId) {
-              saveDraft(undefined, { silent: true, state: latestDocStateRef.current });
-          }
-      }, 300000);
-      return () => window.clearInterval(interval);
-  }, [persistSessionSnapshot, saveDraft]);
-
-  useEffect(() => {
-      const handleVisibilityChange = () => {
-          if (document.visibilityState === 'hidden') {
-              persistSessionSnapshot(latestDocStateRef.current);
-          }
-      };
-
-      const handleBeforeUnload = () => {
-          persistSessionSnapshot(latestDocStateRef.current);
-      };
-
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-      window.addEventListener('beforeunload', handleBeforeUnload);
-      return () => {
-          document.removeEventListener('visibilitychange', handleVisibilityChange);
-          window.removeEventListener('beforeunload', handleBeforeUnload);
-      };
-  }, [persistSessionSnapshot]);
 
   const handleUndo = () => {
       const currentIndex = historyIndexRef.current;
@@ -794,7 +499,6 @@ const App: React.FC = () => {
           const nextState = historyRef.current[newIndex];
           if (nextState) {
               setDocState(nextState);
-              scheduleSessionSnapshot(nextState);
           }
       }
   };
@@ -809,7 +513,6 @@ const App: React.FC = () => {
           const nextState = historyRef.current[newIndex];
           if (nextState) {
               setDocState(nextState);
-              scheduleSessionSnapshot(nextState);
           }
       }
   };
@@ -847,7 +550,6 @@ const App: React.FC = () => {
       }
       const newState = { ...docState, htmlContent: html };
       setDocState(newState); // Immediate update for UI
-      scheduleSessionSnapshot(newState);
 
       // Debounce history save
       if (debounceTimeoutRef.current) {
@@ -1179,7 +881,7 @@ const App: React.FC = () => {
           }
       }
 
-      const workspace = document.querySelector('.editor-workspace');
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
       if (workspace) {
           updateDocStatePreserveScroll(workspace.innerHTML);
       }
@@ -2053,53 +1755,41 @@ const App: React.FC = () => {
         const sizeValue = value || '16';
         const sizePx = sizeValue.includes('px') ? sizeValue : `${sizeValue}px`;
         const selection = window.getSelection();
+        let range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+        if ((!range || range.collapsed) && selectionState.range) {
+            range = selectionState.range;
+        }
+        const workspace = document.querySelector('.editor-workspace');
+        if (range && workspace && !workspace.contains(range.commonAncestorContainer)) {
+            range = null;
+        }
 
-        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
-            const range = selection.getRangeAt(0);
+        const targetBlock =
+            (range
+                ? (range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+                    ? (range.commonAncestorContainer as HTMLElement)
+                    : range.commonAncestorContainer.parentElement)
+                : null)?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, .writing-lines, textarea.writing-lines, div:not(.page):not(.editor-workspace)') as HTMLElement | null
+            || selectedTextLayer
+            || (activeBlock && activeBlock.tagName !== 'IMG' ? activeBlock : null);
+
+        if (range && !range.collapsed) {
             const span = document.createElement('span');
             span.style.fontSize = sizePx;
             span.appendChild(range.extractContents());
             range.insertNode(span);
 
-            selection.removeAllRanges();
+            selection?.removeAllRanges();
             const newRange = document.createRange();
             newRange.selectNodeContents(span);
-            selection.addRange(newRange);
-
-            const workspace = document.querySelector('.editor-workspace');
-            if (workspace) {
-                updateDocStatePreserveScroll(workspace.innerHTML);
-            }
-            setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
-            return;
-        }
-
-        let targetBlock = activeBlock;
-        if (targetBlock && !targetBlock.isConnected) {
-            const sel = window.getSelection();
-            if (sel && sel.rangeCount > 0) {
-                const node = sel.getRangeAt(0).commonAncestorContainer;
-                const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
-                targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
-            }
-        }
-
-        if (!targetBlock) {
-            const sel = window.getSelection();
-            if (sel && sel.rangeCount > 0) {
-                const node = sel.getRangeAt(0).commonAncestorContainer;
-                const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
-                targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
-            }
-        }
-
-        if (targetBlock) {
+            selection?.addRange(newRange);
+        } else if (targetBlock) {
             targetBlock.style.fontSize = sizePx;
-            setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
-            const workspace = document.querySelector('.editor-workspace');
-            if (workspace) {
-                updateDocStatePreserveScroll(workspace.innerHTML);
-            }
+        }
+
+        setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
+        if (workspace) {
+            updateDocStatePreserveScroll(workspace.innerHTML);
         }
         return;
     }
@@ -2765,7 +2455,7 @@ const App: React.FC = () => {
   };
 
   const updatePageNumbers = (startAnchorId: string, font: string, fontSize: string, position: 'top' | 'bottom', align: 'left' | 'center' | 'right', margin: number) => {
-      const workspace = document.querySelector('.editor-workspace');
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
       if (!workspace) return;
 
       const pages = workspace.querySelectorAll('.page');
@@ -2785,6 +2475,20 @@ const App: React.FC = () => {
               }
           }
       }
+
+      const sizePt = Number.parseFloat(fontSize);
+      const lineHeightPt = (Number.isFinite(sizePt) ? sizePt : 12) * 1.2;
+      const footerHeightIn = lineHeightPt / 72;
+      const bottomGapIn = pageMargins.bottom - margin;
+      const topGapIn = pageMargins.top - margin;
+      const footerReserveIn = position === 'bottom'
+          ? Math.max(0, footerHeightIn - bottomGapIn)
+          : 0;
+      const headerReserveIn = position === 'top'
+          ? Math.max(0, footerHeightIn - topGapIn)
+          : 0;
+      workspace.style.setProperty('--footer-reserve', `${footerReserveIn}in`);
+      workspace.style.setProperty('--header-reserve', `${headerReserveIn}in`);
 
       pages.forEach((page, index) => {
           const existingFooter = page.querySelector('.page-footer');
@@ -2859,7 +2563,7 @@ ${markerStart}
 .page {
     width: ${width} !important;
     height: ${height} !important;
-    padding: ${margins.top}in ${margins.right}in ${margins.bottom}in ${margins.left}in !important;
+    padding: calc(${margins.top}in + var(--header-reserve, 0in)) ${margins.right}in calc(${margins.bottom}in + var(--footer-reserve, 0in)) ${margins.left}in !important;
     overflow: hidden !important;
 }
 ${markerEnd}
@@ -3197,18 +2901,6 @@ ${markerEnd}
     return clone;
   };
 
-  const handleSave = async () => {
-    await saveDraft();
-  };
-
-  const handleToggleAutosave = () => {
-      if (!draftStoreRef.current.activeId) {
-          alert('Save a draft name first to enable autosave.');
-          return;
-      }
-      updateDraftStore(prev => ({ ...prev, autosaveEnabled: !prev.autosaveEnabled }));
-  };
-
   const handleExportHTML = (fileName: string) => {
     // Use the actual document state, not the live DOM
     const tempDiv = document.createElement('div');
@@ -3244,136 +2936,137 @@ ${workspace.innerHTML}
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    clearActiveDraft();
-    resetToBlank();
   };
 
   const handleExportPDF = async (fileName: string) => {
-    // Use the actual document state, not the live DOM
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = docState.htmlContent;
-    
-    // Clean up selection attributes
+
     tempDiv.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
+    tempDiv.querySelectorAll('[data-multi-selected]').forEach(el => el.removeAttribute('data-multi-selected'));
     tempDiv.querySelectorAll('[data-structure-status]').forEach(el => el.removeAttribute('data-structure-status'));
-    
-    if (tempDiv.children.length === 0) {
-        alert('No content to export');
-        return;
+
+    tempDiv
+      .querySelectorAll('.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides')
+      .forEach(el => el.remove());
+
+    const fontLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+      .map(link => link.getAttribute('href'))
+      .filter((href): href is string => Boolean(href) && href.includes('fonts.googleapis.com'));
+    const fontLinksHtml = fontLinks.map(href => `<link rel="stylesheet" href="${href}">`).join('\n');
+
+    let customFontCss = '';
+    try {
+      const storedFonts = localStorage.getItem('custom_fonts');
+      if (storedFonts) {
+        const list = JSON.parse(storedFonts) as Array<{ name: string; dataUrl: string }>;
+        customFontCss = list
+          .map(font => {
+            const safeName = font.name.replace(/'/g, "\\'");
+            return `@font-face { font-family: '${safeName}'; src: url("${font.dataUrl}"); font-display: swap; }`;
+          })
+          .join('\n');
+      }
+    } catch {
+      customFontCss = '';
     }
 
-    // Create print window
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-        alert('Popup blocked. Enable popups to export PDF.');
-        return;
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0';
+    iframe.style.pointerEvents = 'none';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc || !iframe.contentWindow) {
+      iframe.remove();
+      alert('Unable to prepare PDF print frame.');
+      return;
     }
 
-    // Build the HTML for printing - process each page
-    const pagesHTML = Array.from(tempDiv.querySelectorAll('.page'))
-        .map((page) => {
-            const clone = page.cloneNode(true) as HTMLElement;
-            
-            // Remove selection attributes
-            clone.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
-            clone.querySelectorAll('[data-structure-status]').forEach(el => el.removeAttribute('data-structure-status'));
-            
-            return clone.outerHTML;
-        })
-        .join('\n');
+    const printOverrides = `
+@media print {
+  @page { margin: 0; }
+  html, body { margin: 0; padding: 0; background: white; }
+  .page {
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    page-break-after: always;
+    page-break-inside: avoid;
+    break-after: page;
+  }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+}
+    `;
 
-    printWindow.document.write(`
+    const baseHref = document.baseURI || window.location.href;
+
+    doc.open();
+    doc.write(`
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>${fileName}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto:wght@400;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        /* Force print backgrounds */
-        * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            color-adjust: exact !important;
-        }
-        
-        @media print {
-            @page {
-                size: 8.5in 11in;
-                margin: 0;
-            }
-            body {
-                margin: 0;
-                padding: 0;
-            }
-            .page {
-                page-break-after: always;
-                page-break-inside: avoid;
-            }
-            .page:last-child {
-                page-break-after: auto;
-            }
-        }
-        
-        * {
-            box-sizing: border-box;
-        }
-        
-        body {
-            margin: 0;
-            padding: 0;
-            background: white;
-        }
-        
-        ${docState.cssContent}
-        
-        .page {
-            width: 8.5in;
-            height: 11in;
-            padding: 0.6in;
-            margin: 0;
-            background: white;
-            position: relative;
-            overflow: hidden;
-            box-shadow: none;
-        }
-        
-        /* Ensure writing-lines show their background */
-        .writing-lines, textarea.writing-lines, div.writing-lines {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            background-image: linear-gradient(#000 1px, transparent 1px), linear-gradient(#ccc 1px, transparent 1px) !important;
-            background-size: 100% 50px !important;
-            background-position: 0 48px, 0 24px !important;
-        }
-        
-        /* Ensure tracing-lines show their background */
-        .tracing-line {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            background-image: linear-gradient(#000 1px, transparent 1px) !important;
-            background-size: 100% 50px !important;
-            background-position: 0 48px !important;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="${baseHref}">
+  <title>${fileName}</title>
+  ${fontLinksHtml}
+  <style>
+${customFontCss}
+${docState.cssContent}
+${printOverrides}
+  </style>
 </head>
 <body>
-${pagesHTML}
-<script>
-    // Wait for fonts to load, then print
-    document.fonts.ready.then(() => {
-        setTimeout(() => {
-            window.print();
-            window.onafterprint = () => window.close();
-        }, 500);
-    });
-</script>
+${tempDiv.innerHTML}
 </body>
 </html>
     `);
-    
-    printWindow.document.close();
-    clearActiveDraft();
-    resetToBlank();
+    doc.close();
+
+    const waitForImages = () => {
+      const images = Array.from(doc.images);
+      if (images.length === 0) return Promise.resolve();
+      return Promise.all(images.map(img => {
+        if (img.complete) return Promise.resolve();
+        return new Promise<void>(resolve => {
+          const done = () => {
+            img.removeEventListener('load', done);
+            img.removeEventListener('error', done);
+            resolve();
+          };
+          img.addEventListener('load', done);
+          img.addEventListener('error', done);
+        });
+      }));
+    };
+
+    const frameReady = new Promise<void>(resolve => {
+      if (doc.readyState === 'complete') resolve();
+      else iframe.onload = () => resolve();
+    });
+
+    const fontReady = (doc.fonts && doc.fonts.ready) ? doc.fonts.ready : Promise.resolve();
+    await Promise.all([frameReady, fontReady, waitForImages()]);
+
+    const triggerPrint = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } finally {
+        window.setTimeout(() => iframe.remove(), 1000);
+      }
+    };
+
+    requestAnimationFrame(() => {
+      window.setTimeout(triggerPrint, 100);
+    });
   };
   
   // Helper function to inline computed styles for export
@@ -3687,8 +3380,6 @@ ${contentHtml}
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    clearActiveDraft();
-    resetToBlank();
   };
 
   const scrollToPage = (pageIndex: number) => {
@@ -3873,7 +3564,6 @@ ${contentHtml}
         onFormat={handleFormat} 
         onFileUpload={handleFileUpload}
         onInsertImage={handleInsertImage}
-        onSave={handleSave}
         onExport={() => setIsExportModalOpen(true)}
         onPageSizeChange={handlePageSizeChange}
         pageFormatId={pageFormatId}
@@ -3914,12 +3604,6 @@ ${contentHtml}
         onReloadFonts={handleReloadFonts}
         onAddFont={handleAddFont}
         onCaptureSelection={handleCaptureSelection}
-        drafts={draftStore.drafts}
-        activeDraftId={draftStore.activeId}
-        autosaveEnabled={draftStore.autosaveEnabled}
-        onToggleAutosave={handleToggleAutosave}
-        onLoadDraft={loadDraft}
-        onClearDrafts={clearDraftMemory}
       />
 
       {fontUploadMessage && (
@@ -3928,7 +3612,7 @@ ${contentHtml}
         </div>
       )}
       
-      <div className="flex flex-1 overflow-hidden">
+      <div className="app-main flex flex-1 overflow-hidden">
         <Sidebar
           isSidebarOpen={isSidebarOpen}
           pageCount={pageCount} 
