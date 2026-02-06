@@ -56,6 +56,7 @@ interface ToolbarProps {
   onReloadFonts: () => void;
   onAddFont: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onCaptureSelection: () => void;
+  onOpenLogs: () => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -101,7 +102,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onOpenSettings,
   onReloadFonts,
   onAddFont,
-  onCaptureSelection
+  onCaptureSelection,
+  onOpenLogs
 }) => {
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const [isLineHeightMenuOpen, setIsLineHeightMenuOpen] = useState(false);
@@ -894,6 +896,19 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             className="w-full text-left text-xs px-2 py-2 rounded hover:bg-brand-50 text-gray-700"
                         >
                             API Key
+                        </button>
+                        <div className="h-px bg-gray-100 my-2"></div>
+                        <div className="text-[10px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">
+                            Logs
+                        </div>
+                        <button
+                            onClick={() => {
+                                onOpenLogs();
+                                setIsSettingsMenuOpen(false);
+                            }}
+                            className="w-full text-left text-xs px-2 py-2 rounded hover:bg-brand-50 text-gray-700"
+                        >
+                            Open error log
                         </button>
                     </>
                     ,

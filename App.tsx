@@ -13,7 +13,9 @@ import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch,
 import PatternModal from './components/PatternModal';
 import ExportModal from './components/ExportModal';
 import SettingsModal from './components/SettingsModal';
+import AutoLogModal from './components/AutoLogModal';
 import { reflowPages } from './utils/pagination';
+import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
 
 declare global {
   interface Window {
@@ -366,6 +368,7 @@ const App: React.FC = () => {
 
   const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isAutoLogModalOpen, setIsAutoLogModalOpen] = useState(false);
   const [openAiApiKey, setOpenAiApiKey] = useState('');
   const [fontUploadMessage, setFontUploadMessage] = useState('');
   const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'assistant' | 'system'; content: string }[]>([
@@ -445,6 +448,15 @@ const App: React.FC = () => {
   useEffect(() => {
       historyIndexRef.current = historyIndex;
   }, [historyIndex]);
+
+  useEffect(() => {
+      const cleanup = initAutoLog({
+          getContext: () => ({ fileName: latestDocStateRef.current?.fileName })
+      });
+      return () => {
+          cleanup();
+      };
+  }, []);
 
   const resetHistory = useCallback((nextState: DocumentState) => {
       if (debounceTimeoutRef.current) {
@@ -2938,6 +2950,14 @@ ${workspace.innerHTML}
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadAutoLog = () => {
+    downloadAutoLog();
+  };
+
+  const handleClearAutoLog = () => {
+    clearAutoLog();
+  };
+
   const handleExportPDF = async (fileName: string) => {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = docState.htmlContent;
@@ -3604,6 +3624,7 @@ ${contentHtml}
         onReloadFonts={handleReloadFonts}
         onAddFont={handleAddFont}
         onCaptureSelection={handleCaptureSelection}
+        onOpenLogs={() => setIsAutoLogModalOpen(true)}
       />
 
       {fontUploadMessage && (
@@ -3701,6 +3722,13 @@ ${contentHtml}
         initialApiKey={openAiApiKey}
         onClose={() => setIsSettingsModalOpen(false)}
         onSave={handleSaveApiKey}
+      />
+
+      <AutoLogModal
+        isOpen={isAutoLogModalOpen}
+        onClose={() => setIsAutoLogModalOpen(false)}
+        onDownload={handleDownloadAutoLog}
+        onClear={handleClearAutoLog}
       />
 
       <PageNumberModal
