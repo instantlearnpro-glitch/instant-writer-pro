@@ -1074,21 +1074,66 @@ const Editor: React.FC<EditorProps> = ({
       );
       if (interactive) return false;
 
-      let range: Range | null = null;
-      if (document.caretRangeFromPoint) {
-          range = document.caretRangeFromPoint(clientX, clientY);
-      } else if ((document as any).caretPositionFromPoint) {
-          const pos = (document as any).caretPositionFromPoint(clientX, clientY);
-          if (pos) {
-              range = document.createRange();
-              range.setStart(pos.offsetNode, pos.offset);
-              range.collapse(true);
+      const blocks = Array.from(page.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace), img, table, hr')) as HTMLElement[];
+      const hitBlock = blocks.find(block => {
+          const rect = block.getBoundingClientRect();
+          return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+      });
+
+      if (hitBlock) return false;
+
+      if (blocks.length > 0) {
+          const sorted = blocks
+              .map(block => ({ block, rect: block.getBoundingClientRect() }))
+              .sort((a, b) => a.rect.top - b.rect.top);
+
+          const first = sorted[0];
+          const last = sorted[sorted.length - 1];
+
+          if (clientY < first.rect.top) {
+              placeCaretInBlock(first.block, false);
+              return true;
           }
+
+          for (let i = 0; i < sorted.length - 1; i++) {
+              const current = sorted[i];
+              const next = sorted[i + 1];
+              if (clientY > current.rect.bottom && clientY < next.rect.top) {
+                  placeCaretInBlock(next.block, false);
+                  return true;
+              }
+          }
+
+          if (clientY >= last.rect.bottom) {
+              const newPara = document.createElement('p');
+              newPara.innerHTML = '<br>';
+              const selected = contentRef.current.querySelectorAll('[data-selected="true"]');
+              selected.forEach(el => (el as HTMLElement).removeAttribute('data-selected'));
+              setActiveBlock(null);
+              onImageSelect(null);
+              onTextLayerSelect(null);
+              onHRSelect(null);
+              onFooterSelect(null);
+              page.appendChild(newPara);
+
+              const selection = window.getSelection();
+              if (selection) {
+                  const newRange = document.createRange();
+                  newRange.selectNodeContents(newPara);
+                  newRange.collapse(true);
+                  selection.removeAllRanges();
+                  selection.addRange(newRange);
+              }
+
+              scheduleReflow();
+              return true;
+          }
+
+          return false;
       }
 
       const newPara = document.createElement('p');
       newPara.innerHTML = '<br>';
-
       const selected = contentRef.current.querySelectorAll('[data-selected="true"]');
       selected.forEach(el => (el as HTMLElement).removeAttribute('data-selected'));
       setActiveBlock(null);
@@ -1096,27 +1141,7 @@ const Editor: React.FC<EditorProps> = ({
       onTextLayerSelect(null);
       onHRSelect(null);
       onFooterSelect(null);
-
-      if (range && page.contains(range.startContainer)) {
-          const container = range.startContainer.nodeType === Node.ELEMENT_NODE
-              ? (range.startContainer as HTMLElement)
-              : range.startContainer.parentElement;
-          if (range.startContainer === page) {
-              const ref = page.childNodes[range.startOffset] || null;
-              page.insertBefore(newPara, ref);
-          } else if (container) {
-              const block = container.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace), table, img, hr');
-              if (block && block.parentNode === page) {
-                  block.parentNode.insertBefore(newPara, block.nextSibling);
-              } else {
-                  page.appendChild(newPara);
-              }
-          } else {
-              page.appendChild(newPara);
-          }
-      } else {
-          page.appendChild(newPara);
-      }
+      page.appendChild(newPara);
 
       const selection = window.getSelection();
       if (selection) {

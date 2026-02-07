@@ -1092,16 +1092,37 @@ const App: React.FC = () => {
   };
 
   const getHeadingStyleSignature = (element: HTMLElement) => {
+      const normalizeFontFamily = (value: string) => {
+          const primary = value.split(',')[0] || value;
+          return primary.replace(/['"]/g, '').trim().toLowerCase();
+      };
+      const normalizeFontSize = (value: string) => {
+          const size = parseFloat(value);
+          if (Number.isFinite(size)) return `${Math.round(size * 100) / 100}px`;
+          return value.trim().toLowerCase();
+      };
+      const normalizeFontWeight = (value: string) => {
+          const lower = value.trim().toLowerCase();
+          if (lower === 'normal') return '400';
+          if (lower === 'bold') return '700';
+          const parsed = parseInt(lower, 10);
+          return Number.isFinite(parsed) ? String(parsed) : lower;
+      };
+      const normalizeTextTransform = (value: string) => value.trim().toLowerCase();
+      const normalizeTextAlign = (value: string) => {
+          const lower = value.trim().toLowerCase();
+          if (lower === 'start') return 'left';
+          if (lower === 'end') return 'right';
+          return lower;
+      };
       const computed = window.getComputedStyle(element);
       return [
-          computed.fontFamily,
-          computed.fontSize,
-          computed.fontWeight,
-          computed.color,
-          computed.fontStyle,
-          computed.letterSpacing,
-          computed.textTransform,
-          computed.textAlign
+          normalizeFontFamily(computed.fontFamily),
+          normalizeFontSize(computed.fontSize),
+          normalizeFontWeight(computed.fontWeight),
+          computed.fontStyle.trim().toLowerCase(),
+          normalizeTextTransform(computed.textTransform),
+          normalizeTextAlign(computed.textAlign)
       ].join('|');
   };
 
@@ -1935,7 +1956,7 @@ const App: React.FC = () => {
       return true;
   };
 
-  const addHeadingToStructure = (tag: 'h1' | 'h2' | 'h3') => {
+  const addHeadingToStructure = (tag: 'h1' | 'h2' | 'h3', baseSignature?: string) => {
       const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
       if (!workspace) return;
       const selection = window.getSelection();
@@ -1945,10 +1966,10 @@ const App: React.FC = () => {
       const heading = element?.closest(tag) as HTMLElement | null;
       if (!heading) return;
 
+      const signature = baseSignature || getHeadingStyleSignature(heading);
       applyHeadingStructureToElement(heading, tag);
       updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
 
-      const signature = getHeadingStyleSignature(heading);
       const prevSig = manualHeadingSignatures[tag];
       const prevCount = manualHeadingCounts[tag];
       const nextCount = prevCount + 1;
@@ -2311,6 +2332,25 @@ const App: React.FC = () => {
         return;
     }
 
+    let formatBlockSignature: string | null = null;
+    let formatBlockTag: 'h1' | 'h2' | 'h3' | null = null;
+    if (command === 'formatBlock' && value) {
+        const nextTag = value.replace(/[<>]/g, '').toLowerCase();
+        if (nextTag === 'h1' || nextTag === 'h2' || nextTag === 'h3') {
+            formatBlockTag = nextTag;
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                const node = range.commonAncestorContainer;
+                const el = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+                const block = el?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)') as HTMLElement | null;
+                if (block) {
+                    formatBlockSignature = getHeadingStyleSignature(block);
+                }
+            }
+        }
+    }
+
     // 3. Standard Text Command (if not inside a shape)
     document.execCommand(command, false, value);
     
@@ -2320,11 +2360,8 @@ const App: React.FC = () => {
     
     // NOTE: execCommand triggers the Editor's mutation observer or input listener, 
     // which calls handleContentChange. So history will be saved via debounce.
-    if (command === 'formatBlock' && value) {
-        const tag = value.replace(/[<>]/g, '').toLowerCase();
-        if (tag === 'h1' || tag === 'h2' || tag === 'h3') {
-            addHeadingToStructure(tag);
-        }
+    if (formatBlockTag) {
+        addHeadingToStructure(formatBlockTag, formatBlockSignature || undefined);
     }
   };
 
@@ -2911,9 +2948,9 @@ const App: React.FC = () => {
 
       const tocBg = settings.style === 'modern' ? '#f8f9fa' : 'transparent';
       const leaderStyle = settings.style === 'dotted'
-          ? `flex:1 1 auto; height:2px; background-image: radial-gradient(circle, #9ca3af 1px, transparent 1.5px); background-size: ${settings.dotSpacing}px 2px; background-repeat: repeat-x; background-position: left 50%;`
+          ? `flex:1 1 auto; height:2px; min-height:2px; display:block; align-self:center; background-image: radial-gradient(circle at 1px 1px, #9ca3af 1px, transparent 1.5px); background-size: ${settings.dotSpacing}px 2px; background-repeat: repeat-x; background-position: left center;`
           : settings.style === 'modern'
-          ? 'flex:1 1 auto; height:1px; border-bottom: 1px solid #e2e5ea;'
+          ? 'flex:1 1 auto; height:1px; min-height:1px; display:block; align-self:center; border-bottom: 1px solid #e2e5ea;'
           : 'flex:1 1 auto; height:1px;';
 
       let tocHtml = `
@@ -3014,9 +3051,9 @@ const App: React.FC = () => {
       }
       const tocBg = container.classList.contains('toc-style-modern') ? '#f8f9fa' : 'transparent';
       const leaderStyle = container.classList.contains('toc-style-dotted')
-          ? `flex:1 1 auto; height:2px; background-image: radial-gradient(circle, #9ca3af 1px, transparent 1.5px); background-size: ${dotSpacing}px 2px; background-repeat: repeat-x; background-position: left 50%;`
+          ? `flex:1 1 auto; height:2px; min-height:2px; display:block; align-self:center; background-image: radial-gradient(circle at 1px 1px, #9ca3af 1px, transparent 1.5px); background-size: ${dotSpacing}px 2px; background-repeat: repeat-x; background-position: left center;`
           : container.classList.contains('toc-style-modern')
-          ? 'flex:1 1 auto; height:1px; border-bottom: 1px solid #e2e5ea;'
+          ? 'flex:1 1 auto; height:1px; min-height:1px; display:block; align-self:center; border-bottom: 1px solid #e2e5ea;'
           : 'flex:1 1 auto; height:1px;';
 
       const rowsHtml = tocEntries.map(entry => {
@@ -4069,6 +4106,14 @@ ${contentHtml}
       if (!selectionMode.active || !selectionMode.level) return;
 
       const targetTag = selectionMode.level; // e.g., 'h1'
+      let signature: string | null = null;
+      if (targetTag === 'h1' || targetTag === 'h2' || targetTag === 'h3') {
+          const firstId = selectionMode.selectedIds[0];
+          if (firstId) {
+              const el = document.getElementById(firstId) as HTMLElement | null;
+              if (el) signature = getHeadingStyleSignature(el);
+          }
+      }
       const newEntries: StructureEntry[] = [];
       let domModified = false;
 
@@ -4116,13 +4161,6 @@ ${contentHtml}
       }
 
       if (targetTag === 'h1' || targetTag === 'h2' || targetTag === 'h3') {
-          const firstId = selectionMode.selectedIds[0];
-          let signature: string | null = null;
-          if (firstId) {
-              const el = document.getElementById(firstId) as HTMLElement | null;
-              if (el) signature = getHeadingStyleSignature(el);
-          }
-
           const prevSig = manualHeadingSignatures[targetTag];
           const prevCount = manualHeadingCounts[targetTag];
           const nextCount = prevCount + selectionMode.selectedIds.length;
@@ -4135,6 +4173,9 @@ ${contentHtml}
           if (signature) {
               if (!prevSig) {
                   setManualHeadingSignatures(prev => ({ ...prev, [targetTag]: signature }));
+                  if (nextCount >= 2) {
+                      openStructurePatternModal(targetTag, signature);
+                  }
               } else if (prevSig === signature && nextCount >= 2) {
                   openStructurePatternModal(targetTag, signature);
               }
@@ -4251,6 +4292,9 @@ ${contentHtml}
       requestAnimationFrame(() => {
           setStructureEntries([]);
       });
+      setAutoStructureEnabled(false);
+      setAutoStructureSuggested(false);
+      setAutoStructureSuggestion(null);
   };
   const handleAutoFillStructure = () => {
       runStructureScan();

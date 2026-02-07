@@ -36,10 +36,11 @@ Per ogni elemento compilare:
   - Import HTML mantiene markup originale; aggiunge CSS base e applica override layout pagina.
   - Update H1/H2/H3 applica lo stile del testo selezionato a tutti gli heading.
   - Structure: manuale per default; Auto Fill solo su click; Auto: On/Off separato.
+  - Pattern Structure: dopo 2+ heading manuali con stile simile apre lista per applicare lo stesso livello agli elementi simili.
   - Interruzione di pagina inserisce marker che blocca il pull-up.
 - Edge case e limiti:
   - Se non esiste workspace usa DOMParser.
-  - Clear Structure marca data-structure-status=rejected per evitare ri-scan.
+  - Clear Structure marca data-structure-status=rejected per evitare ri-scan e spegne Auto.
 - Persistenza/stato: docState, selectionState, structureEntries, auto-structure flags.
 - Dipendenze: utils/pagination, utils/structureScanner, components/*.
 - Cose da non rompere:
@@ -65,7 +66,7 @@ Per ogni elemento compilare:
 - Comportamento normale:
   - Selezione drag per testo, nessun riquadro sui paragrafi.
   - Forme/immagini/tabelle selezionabili con outline e manina.
-  - Click su area vuota inserisce paragrafo e posiziona il cursore.
+  - Click tra blocchi sposta il cursore al blocco vicino; inserisce paragrafo solo sotto l'ultimo blocco.
   - Reflow con preservazione selezione dopo input/paste/cut.
 - Edge case e limiti: non cambiare markup del testo; rispettare marker page-break.
 - Persistenza/stato: selectionState, activeBlock, multi-selection.
@@ -80,7 +81,7 @@ Per ogni elemento compilare:
 - Comportamento normale:
   - Add Manual Entries abilita selezione; Done applica; Cancel annulla.
   - Auto Fill compila su richiesta; Auto: On/Off abilita scansione continua.
-  - Clear svuota la lista e disabilita le entry automatiche.
+  - Clear svuota la lista, disabilita le entry automatiche e spegne Auto.
 - Edge case e limiti: mantenere pulsanti visibili (Done viola, Cancel lilla).
 - Persistenza/stato: solo UI; stato reale in App.
 - Dipendenze: StructureEntry, selectionMode.

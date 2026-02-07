@@ -189,18 +189,21 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <div className="flex items-center gap-2">
                         <button
                             onClick={onAutoFillStructure}
+                            type="button"
                             className="text-[10px] px-2 py-1 rounded bg-brand-600 text-white hover:bg-brand-700"
                         >
                             Auto Fill
                         </button>
                         <button
                             onClick={onToggleAutoStructure}
+                            type="button"
                             className={`text-[10px] px-2 py-1 rounded ${autoStructureEnabled ? 'bg-brand-600 text-white' : 'bg-brand-100 text-brand-700'} hover:bg-brand-700 hover:text-white`}
                         >
                             Auto: {autoStructureEnabled ? 'On' : 'Off'}
                         </button>
                         <button
                             onClick={onClearStructure}
+                            type="button"
                             className="text-[10px] text-red-600 hover:text-red-700"
                         >
                             Clear
