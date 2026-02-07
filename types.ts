@@ -71,6 +71,7 @@ export interface TOCSettings {
   includeH2: boolean;
   includeH3: boolean;
   style: 'classic' | 'modern' | 'dotted';
+  dotSpacing: number;
 }
 
 export interface BorderSettings {

@@ -14,7 +14,7 @@ import PatternModal from './components/PatternModal';
 import ExportModal from './components/ExportModal';
 import SettingsModal from './components/SettingsModal';
 import AutoLogModal from './components/AutoLogModal';
-import { reflowPages } from './utils/pagination';
+import { ensureContentIsPaginated, reflowPages } from './utils/pagination';
 import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
 
 declare global {
@@ -51,6 +51,209 @@ type StyleClipboard =
       type: 'image';
       image: Record<string, string>;
     };
+
+const LAYOUT_MARKER_START = '/* SPYWRITER_LAYOUT_OVERRIDE_START */';
+const LAYOUT_MARKER_END = '/* SPYWRITER_LAYOUT_OVERRIDE_END */';
+
+const applyLayoutOverride = (
+  cssContent: string,
+  width: string,
+  height: string,
+  margins: { top: number; bottom: number; left: number; right: number }
+) => {
+  const newCssBlock = `
+${LAYOUT_MARKER_START}
+@page {
+    size: ${width} ${height};
+    margin: 0; /* Use padding on .page instead for better control */
+}
+.page {
+    width: ${width} !important;
+    height: ${height} !important;
+    padding: calc(${margins.top}in + var(--header-reserve, 0in)) ${margins.right}in calc(${margins.bottom}in + var(--footer-reserve, 0in)) ${margins.left}in !important;
+    overflow: hidden !important;
+}
+${LAYOUT_MARKER_END}
+`;
+
+  const regex = new RegExp(`\\/\\* SPYWRITER_LAYOUT_OVERRIDE_START \\\*\\/[\\s\\S]*?\\/\\* SPYWRITER_LAYOUT_OVERRIDE_END \\\*\\/`, 'g');
+  if (regex.test(cssContent)) {
+    return cssContent.replace(regex, newCssBlock.trim());
+  }
+  return `${cssContent}\n${newCssBlock.trim()}`.trim();
+};
+
+const normalizeSizeValue = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^\d+(\.\d+)?$/.test(trimmed)) return `${trimmed}px`;
+  return trimmed;
+};
+
+const PAGE_SIZE_KEYWORDS: Record<string, { width: string; height: string }> = {
+  letter: { width: '8.5in', height: '11in' },
+  legal: { width: '8.5in', height: '14in' },
+  tabloid: { width: '11in', height: '17in' },
+  a4: { width: '210mm', height: '297mm' },
+  a5: { width: '148mm', height: '210mm' }
+};
+
+const parsePageSize = (rawValue: string) => {
+  const normalized = rawValue.trim().toLowerCase();
+  if (!normalized) return null;
+
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const keyword = tokens.find(token => PAGE_SIZE_KEYWORDS[token]);
+  const isLandscape = tokens.includes('landscape');
+  const isPortrait = tokens.includes('portrait');
+
+  if (keyword) {
+    const size = PAGE_SIZE_KEYWORDS[keyword];
+    if (isLandscape) return { width: size.height, height: size.width };
+    if (isPortrait) return size;
+    return size;
+  }
+
+  if (tokens.length >= 2) {
+    const width = normalizeSizeValue(tokens[0]);
+    const height = normalizeSizeValue(tokens[1]);
+    if (width && height) return { width, height };
+  }
+
+  return null;
+};
+
+const detectPageSizeFromCss = (css: string) => {
+  const pageMatch = css.match(/@page\s*{[^}]*size\s*:\s*([^;]+);/i);
+  if (pageMatch && pageMatch[1]) {
+    const parsed = parsePageSize(pageMatch[1]);
+    if (parsed) return parsed;
+  }
+
+  const pageBlockMatch = css.match(/\.page\s*{[^}]*}/i);
+  if (pageBlockMatch) {
+    const block = pageBlockMatch[0];
+    const widthMatch = block.match(/width\s*:\s*([^;]+);/i);
+    const heightMatch = block.match(/height\s*:\s*([^;]+);/i);
+    if (widthMatch && heightMatch) {
+      const width = normalizeSizeValue(widthMatch[1]);
+      const height = normalizeSizeValue(heightMatch[1]);
+      if (width && height) return { width, height };
+    }
+  }
+
+  return null;
+};
+
+const detectPageSizeFromElement = (pageEl: HTMLElement | null) => {
+  if (!pageEl) return null;
+  const width = pageEl.style.width ? normalizeSizeValue(pageEl.style.width) : '';
+  const height = pageEl.style.height ? normalizeSizeValue(pageEl.style.height) : '';
+  if (width && height) return { width, height };
+  return null;
+};
+
+const scopeImportedCss = (css: string, scopeSelector = '.editor-workspace') => {
+  if (!css.trim()) return '';
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const blocks: string[] = [];
+  let start = 0;
+  let depth = 0;
+  for (let i = 0; i < withoutComments.length; i += 1) {
+    const ch = withoutComments[i];
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        const block = withoutComments.slice(start, i + 1).trim();
+        if (block) blocks.push(block);
+        start = i + 1;
+      }
+    }
+  }
+
+  const baseScope = `${scopeSelector} .page`;
+  const prefixSelector = (selector: string) => {
+    const trimmed = selector.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith(baseScope) || trimmed.startsWith(scopeSelector)) return trimmed;
+    if (trimmed.startsWith(':root')) return scopeSelector;
+    if (/^(html|body)\b/.test(trimmed)) {
+      return trimmed.replace(/^(html|body)\b/, baseScope);
+    }
+    if (trimmed.startsWith('.page')) return `${scopeSelector} ${trimmed}`;
+    if (trimmed.startsWith('*')) return `${baseScope} ${trimmed}`;
+    if (trimmed.startsWith(':')) return `${baseScope}${trimmed}`;
+    return `${baseScope} ${trimmed}`;
+  };
+
+  const scopedBlocks = blocks.map(block => {
+    if (block.startsWith('@font-face') || block.startsWith('@keyframes')) return block;
+    if (block.startsWith('@page')) return '';
+    if (block.startsWith('@import')) return block;
+    if (block.startsWith('@media') || block.startsWith('@supports') || block.startsWith('@layer')) {
+      const open = block.indexOf('{');
+      const head = block.slice(0, open + 1);
+      const inner = block.slice(open + 1, -1);
+      const scopedInner = scopeImportedCss(inner, scopeSelector);
+      return `${head}${scopedInner}}`;
+    }
+
+    const open = block.indexOf('{');
+    if (open === -1) return block;
+    const selectors = block.slice(0, open).trim();
+    const body = block.slice(open + 1, -1).trim();
+    const scopedSelectors = selectors
+      .split(',')
+      .map(prefixSelector)
+      .filter(Boolean)
+      .join(', ');
+    if (!scopedSelectors) return '';
+    return `${scopedSelectors} { ${body} }`;
+  });
+
+  return scopedBlocks.filter(Boolean).join('\n');
+};
+
+const unwrapSingleContainer = (page: HTMLElement) => {
+  if (page.children.length !== 1) return;
+  const child = page.children[0] as HTMLElement;
+  if (!child || child.classList.contains('page-footer')) return;
+  if (child.classList.contains('page')) return;
+  if (child.children.length === 0) return;
+
+  while (child.firstChild) {
+    page.insertBefore(child.firstChild, child);
+  }
+  child.remove();
+};
+
+
+const fixClippedContainers = (page: HTMLElement) => {
+  const candidates = page.querySelectorAll('div, section, article, main, ul, ol');
+  candidates.forEach(node => {
+    const el = node as HTMLElement;
+    if (!el.isConnected) return;
+    if (el.classList.contains('page')) return;
+    if (el.classList.contains('page-footer')) return;
+
+    const computed = window.getComputedStyle(el);
+    const overflowY = computed.overflowY || computed.overflow;
+    const overflowX = computed.overflowX || computed.overflow;
+    const isClipping = ['hidden', 'clip', 'scroll', 'auto'].includes(overflowY)
+      || ['hidden', 'clip', 'scroll', 'auto'].includes(overflowX);
+
+    if (!isClipping) return;
+
+    if (el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 2) {
+      el.style.overflow = 'visible';
+      el.style.overflowX = 'visible';
+      el.style.overflowY = 'visible';
+      el.style.height = 'auto';
+      el.style.maxHeight = 'none';
+    }
+  });
+};
 
 const buildSelectionStateFromElement = (element: HTMLElement): SelectionState => {
   const selection = window.getSelection();
@@ -138,6 +341,15 @@ const App: React.FC = () => {
       level: null,
       selectedIds: []
   });
+  const [autoStructureEnabled, setAutoStructureEnabled] = useState(false);
+  const [autoStructureSuggested, setAutoStructureSuggested] = useState(false);
+  const [autoStructureSuggestion, setAutoStructureSuggestion] = useState<{ level: 'h1' | 'h2' | 'h3'; signature: string } | null>(null);
+  const [manualHeadingCounts, setManualHeadingCounts] = useState<{ h1: number; h2: number; h3: number }>({
+      h1: 0,
+      h2: 0,
+      h3: 0
+  });
+  const [manualHeadingSignatures, setManualHeadingSignatures] = useState<{ h1?: string; h2?: string; h3?: string }>({});
 
   // Load available system fonts on mount and when web fonts are ready
   useEffect(() => {
@@ -358,7 +570,7 @@ const App: React.FC = () => {
 
   const [pageFormatId, setPageFormatId] = useState<string>('letter');
   const [customPageSize, setCustomPageSize] = useState<{ width: string, height: string }>({ width: '8.5in', height: '11in' });
-  const [pageMargins, setPageMargins] = useState<{ top: number, bottom: number, left: number, right: number }>({ top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 });
+  const [pageMargins, setPageMargins] = useState<{ top: number, bottom: number, left: number, right: number }>({ top: 0.5, bottom: 0.5, left: 0.45, right: 0.5 });
   const [showMarginGuides, setShowMarginGuides] = useState(false);
   const [showSmartGuides, setShowSmartGuides] = useState(false);
 
@@ -593,34 +805,38 @@ const App: React.FC = () => {
     setPageCount(pages.length || 1);
   }, [docState.htmlContent]);
 
-  // Scan headings (H1/H2/H3) for Structure panel (debounced)
-  useEffect(() => {
-    if (!isSidebarOpen && !selectionMode.active) return;
-
-    if (structureScanTimeoutRef.current) {
-      window.clearTimeout(structureScanTimeoutRef.current);
-    }
-
-    structureScanTimeoutRef.current = window.setTimeout(() => {
+  const runStructureScan = () => {
       const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
       if (!workspace) return;
 
       const { entries, modifiedHtml } = scanStructure(workspace);
 
       if (modifiedHtml && modifiedHtml !== latestDocStateRef.current.htmlContent) {
-        updateDocState({ ...latestDocStateRef.current, htmlContent: modifiedHtml }, false);
+          updateDocState({ ...latestDocStateRef.current, htmlContent: modifiedHtml }, false);
       }
 
       setStructureEntries(entries);
-    }, 350);
+  };
 
-    return () => {
+  useEffect(() => {
+      if (!autoStructureEnabled) return;
+      if (!isSidebarOpen && !selectionMode.active) return;
+
       if (structureScanTimeoutRef.current) {
-        window.clearTimeout(structureScanTimeoutRef.current);
-        structureScanTimeoutRef.current = null;
+          window.clearTimeout(structureScanTimeoutRef.current);
       }
-    };
-  }, [docState.htmlContent, isSidebarOpen, selectionMode.active]);
+
+      structureScanTimeoutRef.current = window.setTimeout(() => {
+          runStructureScan();
+      }, 350);
+
+      return () => {
+          if (structureScanTimeoutRef.current) {
+              window.clearTimeout(structureScanTimeoutRef.current);
+              structureScanTimeoutRef.current = null;
+          }
+      };
+  }, [docState.htmlContent, isSidebarOpen, selectionMode.active, autoStructureEnabled]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
@@ -661,12 +877,12 @@ const App: React.FC = () => {
         reader.readAsArrayBuffer(docFile);
     } 
     else {
-        // 3. HTML Handling with "Smart Image Linking"
-        
+        // 3. HTML Handling with "Smart Asset Linking"
+
         // A. Load all companion images into a map: filename -> DataURL
         const imageMap = new Map<string, string>();
         const imageFiles = files.filter(f => f.type.startsWith('image/'));
-        
+
         await Promise.all(imageFiles.map(file => new Promise<void>((resolve) => {
             const reader = new FileReader();
             reader.onload = (evt) => {
@@ -678,24 +894,59 @@ const App: React.FC = () => {
             reader.readAsDataURL(file);
         })));
 
-        // B. Read and parse HTML
+        // B. Load any companion CSS files: filename -> CSS text
+        const cssMap = new Map<string, string>();
+        const cssFiles = files.filter(f => f.name.toLowerCase().endsWith('.css') || f.type === 'text/css');
+
+        await Promise.all(cssFiles.map(file => new Promise<void>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                if (evt.target?.result) {
+                    cssMap.set(file.name, String(evt.target.result));
+                }
+                resolve();
+            };
+            reader.readAsText(file);
+        })));
+
+        // C. Read and parse HTML
         const reader = new FileReader();
         reader.onload = (event) => {
             const text = event.target?.result as string;
             if (text) {
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(text, 'text/html');
-                
-                // Extract and Clean CSS
+
+                // Extract and Clean CSS (inline <style>)
                 const styleTags = doc.querySelectorAll('style');
-                let extractedCss = '';
+                let inlineCss = '';
                 styleTags.forEach(tag => {
                     const css = tag.innerHTML;
-                    extractedCss += css + '\n';
+                    inlineCss += css + '\n';
                     tag.remove();
                 });
 
-                // C. Auto-link Images
+                // Extract linked CSS <link rel="stylesheet">
+                const linkTags = Array.from(doc.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
+                let linkedCss = '';
+                linkTags.forEach(link => {
+                    const href = link.getAttribute('href') || '';
+                    const rawFilename = href.split(/[\\/]/).pop();
+                    const decodedFilename = rawFilename ? decodeURIComponent(rawFilename) : '';
+
+                    if (decodedFilename && cssMap.has(decodedFilename)) {
+                        linkedCss += (cssMap.get(decodedFilename) || '') + '\n';
+                        link.remove();
+                        return;
+                    }
+
+                    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('//')) {
+                        linkedCss += `@import url("${href}");\n`;
+                        link.remove();
+                    }
+                });
+
+                // D. Auto-link Images
                 const images = doc.querySelectorAll('img');
                 let linkedCount = 0;
                 images.forEach(img => {
@@ -715,32 +966,75 @@ const App: React.FC = () => {
                 });
 
                 let bodyContent = doc.body.innerHTML;
-                
+
                 // Wrap in page if needed
                 const tempDiv = document.createElement('div');
                 tempDiv.innerHTML = bodyContent;
-                
+
                 // Only remove contenteditable="false" attributes that block editing
                 tempDiv.querySelectorAll('[contenteditable="false"]').forEach(el => {
                     el.removeAttribute('contenteditable');
                 });
-                
+
                 bodyContent = tempDiv.innerHTML;
-                
+
                 if (!tempDiv.querySelector('.page')) {
                     bodyContent = `<div class="page">${bodyContent}</div>`;
                 }
 
-                const finalCss = extractedCss.trim() ? extractedCss : '';
+                const rawImportedCss = `${linkedCss}\n${inlineCss}`.trim();
+                const detectedSize = detectPageSizeFromElement(tempDiv.querySelector('.page'))
+                    || detectPageSizeFromCss(rawImportedCss);
+                const activeFormat = Object.values(PAGE_FORMATS).find(f => f.id === pageFormatId);
+                const fallbackSize = pageFormatId === 'custom'
+                    ? customPageSize
+                    : { width: activeFormat?.width || '8.5in', height: activeFormat?.height || '11in' };
+                const targetSize = detectedSize || fallbackSize;
+
+                const scopedImportedCss = scopeImportedCss(rawImportedCss, '.editor-workspace');
+                let finalCss = `${DEFAULT_CSS}\n${scopedImportedCss}`.trim();
+                finalCss = applyLayoutOverride(finalCss, targetSize.width, targetSize.height, pageMargins);
+
+                if (detectedSize) {
+                    setPageFormatId('custom');
+                    setCustomPageSize({ width: targetSize.width, height: targetSize.height });
+                }
 
                 const newState = {
                     htmlContent: bodyContent,
                     cssContent: finalCss,
                     fileName: docFile.name
                 };
-                
-                updateDocState(newState, true);
-                
+
+                updateDocState(newState, false);
+
+                const finalizeImport = () => {
+                    const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+                    if (!workspace) {
+                        updateDocState(newState, true);
+                        return;
+                    }
+                    const changed = ensureContentIsPaginated(workspace);
+                    const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
+                    pages.forEach(page => {
+                        unwrapSingleContainer(page);
+                        fixClippedContainers(page);
+                    });
+                    const reflowed = reflowPages(workspace, { pullUp: true, timeBudgetMs: 60, maxIterations: 2000 });
+                    if (changed || reflowed) {
+                        updateDocState({ ...newState, htmlContent: workspace.innerHTML }, true);
+                    } else {
+                        updateDocState(newState, true);
+                    }
+                };
+
+                const fontReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+                fontReady.then(() => {
+                    requestAnimationFrame(() => {
+                        window.setTimeout(finalizeImport, 0);
+                    });
+                });
+
                 if (imageFiles.length > 0) {
                     if (linkedCount > 0) {
                         console.log(`Linked ${linkedCount} images from selection.`);
@@ -795,6 +1089,113 @@ const App: React.FC = () => {
 
       const inlineEl = textEl || blockEl;
       return { inlineEl, blockEl };
+  };
+
+  const getHeadingStyleSignature = (element: HTMLElement) => {
+      const computed = window.getComputedStyle(element);
+      return [
+          computed.fontFamily,
+          computed.fontSize,
+          computed.fontWeight,
+          computed.color,
+          computed.fontStyle,
+          computed.letterSpacing,
+          computed.textTransform,
+          computed.textAlign
+      ].join('|');
+  };
+
+  const getHeadingPreview = (element: HTMLElement) => {
+      const tag = element.tagName.toLowerCase();
+      const text = element.textContent?.trim() || '';
+      const truncated = text.length > 50 ? `${text.substring(0, 50)}...` : text;
+      return `<${tag}> ${truncated || '(vuoto)'}`;
+  };
+
+  const ensureElementId = (element: HTMLElement) => {
+      if (!element.id) {
+          element.id = `struct-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      }
+      return element.id;
+  };
+
+  const applyHeadingStructureToElement = (element: HTMLElement, level: 'h1' | 'h2' | 'h3') => {
+      let target = element;
+      if (target.tagName.toLowerCase() !== level) {
+          const newElement = document.createElement(level);
+          Array.from(target.attributes).forEach(attr => {
+              newElement.setAttribute(attr.name, attr.value);
+          });
+          newElement.innerHTML = target.innerHTML;
+          target.parentNode?.replaceChild(newElement, target);
+          target = newElement;
+      }
+
+      ensureElementId(target);
+      target.setAttribute('data-structure-status', 'approved');
+
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+      if (workspace) {
+          const page = target.closest('.page');
+          const pages = workspace.querySelectorAll('.page');
+          let pageNum = 1;
+          pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+
+          setStructureEntries(prev => {
+              const existing = prev.find(e => e.elementId === target.id);
+              if (existing) {
+                  return prev.map(e => e.elementId === target.id
+                      ? { ...e, status: 'approved', type: level, page: pageNum, text: target.innerText.substring(0, 50) }
+                      : e
+                  );
+              }
+              return [...prev, {
+                  id: target.id,
+                  elementId: target.id,
+                  text: target.innerText.substring(0, 50),
+                  page: pageNum,
+                  type: level,
+                  status: 'approved'
+              }];
+          });
+      }
+
+      return target;
+  };
+
+  const openStructurePatternModal = (level: 'h1' | 'h2' | 'h3', signature: string) => {
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+      if (!workspace) return;
+      const matches = findHeadingMatchesBySignature(signature, workspace)
+          .map(el => {
+              ensureElementId(el);
+              return { element: el, preview: getHeadingPreview(el) };
+          })
+          .filter(match => match.element.getAttribute('data-structure-status') !== 'rejected');
+
+      if (matches.length === 0) return;
+
+      setPatternModal({
+          isOpen: true,
+          actionType: `Apply ${level.toUpperCase()} style`,
+          matches,
+          applyStyle: (el: HTMLElement) => {
+              applyHeadingStructureToElement(el, level);
+          }
+      });
+  };
+
+  const findHeadingMatchesBySignature = (signature: string, workspace: HTMLElement) => {
+      const candidates = Array.from(workspace.querySelectorAll(
+          'p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)'
+      )) as HTMLElement[];
+
+      return candidates.filter(el => {
+          if (el.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle')) return false;
+          if (el.closest('.page-footer')) return false;
+          const elSignature = getHeadingStyleSignature(el);
+          return elSignature === signature;
+      });
   };
 
   const handleCopyStyle = () => {
@@ -1534,6 +1935,36 @@ const App: React.FC = () => {
       return true;
   };
 
+  const addHeadingToStructure = (tag: 'h1' | 'h2' | 'h3') => {
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+      if (!workspace) return;
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      const node = selection.getRangeAt(0).commonAncestorContainer;
+      const element = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+      const heading = element?.closest(tag) as HTMLElement | null;
+      if (!heading) return;
+
+      applyHeadingStructureToElement(heading, tag);
+      updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+
+      const signature = getHeadingStyleSignature(heading);
+      const prevSig = manualHeadingSignatures[tag];
+      const prevCount = manualHeadingCounts[tag];
+      const nextCount = prevCount + 1;
+
+      setManualHeadingCounts(prev => ({ ...prev, [tag]: nextCount } as { h1: number; h2: number; h3: number }));
+
+      if (!prevSig) {
+          setManualHeadingSignatures(prev => ({ ...prev, [tag]: signature }));
+          return;
+      }
+
+      if (prevSig === signature && nextCount >= 2) {
+          openStructurePatternModal(tag, signature);
+      }
+  };
+
   const handleFormat = (command: string, value?: string) => {
     if (command === 'removeSelection') {
         setSelectedImage(null);
@@ -1889,11 +2320,26 @@ const App: React.FC = () => {
     
     // NOTE: execCommand triggers the Editor's mutation observer or input listener, 
     // which calls handleContentChange. So history will be saved via debounce.
+    if (command === 'formatBlock' && value) {
+        const tag = value.replace(/[<>]/g, '').toLowerCase();
+        if (tag === 'h1' || tag === 'h2' || tag === 'h3') {
+            addHeadingToStructure(tag);
+        }
+    }
   };
 
-  const handleUpdateStyle = (targetTagName?: string) => {
-    const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
-    const styledElement = activeBlock?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)');
+    const handleUpdateStyle = (targetTagName?: string) => {
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+      let styledElement = activeBlock?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)') || null;
+      if (!styledElement) {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+          const node = selection.getRangeAt(0).commonAncestorContainer;
+          const element = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+          styledElement = element?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)') || null;
+        }
+      }
+      const { inlineEl } = getTextStyleSource();
     const headingTags = ['h1', 'h2', 'h3'];
 
     const inferHeadingFromHR = () => {
@@ -2007,29 +2453,29 @@ const App: React.FC = () => {
       return;
     }
 
-    const computed = window.getComputedStyle(styledElement as Element);
+    const computedBlock = window.getComputedStyle(styledElement as Element);
+    const computedText = window.getComputedStyle(inlineEl || styledElement);
 
-    // Get inline styles from selection (font, color etc are applied via execCommand to inner elements)
-    const color = selectionState.foreColor || computed.color;
-    const fontFamily = selectionState.fontName || computed.fontFamily;
-    const fontWeight = selectionState.bold ? 'bold' : computed.fontWeight;
-    const fontStyle = selectionState.italic ? 'italic' : computed.fontStyle;
-    const textDecoration = selectionState.underline ? 'underline' : computed.textDecoration;
+    const color = computedText.color;
+    const fontFamily = computedText.fontFamily;
+    const fontWeight = computedText.fontWeight;
+    const fontStyle = computedText.fontStyle;
+    const textDecoration = computedText.textDecorationLine || computedText.textDecoration;
 
     const newRule = `
- ${selector} {
+  ${selector} {
     font-family: ${fontFamily} !important;
-    font-size: ${computed.fontSize} !important;
+    font-size: ${computedText.fontSize} !important;
     color: ${color} !important;
     font-weight: ${fontWeight} !important;
-    text-align: ${computed.textAlign} !important;
+    text-align: ${computedBlock.textAlign} !important;
     font-style: ${fontStyle} !important;
     text-decoration: ${textDecoration} !important;
-    margin-top: ${computed.marginTop} !important;
-    margin-bottom: ${computed.marginBottom} !important;
-    line-height: ${computed.lineHeight} !important;
- }
- `;
+    margin-top: ${computedBlock.marginTop} !important;
+    margin-bottom: ${computedBlock.marginBottom} !important;
+    line-height: ${computedBlock.lineHeight} !important;
+  }
+  `;
 
     const nextHtml = htmlModified && workspace ? workspace.innerHTML : docState.htmlContent;
 
@@ -2334,28 +2780,63 @@ const App: React.FC = () => {
 
       const newPage = document.createElement('div');
       newPage.className = 'page';
-      
-      const marker = document.createElement('span');
-      marker.id = 'page-break-marker-' + Date.now();
-      range.insertNode(marker);
+      const pageBreakMarker = document.createElement('div');
+      pageBreakMarker.setAttribute('data-page-break', 'true');
+      pageBreakMarker.style.height = '0';
+      pageBreakMarker.style.margin = '0';
+      pageBreakMarker.style.padding = '0';
+      pageBreakMarker.style.border = '0';
 
-      const blockParent = marker.closest('p, h1, h2, h3, div:not(.page)');
-      
+      const blockParent = startNode?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)') as HTMLElement | null;
+      let moveStartNode: Node | null = null;
+
       if (blockParent && blockParent.parentElement === currentPage) {
-           let nextSibling = blockParent.nextSibling;
-           const nodesToMove = [];
-           while (nextSibling) {
-               nodesToMove.push(nextSibling);
-               nextSibling = nextSibling.nextSibling;
-           }
-           
-           nodesToMove.forEach(n => newPage.appendChild(n));
-           currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
-           marker.remove();
+          const endRange = document.createRange();
+          endRange.selectNodeContents(blockParent);
+          try {
+              endRange.setStart(range.startContainer, range.startOffset);
+          } catch {
+              endRange.setStart(blockParent, 0);
+          }
+
+          if (!endRange.collapsed) {
+              const extracted = endRange.extractContents();
+              if (extracted.childNodes.length > 0) {
+                  const newBlock = blockParent.cloneNode(false) as HTMLElement;
+                  newBlock.removeAttribute('id');
+                  newBlock.appendChild(extracted);
+                  blockParent.parentNode?.insertBefore(newBlock, blockParent.nextSibling);
+                  moveStartNode = newBlock;
+              }
+          }
+
+          if (!moveStartNode) {
+              moveStartNode = blockParent.nextSibling;
+          }
       } else {
-           currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
-           marker.remove();
+          let pageChild = blockParent as HTMLElement | null;
+          while (pageChild && pageChild.parentElement !== currentPage) {
+              pageChild = pageChild.parentElement;
+          }
+          moveStartNode = pageChild ? pageChild.nextSibling : null;
       }
+
+      if (moveStartNode && moveStartNode.parentNode !== currentPage) {
+          moveStartNode = null;
+      }
+
+      if (moveStartNode) {
+          const nodesToMove: Node[] = [];
+          let nextSibling: Node | null = moveStartNode;
+          while (nextSibling) {
+              nodesToMove.push(nextSibling);
+              nextSibling = nextSibling.nextSibling;
+          }
+          nodesToMove.forEach(n => newPage.appendChild(n));
+      }
+
+      currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
+      newPage.insertBefore(pageBreakMarker, newPage.firstChild);
 
       const rangeNew = document.createRange();
       rangeNew.setStart(newPage, 0);
@@ -2371,67 +2852,219 @@ const App: React.FC = () => {
   };
 
   const handleInsertTOC = (settings: TOCSettings) => {
-      const workspace = document.querySelector('.editor-workspace');
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
       if (!workspace) return;
 
-      const pages = workspace.querySelectorAll('.page');
+      const tocId = `toc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
       const tocEntries: TOCEntry[] = [];
-      
-      const selectors = [];
-      if (settings.includeH1) selectors.push('h1');
-      if (settings.includeH2) selectors.push('h2');
-      if (settings.includeH3) selectors.push('h3');
-      
-      if (selectors.length === 0) {
+      const include = {
+          h1: settings.includeH1,
+          h2: settings.includeH2,
+          h3: settings.includeH3
+      };
+
+      if (!include.h1 && !include.h2 && !include.h3) {
           alert("Please select at least one heading level.");
           return;
       }
-      const selectorString = selectors.join(', ');
 
-      pages.forEach((page, pageIndex) => {
-          const headings = page.querySelectorAll(selectorString);
-          headings.forEach((heading, hIndex) => {
-              if (!heading.id) {
-                  heading.id = `toc-${pageIndex}-${hIndex}-${Date.now()}`;
-              }
-              
-              tocEntries.push({
-                  id: heading.id,
-                  text: heading.textContent || 'Untitled Section',
-                  page: pageIndex + 1,
-                  level: heading.tagName.toLowerCase()
-              });
+      const resolveLevel = (type: string) => {
+          if (type.includes('h1')) return 'h1';
+          if (type.includes('h2')) return 'h2';
+          if (type.includes('h3')) return 'h3';
+          return null;
+      };
+
+      const approvedEntries = structureEntries.filter(entry => entry.status !== 'rejected');
+      approvedEntries.forEach(entry => {
+          const level = resolveLevel(entry.type);
+          if (!level || !include[level]) return;
+
+          const element = workspace.querySelector(`#${CSS.escape(entry.elementId)}`) as HTMLElement | null;
+          if (!element) return;
+
+          if (!element.id) {
+              element.id = entry.elementId || `toc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          }
+
+          const pageEl = element.closest('.page');
+          const pages = workspace.querySelectorAll('.page');
+          let pageNum = entry.page || 1;
+          pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+
+          tocEntries.push({
+              id: element.id,
+              text: entry.text || element.textContent || 'Untitled Section',
+              page: pageNum,
+              level
           });
       });
 
       if (tocEntries.length === 0) {
-          alert("No matching headings found.");
+          alert("No approved Structure entries found.");
           setIsTOCModalOpen(false);
           return;
       }
 
+      tocEntries.sort((a, b) => a.page - b.page);
+
+      const tocBg = settings.style === 'modern' ? '#f8f9fa' : 'transparent';
+      const leaderStyle = settings.style === 'dotted'
+          ? `flex:1 1 auto; height:2px; background-image: radial-gradient(circle, #9ca3af 1px, transparent 1.5px); background-size: ${settings.dotSpacing}px 2px; background-repeat: repeat-x; background-position: left 50%;`
+          : settings.style === 'modern'
+          ? 'flex:1 1 auto; height:1px; border-bottom: 1px solid #e2e5ea;'
+          : 'flex:1 1 auto; height:1px;';
+
       let tocHtml = `
-      <div class="toc-container toc-style-${settings.style}" contenteditable="false">
-          <div class="toc-title">Table of Contents</div>
-          <ul class="toc-list">
+      <div class="toc-container toc-style-${settings.style}" data-toc-id="${tocId}" data-toc-h1="${settings.includeH1 ? '1' : '0'}" data-toc-h2="${settings.includeH2 ? '1' : '0'}" data-toc-h3="${settings.includeH3 ? '1' : '0'}" data-toc-dot-spacing="${settings.dotSpacing}" style="--toc-dot-gap: ${settings.dotSpacing}px; background:${tocBg};">
+          <div class="toc-rows">
       `;
 
       tocEntries.forEach(entry => {
+          const indent = entry.level === 'h2' ? 20 : entry.level === 'h3' ? 40 : 0;
           tocHtml += `
-            <li class="toc-item toc-${entry.level}">
-                <a href="#${entry.id}" onclick="const el = document.getElementById('${entry.id}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;">
-                    ${entry.text}
-                </a>
-                <span class="toc-page">${entry.page}</span>
-            </li>
+            <div class="toc-row toc-${entry.level}" style="display:flex; align-items:baseline; gap:8px; margin:0 0 8px 0; width:100%;">
+                <span class="toc-title-cell" style="flex:0 1 auto; min-width:0; padding-left:${indent}px; padding-right:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    <a href="#${entry.id}" onclick="const el = document.getElementById('${entry.id}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;" style="color:inherit; text-decoration:none; display:block;">
+                        <span class="toc-text" style="background:${tocBg}; padding-right:6px; display:inline-block;">${entry.text}</span>
+                    </a>
+                </span>
+                <span class="toc-leader-cell" aria-hidden="true" style="${leaderStyle}"></span>
+                <span class="toc-page-cell" style="flex:0 0 auto; min-width:4ch; text-align:right; white-space:nowrap; padding-left:8px; background:${tocBg};">${entry.page}</span>
+            </div>
           `;
       });
 
-      tocHtml += `</ul></div><br/>`;
+      tocHtml += `</div></div><br/>`;
 
-      document.execCommand('insertHTML', false, tocHtml);
+      const selection = window.getSelection();
+      let range: Range | null = null;
+      if (selection && selection.rangeCount > 0) {
+          const candidate = selection.getRangeAt(0);
+          if (workspace.contains(candidate.commonAncestorContainer)) {
+              range = candidate;
+          }
+      }
+
+      if (range) {
+          const fragment = document.createRange().createContextualFragment(tocHtml);
+          range.insertNode(fragment);
+          range.collapse(false);
+      } else {
+          const firstPage = workspace.querySelector('.page');
+          if (firstPage) {
+              firstPage.insertAdjacentHTML('beforeend', tocHtml);
+          } else {
+              workspace.insertAdjacentHTML('beforeend', tocHtml);
+          }
+      }
+
+      reflowPages(workspace, { pullUp: true });
+      updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
       setIsTOCModalOpen(false);
-      // History saved by content change debounce
+  };
+
+  const handleRefreshTOC = (tocId?: string) => {
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+      if (!workspace) return;
+      const selector = tocId ? `.toc-container[data-toc-id="${tocId}"]` : '.toc-container';
+      const container = workspace.querySelector(selector) as HTMLElement | null;
+      if (!container) return;
+
+      const include = {
+          h1: container.getAttribute('data-toc-h1') !== '0',
+          h2: container.getAttribute('data-toc-h2') !== '0',
+          h3: container.getAttribute('data-toc-h3') !== '0'
+      };
+      const resolveLevel = (type: string) => {
+          if (type.includes('h1')) return 'h1';
+          if (type.includes('h2')) return 'h2';
+          if (type.includes('h3')) return 'h3';
+          return null;
+      };
+
+      const tocEntries: TOCEntry[] = [];
+      const approvedEntries = structureEntries.filter(entry => entry.status !== 'rejected');
+      approvedEntries.forEach(entry => {
+          const level = resolveLevel(entry.type);
+          if (!level || !include[level]) return;
+          const element = workspace.querySelector(`#${CSS.escape(entry.elementId)}`) as HTMLElement | null;
+          if (!element) return;
+          if (!element.id) element.id = entry.elementId || `toc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          const pageEl = element.closest('.page');
+          const pages = workspace.querySelectorAll('.page');
+          let pageNum = entry.page || 1;
+          pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+          tocEntries.push({
+              id: element.id,
+              text: entry.text || element.textContent || 'Untitled Section',
+              page: pageNum,
+              level
+          });
+      });
+
+      if (tocEntries.length === 0) return;
+      tocEntries.sort((a, b) => a.page - b.page);
+
+      const dotSpacingAttr = container.getAttribute('data-toc-dot-spacing');
+      const dotSpacing = dotSpacingAttr ? Number(dotSpacingAttr) : 6;
+      if (Number.isFinite(dotSpacing)) {
+          container.style.setProperty('--toc-dot-gap', `${dotSpacing}px`);
+      }
+      const tocBg = container.classList.contains('toc-style-modern') ? '#f8f9fa' : 'transparent';
+      const leaderStyle = container.classList.contains('toc-style-dotted')
+          ? `flex:1 1 auto; height:2px; background-image: radial-gradient(circle, #9ca3af 1px, transparent 1.5px); background-size: ${dotSpacing}px 2px; background-repeat: repeat-x; background-position: left 50%;`
+          : container.classList.contains('toc-style-modern')
+          ? 'flex:1 1 auto; height:1px; border-bottom: 1px solid #e2e5ea;'
+          : 'flex:1 1 auto; height:1px;';
+
+      const rowsHtml = tocEntries.map(entry => {
+        const indent = entry.level === 'h2' ? 20 : entry.level === 'h3' ? 40 : 0;
+        return `
+          <div class="toc-row toc-${entry.level}" style="display:flex; align-items:baseline; gap:8px; margin:0 0 8px 0; width:100%;">
+              <span class="toc-title-cell" style="flex:0 1 auto; min-width:0; padding-left:${indent}px; padding-right:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  <a href="#${entry.id}" onclick="const el = document.getElementById('${entry.id}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;" style="color:inherit; text-decoration:none; display:block;">
+                      <span class="toc-text" style="background:${tocBg}; padding-right:6px; display:inline-block;">${entry.text}</span>
+                  </a>
+              </span>
+              <span class="toc-leader-cell" aria-hidden="true" style="${leaderStyle}"></span>
+              <span class="toc-page-cell" style="flex:0 0 auto; min-width:4ch; text-align:right; white-space:nowrap; padding-left:8px; background:${tocBg};">${entry.page}</span>
+          </div>
+        `;
+      }).join('');
+
+      const rowsContainer = container.querySelector('.toc-rows') as HTMLElement | null;
+      if (rowsContainer) {
+          rowsContainer.innerHTML = rowsHtml;
+      } else {
+          container.querySelector('table.toc-table')?.remove();
+          const newRows = document.createElement('div');
+          newRows.className = 'toc-rows';
+          newRows.innerHTML = rowsHtml;
+          const actions = container.querySelector('.toc-actions');
+          if (actions && actions.nextSibling) {
+              container.insertBefore(newRows, actions.nextSibling);
+          } else {
+              container.appendChild(newRows);
+          }
+      }
+
+      updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+  };
+
+  const handleRemoveTOC = () => {
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+      if (workspace) {
+          workspace.querySelectorAll('.toc-container, table.toc-table, table[data-toc-table="true"]').forEach(el => el.remove());
+          updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+      } else {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(docState.htmlContent, 'text/html');
+          doc.querySelectorAll('.toc-container, table.toc-table, table[data-toc-table="true"]').forEach(el => el.remove());
+          updateDocState({ ...docState, htmlContent: doc.body.innerHTML }, true);
+      }
+      setIsTOCModalOpen(false);
   };
 
   const preparePageAnchors = () => {
@@ -2563,32 +3196,7 @@ const App: React.FC = () => {
   };
 
   const updatePageCSS = (width: string, height: string, margins: { top: number, bottom: number, left: number, right: number }) => {
-    const markerStart = '/* SPYWRITER_LAYOUT_OVERRIDE_START */';
-    const markerEnd = '/* SPYWRITER_LAYOUT_OVERRIDE_END */';
-
-    const newCssBlock = `
-${markerStart}
-@page {
-    size: ${width} ${height};
-    margin: 0; /* Use padding on .page instead for better control */
-}
-.page {
-    width: ${width} !important;
-    height: ${height} !important;
-    padding: calc(${margins.top}in + var(--header-reserve, 0in)) ${margins.right}in calc(${margins.bottom}in + var(--footer-reserve, 0in)) ${margins.left}in !important;
-    overflow: hidden !important;
-}
-${markerEnd}
-`;
-
-    let updatedCss = docState.cssContent;
-    const regex = new RegExp(`\\/\\* SPYWRITER_LAYOUT_OVERRIDE_START \\*\\/[\\s\\S]*?\\/\\* SPYWRITER_LAYOUT_OVERRIDE_END \\*\\/`, 'g');
-    if (regex.test(updatedCss)) {
-        updatedCss = updatedCss.replace(regex, newCssBlock.trim());
-    } else {
-        updatedCss = updatedCss + '\n' + newCssBlock.trim();
-    }
-
+    const updatedCss = applyLayoutOverride(docState.cssContent, width, height, margins);
     updateDocState({ ...docState, cssContent: updatedCss }, true);
   };
 
@@ -3507,6 +4115,32 @@ ${contentHtml}
           setStructureEntries(prev => [...prev, ...newEntries]);
       }
 
+      if (targetTag === 'h1' || targetTag === 'h2' || targetTag === 'h3') {
+          const firstId = selectionMode.selectedIds[0];
+          let signature: string | null = null;
+          if (firstId) {
+              const el = document.getElementById(firstId) as HTMLElement | null;
+              if (el) signature = getHeadingStyleSignature(el);
+          }
+
+          const prevSig = manualHeadingSignatures[targetTag];
+          const prevCount = manualHeadingCounts[targetTag];
+          const nextCount = prevCount + selectionMode.selectedIds.length;
+
+          setManualHeadingCounts(prev => ({
+              ...prev,
+              [targetTag]: nextCount
+          } as { h1: number; h2: number; h3: number }));
+
+          if (signature) {
+              if (!prevSig) {
+                  setManualHeadingSignatures(prev => ({ ...prev, [targetTag]: signature }));
+              } else if (prevSig === signature && nextCount >= 2) {
+                  openStructurePatternModal(targetTag, signature);
+              }
+          }
+      }
+
       if (domModified || newEntries.length > 0) {
           const workspace = document.querySelector('.editor-workspace');
           if (workspace) {
@@ -3522,18 +4156,39 @@ ${contentHtml}
   };
 
   const handleNavigateToEntry = (elementId: string) => {
-      const element = document.getElementById(elementId);
-      if (element) {
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+      const element = workspace?.querySelector(`#${CSS.escape(elementId)}`) as HTMLElement | null
+          || document.getElementById(elementId);
+      if (!element) return;
+
+      const container = editorContainerRef.current;
+      const page = element.closest('.page') as HTMLElement | null;
+      if (page) {
+          page.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const elementRect = element.getBoundingClientRect();
+          const targetTop = elementRect.top - containerRect.top + container.scrollTop - 80;
+          container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+      } else {
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          
-          // Visual cue
-          const originalOutline = element.style.outline;
-          element.style.outline = '2px solid #a855f7'; // Purple highlight
-          element.style.transition = 'outline 0.3s';
-          setTimeout(() => {
-              element.style.outline = originalOutline;
-          }, 1500);
       }
+
+      if (container && page) {
+          requestAnimationFrame(() => {
+              const containerRect = container.getBoundingClientRect();
+              const elementRect = element.getBoundingClientRect();
+              const targetTop = elementRect.top - containerRect.top + container.scrollTop - 80;
+              container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+          });
+      }
+
+      const originalOutline = element.style.outline;
+      element.style.outline = '2px solid #a855f7';
+      element.style.transition = 'outline 0.3s';
+      setTimeout(() => {
+          element.style.outline = originalOutline;
+      }, 1500);
   };
 
   const handleUpdateEntryStatus = (id: string, status: 'approved' | 'rejected') => {
@@ -3574,6 +4229,46 @@ ${contentHtml}
               updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
           }
       }
+  };
+
+  const handleClearStructure = () => {
+      const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+      if (workspace) {
+          workspace.querySelectorAll('h1, h2, h3, [data-structure-status]').forEach(el => {
+              (el as HTMLElement).setAttribute('data-structure-status', 'rejected');
+          });
+          updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+      } else {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(docState.htmlContent, 'text/html');
+          doc.querySelectorAll('h1, h2, h3, [data-structure-status]').forEach(el => {
+              (el as HTMLElement).setAttribute('data-structure-status', 'rejected');
+          });
+          updateDocState({ ...docState, htmlContent: doc.body.innerHTML }, true);
+      }
+
+      setStructureEntries(prev => prev.map(entry => ({ ...entry, status: 'rejected' })));
+      requestAnimationFrame(() => {
+          setStructureEntries([]);
+      });
+  };
+  const handleAutoFillStructure = () => {
+      runStructureScan();
+  };
+
+  const handleToggleAutoStructure = () => {
+      setAutoStructureEnabled(prev => !prev);
+  };
+
+  const handleApplyAutoStructureSuggestion = () => {
+      if (!autoStructureSuggestion) return;
+      openStructurePatternModal(autoStructureSuggestion.level, autoStructureSuggestion.signature);
+      setAutoStructureSuggested(false);
+  };
+
+  const handleDismissAutoStructureSuggestion = () => {
+      setAutoStructureSuggested(false);
+      setAutoStructureSuggestion(null);
   };
 
   return (
@@ -3646,6 +4341,14 @@ ${contentHtml}
           onCancelSelection={handleCancelSelection}
           onNavigateToEntry={handleNavigateToEntry}
           onUpdateEntryStatus={handleUpdateEntryStatus}
+          onClearStructure={handleClearStructure}
+          onAutoFillStructure={handleAutoFillStructure}
+          autoStructureEnabled={autoStructureEnabled}
+          onToggleAutoStructure={handleToggleAutoStructure}
+          autoStructureSuggested={autoStructureSuggested}
+          autoStructureSuggestionLevel={autoStructureSuggestion?.level || null}
+          onApplyAutoStructureSuggestion={handleApplyAutoStructureSuggestion}
+          onDismissAutoStructureSuggestion={handleDismissAutoStructureSuggestion}
           aiMessages={aiMessages}
           aiInput={aiInput}
           aiLoading={aiLoading}
@@ -3680,6 +4383,7 @@ ${contentHtml}
                 onInsertHorizontalRule={handleInsertHorizontalRule}
                 onInsertImage={handleInsertImage}
                 onInsertTextLayerAt={handleInsertTextLayerAt}
+                onRefreshTOC={handleRefreshTOC}
                 showMarginGuides={showMarginGuides}
                 showSmartGuides={showSmartGuides}
                 pageMargins={pageMargins}
@@ -3714,7 +4418,8 @@ ${contentHtml}
       <TOCModal 
         isOpen={isTOCModalOpen} 
         onClose={() => setIsTOCModalOpen(false)} 
-        onInsert={handleInsertTOC} 
+        onInsert={handleInsertTOC}
+        onRemove={handleRemoveTOC}
       />
 
       <SettingsModal

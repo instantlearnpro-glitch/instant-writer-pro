@@ -17,6 +17,7 @@ const isFlowElement = (el: HTMLElement): boolean => {
     if (el.classList.contains('page-footer')) return false;
     if (el.classList.contains('image-overlay')) return false;
     if (el.classList.contains('resize-handle')) return false;
+    if (el.getAttribute('data-page-break') === 'true') return false;
     const pos = window.getComputedStyle(el).position;
     return pos !== 'absolute' && pos !== 'fixed';
 };
@@ -25,37 +26,29 @@ const isFlowElement = (el: HTMLElement): boolean => {
  * Checks if the content of a page is overflowing its fixed height.
  * Temporarily removes constraints to measure true content height.
  */
+const getElementBottomWithMargin = (el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    const marginBottom = parseFloat(style.marginBottom) || 0;
+    return rect.bottom + marginBottom;
+};
+
 export const isPageOverflowing = (page: HTMLElement): boolean => {
-    // Save original styles
-    const originalHeight = page.style.height;
-    const originalMaxHeight = page.style.maxHeight;
-    const originalOverflow = page.style.overflow;
-    
-    // Remove constraints to measure true content height
-    page.style.height = 'auto';
-    page.style.maxHeight = 'none';
-    page.style.overflow = 'visible';
-    
-    // Get the natural content height
-    const contentHeight = page.scrollHeight;
-    
-    // Restore original styles
-    page.style.height = originalHeight;
-    page.style.maxHeight = originalMaxHeight;
-    page.style.overflow = originalOverflow;
-    
-    // Get the fixed page height from computed style (the CSS value)
+    const lastEl = getLastFlowChild(page);
+    if (!lastEl) return false;
+    const pageRect = page.getBoundingClientRect();
     const computed = window.getComputedStyle(page);
-    const pageHeight = parseFloat(computed.height) || page.clientHeight;
-    
-    return contentHeight > pageHeight + 1;
+    const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+    const contentBottom = getElementBottomWithMargin(lastEl);
+    const allowedBottom = pageRect.bottom - paddingBottom;
+    return contentBottom > allowedBottom + 1;
 };
 
 /**
  * Gets the actual content height by measuring the last child's bottom position
  */
 const getContentHeight = (page: HTMLElement): number => {
-    const children = Array.from(page.children);
+    const children = Array.from(page.children).filter(child => isFlowElement(child as HTMLElement));
     if (children.length === 0) return 0;
     
     const pageRect = page.getBoundingClientRect();
@@ -64,8 +57,8 @@ const getContentHeight = (page: HTMLElement): number => {
     
     let maxBottom = 0;
     children.forEach(child => {
-        const childRect = child.getBoundingClientRect();
-        const relativeBottom = childRect.bottom - pageRect.top;
+        const childBottom = getElementBottomWithMargin(child as HTMLElement);
+        const relativeBottom = childBottom - pageRect.top;
         if (relativeBottom > maxBottom) {
             maxBottom = relativeBottom;
         }
@@ -275,6 +268,7 @@ const splitElement = (element: HTMLElement, pageBottom: number): HTMLElement | n
     return newElement;
 };
 
+
 /**
  * Get the last flow element (in normal document flow) from a page
  */
@@ -286,22 +280,140 @@ const getLastFlowChild = (page: HTMLElement): HTMLElement | null => {
     return null;
 };
 
+const getFirstFlowChild = (page: HTMLElement): HTMLElement | null => {
+    const els = Array.from(page.children) as HTMLElement[];
+    for (let i = 0; i < els.length; i++) {
+        if (isFlowElement(els[i])) return els[i];
+    }
+    return null;
+};
+
+const getPageBreakMarker = (page: HTMLElement): HTMLElement | null => {
+    return page.querySelector('[data-page-break="true"]') as HTMLElement | null;
+};
+
+const isTextSplitTarget = (el: HTMLElement) => {
+    return el.matches('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+};
+
+const splitTextBlockByRange = (element: HTMLElement, pageBottom: number): HTMLElement | null => {
+    const textNodes: Text[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode() as Text | null;
+    while (node) {
+        if (node.textContent && node.textContent.trim().length > 0) {
+            textNodes.push(node);
+        }
+        node = walker.nextNode() as Text | null;
+    }
+
+    if (textNodes.length === 0) return null;
+
+    let overflowNode: Text | null = null;
+    for (const textNode of textNodes) {
+        const range = document.createRange();
+        range.selectNodeContents(textNode);
+        const rect = range.getBoundingClientRect();
+        if (rect.bottom > pageBottom + 1) {
+            overflowNode = textNode;
+            break;
+        }
+    }
+
+    if (!overflowNode) return null;
+
+    const text = overflowNode.textContent || '';
+    let low = 0;
+    let high = text.length;
+    let best = 0;
+    const range = document.createRange();
+
+    while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        range.setStart(overflowNode, 0);
+        range.setEnd(overflowNode, Math.max(0, mid));
+        const rect = range.getBoundingClientRect();
+        if (rect.bottom <= pageBottom) {
+            best = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    const splitOffset = Math.max(0, best);
+    const splitRange = document.createRange();
+    splitRange.selectNodeContents(element);
+    try {
+        splitRange.setStart(overflowNode, splitOffset);
+    } catch {
+        return null;
+    }
+
+    const fragment = splitRange.extractContents();
+    if (!fragment || fragment.childNodes.length === 0) return null;
+
+    const newElement = element.cloneNode(false) as HTMLElement;
+    newElement.removeAttribute('id');
+    newElement.appendChild(fragment);
+
+    if (!element.textContent?.trim() && element.children.length === 0) {
+        element.remove();
+    }
+
+    return newElement;
+};
+
+const isSplitContainer = (el: HTMLElement) => {
+    const tag = el.tagName.toLowerCase();
+    if (el.classList.contains('page')) return false;
+    if (el.classList.contains('editor-workspace')) return false;
+    if (el.classList.contains('page-footer')) return false;
+    return ['div', 'section', 'article', 'main'].includes(tag);
+};
+
+const splitContainerByChildren = (container: HTMLElement, pageBottom: number): HTMLElement | null => {
+    const children = Array.from(container.children) as HTMLElement[];
+    if (children.length < 2) return null;
+
+    let splitIndex = -1;
+    for (let i = 0; i < children.length; i++) {
+        const rect = children[i].getBoundingClientRect();
+        if (rect.bottom > pageBottom) {
+            splitIndex = i;
+            break;
+        }
+    }
+
+    if (splitIndex <= 0) return null;
+
+    const newContainer = container.cloneNode(false) as HTMLElement;
+    newContainer.removeAttribute('id');
+
+    for (let i = splitIndex; i < children.length; i++) {
+        newContainer.appendChild(children[i]);
+    }
+
+    return newContainer;
+};
+
 /**
  * The core reflow logic.
  * CONSERVATIVE: Only moves WHOLE elements to next page when they overflow.
  * Never splits elements, never pulls content up, never removes pages.
  * This preserves the original document structure and spacing.
  */
-export const reflowPages = (editor: HTMLElement) => {
+export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number }) => {
     // 1. Sanitize first
     ensureContentIsPaginated(editor);
 
     const pages = Array.from(editor.querySelectorAll('.page')) as HTMLElement[];
     let changesMade = false;
     let iterations = 0;
-    const maxIterations = 100; // Safety limit
+    const maxIterations = options?.maxIterations ?? 800; // Safety limit
     const start = performance.now();
-    const timeBudgetMs = 14;
+    const timeBudgetMs = options?.timeBudgetMs ?? 30;
+    const pullUp = options?.pullUp ?? true;
     let budgetExceeded = false;
     
     for (let i = 0; i < pages.length && iterations < maxIterations; i++) {
@@ -312,6 +424,8 @@ export const reflowPages = (editor: HTMLElement) => {
         const page = pages[i];
         const computed = window.getComputedStyle(page);
         const pageHeight = page.clientHeight || parseFloat(computed.height) || 0;
+        const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+        const pageBottom = page.getBoundingClientRect().bottom - paddingBottom;
 
         // Only handle overflow - push elements to next page
         while (isPageOverflowing(page) && iterations < maxIterations) {
@@ -324,6 +438,48 @@ export const reflowPages = (editor: HTMLElement) => {
             // Get the last flow element (skip non-flow elements like footers)
             const lastEl = getLastFlowChild(page);
             if (!lastEl) break;
+
+            if (isSplitContainer(lastEl)) {
+                const split = splitContainerByChildren(lastEl, pageBottom);
+                if (split) {
+                    let nextPage = pages[i + 1];
+                    if (!nextPage) {
+                        nextPage = document.createElement('div');
+                        nextPage.className = 'page';
+                        editor.appendChild(nextPage);
+                        pages.push(nextPage);
+                    }
+
+                    if (nextPage.firstChild) {
+                        nextPage.insertBefore(split, nextPage.firstChild);
+                    } else {
+                        nextPage.appendChild(split);
+                    }
+                    changesMade = true;
+                    continue;
+                }
+            }
+
+            if (isTextSplitTarget(lastEl)) {
+                const split = splitTextBlockByRange(lastEl, pageBottom);
+                if (split) {
+                    let nextPage = pages[i + 1];
+                    if (!nextPage) {
+                        nextPage = document.createElement('div');
+                        nextPage.className = 'page';
+                        editor.appendChild(nextPage);
+                        pages.push(nextPage);
+                    }
+
+                    if (nextPage.firstChild) {
+                        nextPage.insertBefore(split, nextPage.firstChild);
+                    } else {
+                        nextPage.appendChild(split);
+                    }
+                    changesMade = true;
+                    continue;
+                }
+            }
 
             // If the element itself is taller than the page, don't keep moving it forever
             const lastElHeight = lastEl.offsetHeight || lastEl.scrollHeight || 0;
@@ -341,7 +497,10 @@ export const reflowPages = (editor: HTMLElement) => {
             }
             
             // Move the WHOLE element to the beginning of next page
-            if (nextPage.firstChild) {
+            const breakMarker = getPageBreakMarker(nextPage);
+            if (breakMarker && breakMarker.parentElement === nextPage) {
+                nextPage.insertBefore(lastEl, breakMarker.nextSibling);
+            } else if (nextPage.firstChild) {
                 nextPage.insertBefore(lastEl, nextPage.firstChild);
             } else {
                 nextPage.appendChild(lastEl);
@@ -350,7 +509,78 @@ export const reflowPages = (editor: HTMLElement) => {
             changesMade = true;
         }
         if (budgetExceeded) break;
+
+        // Pull content UP if there is space on this page
+        if (pullUp) {
+            let nextPage = pages[i + 1];
+            if (nextPage && getPageBreakMarker(nextPage)) {
+                continue;
+            }
+            while (nextPage && hasPageSpace(page, 12) && iterations < maxIterations) {
+                if (performance.now() - start > timeBudgetMs) {
+                    budgetExceeded = true;
+                    break;
+                }
+
+                const firstEl = getFirstFlowChild(nextPage);
+                if (!firstEl) break;
+
+                // Try moving element up
+                page.appendChild(firstEl);
+                if (!isPageOverflowing(page)) {
+                    changesMade = true;
+                    continue;
+                }
+
+                if (isTextSplitTarget(firstEl)) {
+                    const split = splitTextBlockByRange(firstEl, pageBottom);
+                    if (split) {
+                        if (nextPage.firstChild) {
+                            nextPage.insertBefore(split, nextPage.firstChild);
+                        } else {
+                            nextPage.appendChild(split);
+                        }
+                        changesMade = true;
+                        if (!isPageOverflowing(page)) {
+                            continue;
+                        }
+                    }
+                }
+
+                // Still doesn't fit: move back and stop pulling
+                if (nextPage.firstChild) {
+                    nextPage.insertBefore(firstEl, nextPage.firstChild);
+                } else {
+                    nextPage.appendChild(firstEl);
+                }
+                break;
+            }
+        }
+    }
+
+    if (budgetExceeded) {
+        const scheduled = editor.getAttribute('data-reflow-scheduled');
+        if (!scheduled) {
+            editor.setAttribute('data-reflow-scheduled', 'true');
+            requestAnimationFrame(() => {
+                editor.removeAttribute('data-reflow-scheduled');
+                reflowPages(editor, options);
+            });
+        }
     }
 
     return changesMade;
+};
+
+/**
+ * Aggressive reflow used for imports.
+ * - Splits oversized flow elements when possible
+ * - No time budget, but uses a safety max iteration limit
+ */
+export const reflowPagesAggressive = (editor: HTMLElement, options?: { maxIterations?: number }) => {
+    return reflowPages(editor, {
+        pullUp: true,
+        timeBudgetMs: 80,
+        maxIterations: options?.maxIterations ?? 5000
+    });
 };

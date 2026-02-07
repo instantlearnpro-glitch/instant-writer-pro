@@ -2,7 +2,7 @@
 export const DEFAULT_CSS = `
 @page {
     size: 8.5in 11in;
-    margin: 0.5in 0.5in 0.5in 0.375in;
+    margin: 0.5in 0.5in 0.5in 0.45in;
 }
 
 * {
@@ -14,7 +14,7 @@ export const DEFAULT_CSS = `
     height: 11in;
     min-height: 11in;
     max-height: 11in;
-    padding: calc(0.5in + var(--header-reserve, 0in)) 0.5in calc(0.5in + var(--footer-reserve, 0in)) 0.375in;
+    padding: calc(0.5in + var(--header-reserve, 0in)) 0.5in calc(0.5in + var(--footer-reserve, 0in)) 0.45in;
     margin: 0 auto 0.5in auto;
     position: relative;
     background: #fff;
@@ -284,71 +284,82 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
     padding: 20px;
     margin-bottom: 20px;
     font-family: 'Roboto', sans-serif;
+    box-sizing: border-box;
+    max-width: 100%;
+    --toc-dot-gap: 6px;
+    position: relative;
+    overflow: visible;
 }
 
-.toc-title {
-    font-size: 18pt;
-    font-weight: bold;
-    text-align: center;
-    margin-bottom: 20px;
-    text-transform: uppercase;
+
+.toc-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: fixed !important;
+    border: none !important;
 }
 
-.toc-list {
-    list-style: none;
-    padding: 0;
+.toc-table td {
+    padding: 4px 0 !important;
+    vertical-align: baseline !important;
+    border: none !important;
 }
 
-.toc-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 8px;
+.toc-col-title { width: 65%; }
+.toc-col-leader { width: 30%; }
+.toc-col-page { width: 5ch; }
+
+.toc-title-cell {
+    overflow: hidden;
+    padding-right: 10px;
 }
 
-.toc-item a {
+.toc-title-cell a {
     text-decoration: none;
     color: inherit;
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.toc-text {
+    display: inline-block;
+    background: #fff;
+    padding-right: 6px;
+}
+
+.toc-leader-cell {
+    background: transparent;
+    height: 0.9em;
+    padding: 0 8px;
+}
+
+.toc-page-cell {
+    text-align: right;
+    white-space: nowrap;
+    padding-left: 10px;
 }
 
 /* Indentation levels */
-.toc-h1 { font-weight: bold; margin-top: 10px; }
-.toc-h2 { margin-left: 20px; font-size: 0.95em; }
-.toc-h3 { margin-left: 40px; font-size: 0.9em; font-style: italic; }
+.toc-h1 { font-weight: bold; }
+.toc-h2 .toc-title-cell { padding-left: 20px; font-size: 0.95em; }
+.toc-h3 .toc-title-cell { padding-left: 40px; font-size: 0.9em; font-style: italic; }
 
-/* Styles */
-/* Classic: Simple links */
-.toc-style-classic .toc-item {
-    border-bottom: none;
-}
-.toc-style-classic .toc-page {
-    font-weight: bold;
-}
+/* Classic: no leaders */
+.toc-style-classic .toc-leader-cell { background: none; }
+.toc-style-classic .toc-page-cell { font-weight: bold; }
+.toc-style-classic .toc-col-leader { width: 0 !important; }
 
-/* Modern: Clean lines */
-.toc-style-modern {
-    background: #f8f9fa;
-    border-left: 4px solid #333;
-}
-.toc-style-modern .toc-item {
-    padding: 5px 0;
-    border-bottom: 1px solid #e9ecef;
-}
+/* Modern: solid line leader */
+.toc-style-modern { background: #f8f9fa; border-left: 4px solid #333; }
+.toc-style-modern .toc-leader-cell { border-bottom: 1px solid #e2e5ea; }
+.toc-style-modern .toc-text { background: #f8f9fa; }
+.toc-style-modern .toc-page-cell { background: #f8f9fa; }
 
-/* Dotted: Classic book leaders */
-.toc-style-dotted .toc-item a {
-    flex: 1;
-    overflow: hidden;
-    white-space: nowrap;
-}
-.toc-style-dotted .toc-item a::after {
-    content: " . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ";
-    color: #999;
-    margin-left: 5px;
-}
-.toc-style-dotted .toc-page {
-    flex-shrink: 0;
-    margin-left: 5px;
+/* Dotted: dotted leader */
+.toc-style-dotted .toc-leader-cell {
+    border-bottom: 2px dotted #9ca3af;
 }
 
 /* --- Page Footer (Numbering) --- */
@@ -407,8 +418,8 @@ export const PAGE_FORMATS = {
     name: 'US Letter (8.5" x 11")',
     width: '8.5in',
     height: '11in',
-    // 110-150 pages: gutter 0.375", outside 0.5", top/bottom 0.5"
-    margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 }
+    // 110-150 pages: gutter 0.45", outside 0.5", top/bottom 0.5"
+    margins: { top: 0.5, bottom: 0.5, left: 0.45, right: 0.5 }
   },
   LETTER_THICK: {
     id: 'letter-thick',

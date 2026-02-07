@@ -27,6 +27,7 @@ interface EditorProps {
   selectedHR: HTMLHRElement | null;
   selectedFooter: HTMLElement | null;
   onFooterSelect: (footer: HTMLElement | null) => void;
+  onRefreshTOC: (tocId?: string) => void;
   imageProperties: ImageProperties;
   onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
@@ -86,6 +87,178 @@ const hasAncestorTag = (node: Node | null, tagNames: string[], stopAt?: HTMLElem
   return false;
 };
 
+const hasVisibleContent = (el: HTMLElement) => {
+  if (el.querySelector('img, svg, canvas, video, table, ul, ol, hr')) return true;
+  return (el.textContent?.trim().length || 0) > 0;
+};
+
+const removeInvisibleContainers = (root: HTMLElement) => {
+  const candidates = root.querySelectorAll('div, section, article, main');
+  candidates.forEach(node => {
+    const el = node as HTMLElement;
+    if (el.classList.contains('page') ||
+        el.classList.contains('editor-workspace') ||
+        el.classList.contains('page-footer') ||
+        el.classList.contains('spacer') ||
+        el.classList.contains('writing-lines') ||
+        el.classList.contains('tracing-line')) {
+      return;
+    }
+
+    const style = window.getComputedStyle(el);
+    const opacity = parseFloat(style.opacity || '1');
+    const invisible = style.display === 'none' || style.visibility === 'hidden' || opacity === 0;
+
+    if (invisible) {
+      el.remove();
+      return;
+    }
+
+    if (!hasVisibleContent(el) && el.children.length === 0) {
+      el.remove();
+    }
+  });
+};
+
+const unwrapNeutralContainers = (root: HTMLElement) => {
+  const candidates = root.querySelectorAll('div, section, article, main');
+  candidates.forEach(node => {
+    const el = node as HTMLElement;
+    if (el.classList.contains('page') ||
+        el.classList.contains('editor-workspace') ||
+        el.classList.contains('page-footer') ||
+        el.classList.contains('spacer') ||
+        el.classList.contains('writing-lines') ||
+        el.classList.contains('tracing-line') ||
+        el.classList.contains('toc-container') ||
+        el.classList.contains('mission-box')) {
+      return;
+    }
+
+    if (el.children.length <= 1 && !hasVisibleContent(el)) {
+      return;
+    }
+
+    const style = window.getComputedStyle(el);
+    const hasVisualStyles =
+      style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent' ||
+      parseFloat(style.borderTopWidth || '0') > 0 ||
+      parseFloat(style.borderRightWidth || '0') > 0 ||
+      parseFloat(style.borderBottomWidth || '0') > 0 ||
+      parseFloat(style.borderLeftWidth || '0') > 0 ||
+      parseFloat(style.paddingTop || '0') > 0 ||
+      parseFloat(style.paddingBottom || '0') > 0 ||
+      parseFloat(style.paddingLeft || '0') > 0 ||
+      parseFloat(style.paddingRight || '0') > 0 ||
+      parseFloat(style.marginTop || '0') > 0 ||
+      parseFloat(style.marginBottom || '0') > 0 ||
+      parseFloat(style.marginLeft || '0') > 0 ||
+      parseFloat(style.marginRight || '0') > 0 ||
+      style.position !== 'static';
+
+    if (hasVisualStyles) return;
+    if (!el.parentElement) return;
+
+    const parent = el.parentElement;
+    while (el.firstChild) {
+      parent.insertBefore(el.firstChild, el);
+    }
+    el.remove();
+  });
+};
+
+const isEmptyParagraph = (el: HTMLElement) => {
+  if (el.tagName !== 'P') return false;
+  const html = el.innerHTML.replace(/\u200B/g, '').trim().toLowerCase();
+  if (html === '' || html === '<br>' || html === '<br/>' || html === '<br />') return true;
+  return (el.textContent?.trim().length || 0) === 0;
+};
+
+const isTextBlock = (el: HTMLElement) => {
+  return el.matches('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+};
+
+const isTextContainer = (el: HTMLElement) => {
+  if (isTextBlock(el)) return true;
+  const tag = el.tagName.toLowerCase();
+  if (!['div', 'section', 'article', 'main'].includes(tag)) return false;
+  if (el.classList.contains('page') || el.classList.contains('editor-workspace')) return false;
+  if (el.classList.contains('mission-box')) return false;
+  if (el.classList.contains('toc-container')) return false;
+  if (el.querySelector('img, table, hr, .floating-text, .writing-lines, textarea, .mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle')) {
+    return false;
+  }
+  return true;
+};
+
+const placeCaretInBlock = (el: HTMLElement, atEnd: boolean) => {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(!atEnd ? true : false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+};
+
+const preserveSelection = (root: HTMLElement) => {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return () => {};
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer)) return () => {};
+
+  const startMarker = document.createElement('span');
+  startMarker.setAttribute('data-caret', 'start');
+  startMarker.style.display = 'inline-block';
+  startMarker.style.width = '0';
+  startMarker.style.height = '0';
+  startMarker.style.lineHeight = '0';
+  startMarker.textContent = '\u200b';
+
+  let endMarker: HTMLSpanElement | null = null;
+
+  if (!range.collapsed) {
+    endMarker = document.createElement('span');
+    endMarker.setAttribute('data-caret', 'end');
+    endMarker.style.display = 'inline-block';
+    endMarker.style.width = '0';
+    endMarker.style.height = '0';
+    endMarker.style.lineHeight = '0';
+    endMarker.textContent = '\u200b';
+    const endRange = range.cloneRange();
+    endRange.collapse(false);
+    endRange.insertNode(endMarker);
+  }
+
+  const startRange = range.cloneRange();
+  startRange.collapse(true);
+  startRange.insertNode(startMarker);
+
+  return () => {
+    const start = root.querySelector('span[data-caret="start"]') as HTMLSpanElement | null;
+    const end = root.querySelector('span[data-caret="end"]') as HTMLSpanElement | null;
+    const nextSelection = window.getSelection();
+    if (!nextSelection || !start) {
+      start?.remove();
+      end?.remove();
+      return;
+    }
+
+    const nextRange = document.createRange();
+    if (end) {
+      nextRange.setStartAfter(start);
+      nextRange.setEndBefore(end);
+    } else {
+      nextRange.setStartAfter(start);
+      nextRange.collapse(true);
+    }
+    nextSelection.removeAllRanges();
+    nextSelection.addRange(nextRange);
+    start.remove();
+    end?.remove();
+  };
+};
+
 const Editor: React.FC<EditorProps> = ({ 
   htmlContent, 
   cssContent, 
@@ -97,6 +270,7 @@ const Editor: React.FC<EditorProps> = ({
   onHRSelect,
   selectedFooter,
   onFooterSelect,
+  onRefreshTOC,
   containerRef,
   selectedImage,
   selectedTextLayer,
@@ -146,6 +320,9 @@ const Editor: React.FC<EditorProps> = ({
       suppressClick: false
   });
   const marginCheckRafRef = useRef<number | null>(null);
+  const reflowDebounceRef = useRef<number | null>(null);
+  const lastUserEditAtRef = useRef<number>(0);
+  const lastEmittedHtmlRef = useRef<string>('');
   const [tableTocModal, setTableTocModal] = useState<{
       isOpen: boolean;
       tableId: string;
@@ -356,14 +533,20 @@ const Editor: React.FC<EditorProps> = ({
     if (selectionMode?.active) return;
     if (contentRef.current) {
         if (contentRef.current.innerHTML !== htmlContent) {
+            const isFocused = document.activeElement === contentRef.current;
+            const currentHtml = contentRef.current.innerHTML;
+            if (isFocused && (htmlContent === lastEmittedHtmlRef.current || htmlContent === currentHtml)) {
+                return;
+            }
             contentRef.current.innerHTML = htmlContent;
+            lastEmittedHtmlRef.current = htmlContent;
             const imgs = contentRef.current.querySelectorAll('img');
             imgs.forEach(img => {
                 img.onerror = () => { img.classList.add('broken-image'); };
             });
         }
     }
-  }, [htmlContent]);
+  }, [htmlContent, selectionMode]);
 
   // Measure pages for overlays
   useEffect(() => {
@@ -772,8 +955,45 @@ const Editor: React.FC<EditorProps> = ({
               const element = node.nodeType === Node.ELEMENT_NODE
                   ? (node as HTMLElement)
                   : node.parentElement;
-              const inTextBlock = !!element?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, div[contenteditable="true"]');
-              if (inTextBlock) {
+              const textBlock = element?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote') as HTMLElement | null;
+              if (textBlock) {
+                  if (isEmptyParagraph(textBlock)) {
+                      e.preventDefault();
+                      const page = textBlock.closest('.page') as HTMLElement | null;
+                      const sibling = e.key === 'Backspace'
+                          ? textBlock.previousElementSibling
+                          : textBlock.nextElementSibling;
+
+                      let targetBlock: HTMLElement | null = null;
+                      if (sibling && sibling instanceof HTMLElement) {
+                          if (isTextBlock(sibling)) {
+                              targetBlock = sibling;
+                          } else {
+                              const newPara = document.createElement('p');
+                              newPara.innerHTML = '<br>';
+                              if (e.key === 'Backspace') {
+                                  sibling.parentNode?.insertBefore(newPara, sibling);
+                              } else {
+                                  sibling.parentNode?.insertBefore(newPara, sibling.nextSibling);
+                              }
+                              targetBlock = newPara;
+                          }
+                          textBlock.remove();
+                      } else if (page) {
+                          const newPara = document.createElement('p');
+                          newPara.innerHTML = '<br>';
+                          page.appendChild(newPara);
+                          targetBlock = newPara;
+                          textBlock.remove();
+                      }
+
+                      if (targetBlock) {
+                          placeCaretInBlock(targetBlock, e.key === 'Backspace');
+                      }
+
+                      scheduleReflow();
+                      return;
+                  }
                   return;
               }
           }
@@ -824,6 +1044,101 @@ const Editor: React.FC<EditorProps> = ({
           }
       }
   };
+
+
+  const scheduleReflow = useCallback(() => {
+      if (!contentRef.current) return;
+      if (reflowDebounceRef.current) {
+          window.clearTimeout(reflowDebounceRef.current);
+      }
+      reflowDebounceRef.current = window.setTimeout(() => {
+          reflowDebounceRef.current = null;
+          if (!contentRef.current) return;
+          const restoreSelection = preserveSelection(contentRef.current);
+          reflowPages(contentRef.current, { pullUp: true });
+          restoreSelection();
+          lastUserEditAtRef.current = Date.now();
+          lastEmittedHtmlRef.current = contentRef.current.innerHTML;
+          onContentChange(contentRef.current.innerHTML);
+      }, 120);
+  }, [onContentChange]);
+
+  const insertParagraphAtPoint = useCallback((clientX: number, clientY: number) => {
+      if (!contentRef.current) return false;
+      const elements = document.elementsFromPoint(clientX, clientY);
+      const page = elements.map(el => (el as HTMLElement).closest('.page') as HTMLElement | null).find(p => p) || null;
+      if (!page) return false;
+
+      const interactive = elements.some(el =>
+          (el as HTMLElement).closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, img, table, hr, .floating-text, .writing-lines, textarea, .toc-container')
+      );
+      if (interactive) return false;
+
+      let range: Range | null = null;
+      if (document.caretRangeFromPoint) {
+          range = document.caretRangeFromPoint(clientX, clientY);
+      } else if ((document as any).caretPositionFromPoint) {
+          const pos = (document as any).caretPositionFromPoint(clientX, clientY);
+          if (pos) {
+              range = document.createRange();
+              range.setStart(pos.offsetNode, pos.offset);
+              range.collapse(true);
+          }
+      }
+
+      const newPara = document.createElement('p');
+      newPara.innerHTML = '<br>';
+
+      const selected = contentRef.current.querySelectorAll('[data-selected="true"]');
+      selected.forEach(el => (el as HTMLElement).removeAttribute('data-selected'));
+      setActiveBlock(null);
+      onImageSelect(null);
+      onTextLayerSelect(null);
+      onHRSelect(null);
+      onFooterSelect(null);
+
+      if (range && page.contains(range.startContainer)) {
+          const container = range.startContainer.nodeType === Node.ELEMENT_NODE
+              ? (range.startContainer as HTMLElement)
+              : range.startContainer.parentElement;
+          if (range.startContainer === page) {
+              const ref = page.childNodes[range.startOffset] || null;
+              page.insertBefore(newPara, ref);
+          } else if (container) {
+              const block = container.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace), table, img, hr');
+              if (block && block.parentNode === page) {
+                  block.parentNode.insertBefore(newPara, block.nextSibling);
+              } else {
+                  page.appendChild(newPara);
+              }
+          } else {
+              page.appendChild(newPara);
+          }
+      } else {
+          page.appendChild(newPara);
+      }
+
+      const selection = window.getSelection();
+      if (selection) {
+          const newRange = document.createRange();
+          newRange.selectNodeContents(newPara);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+      }
+
+      scheduleReflow();
+      return true;
+  }, [scheduleReflow, onImageSelect, onTextLayerSelect, onHRSelect, onFooterSelect]);
+
+  useEffect(() => {
+      return () => {
+          if (reflowDebounceRef.current) {
+              window.clearTimeout(reflowDebounceRef.current);
+              reflowDebounceRef.current = null;
+          }
+      };
+  }, []);
 
   const handleDrop = (e: React.DragEvent) => {
       e.preventDefault();
@@ -1186,6 +1501,27 @@ const Editor: React.FC<EditorProps> = ({
               return;
           }
           const target = e.target as HTMLElement;
+          const selection = window.getSelection();
+          const hasDragSelection = !!selection && selection.rangeCount > 0 && !selection.isCollapsed;
+
+          if (hasDragSelection) {
+              return;
+          }
+
+          if (!isTextLayerMode && !imageProperties.isCropping && !selectionMode?.active && !(e.metaKey || e.ctrlKey)) {
+              const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
+              const hasInteractive = elementsAtPoint.some(el =>
+                  (el as HTMLElement).closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, img, table, hr, .floating-text, .writing-lines, textarea, .toc-container')
+              );
+              if (!hasInteractive) {
+                  const inserted = insertParagraphAtPoint(e.clientX, e.clientY);
+                  if (inserted) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      return;
+                  }
+              }
+          }
 
           if (e.metaKey || e.ctrlKey) {
               const overlay = target.closest('[data-overlay="true"]');
@@ -1225,6 +1561,16 @@ const Editor: React.FC<EditorProps> = ({
                   onInsertTextLayerAt(page, x, y);
                   return;
               }
+          }
+
+          const tocRefresh = target.closest('.toc-refresh') as HTMLElement | null;
+          if (tocRefresh) {
+              e.preventDefault();
+              e.stopPropagation();
+              const container = tocRefresh.closest('.toc-container') as HTMLElement | null;
+              const tocId = container?.getAttribute('data-toc-id') || undefined;
+              onRefreshTOC(tocId);
+              return;
           }
 
           const tocPageCell = target.closest('td[data-toc-page], th[data-toc-page]') as HTMLElement | null;
@@ -1430,6 +1776,21 @@ const Editor: React.FC<EditorProps> = ({
           }
           
           if (block) {
+              if (isTextBlock(block)) {
+                  const selection = window.getSelection();
+                  const hasSelection = selection && selection.rangeCount > 0 && !selection.isCollapsed;
+                  const selectionInBlock = hasSelection && block.contains(selection.getRangeAt(0).commonAncestorContainer);
+                  if (selectionInBlock) {
+                      handleSelectionChange();
+                  } else {
+                      onSelectionChange(buildSelectionStateFromElement(block), block);
+                  }
+                  if (onBlockClick) {
+                      onBlockClick(block);
+                  }
+                  return;
+              }
+
               block.setAttribute('data-selected', 'true');
               setActiveBlock(block);
               const selection = window.getSelection();
@@ -1467,10 +1828,14 @@ const Editor: React.FC<EditorProps> = ({
               const delay = isFloatingText ? 0 : 180;
               reflowTimeout = window.setTimeout(() => {
                   if (contentRef.current) {
+                      const restoreSelection = preserveSelection(contentRef.current);
                       if (!isFloatingText) {
-                          reflowPages(contentRef.current);
+                          reflowPages(contentRef.current, { pullUp: true });
                           updateTocTablePageNumbers(contentRef.current);
                       }
+                      restoreSelection();
+                      lastUserEditAtRef.current = Date.now();
+                      lastEmittedHtmlRef.current = contentRef.current.innerHTML;
                       onContentChange(contentRef.current.innerHTML);
                   }
               }, delay);
@@ -1653,35 +2018,27 @@ const Editor: React.FC<EditorProps> = ({
                 outline: 2px dashed #10b981 !important;
                 outline-offset: 2px !important;
             }
-            .editor-workspace p,
-            .editor-workspace h1,
-            .editor-workspace h2,
-            .editor-workspace h3,
-            .editor-workspace h4,
-            .editor-workspace h5,
-            .editor-workspace h6,
-            .editor-workspace div:not(.page):not(.editor-workspace),
-            .editor-workspace blockquote,
-            .editor-workspace li,
             .editor-workspace table,
             .editor-workspace img,
-            .editor-workspace hr {
+            .editor-workspace hr,
+            .editor-workspace .mission-box,
+            .editor-workspace .shape-circle,
+            .editor-workspace .shape-pill,
+            .editor-workspace .shape-speech,
+            .editor-workspace .shape-cloud,
+            .editor-workspace .shape-rectangle {
                 cursor: grab;
                 transition: outline 0.15s, background-color 0.15s;
             }
-            .editor-workspace p:hover,
-            .editor-workspace h1:hover,
-            .editor-workspace h2:hover,
-            .editor-workspace h3:hover,
-            .editor-workspace h4:hover,
-            .editor-workspace h5:hover,
-            .editor-workspace h6:hover,
-            .editor-workspace div:not(.page):not(.editor-workspace):hover,
-            .editor-workspace blockquote:hover,
-            .editor-workspace li:hover,
             .editor-workspace table:hover,
             .editor-workspace img:hover,
-            .editor-workspace hr:hover {
+            .editor-workspace hr:hover,
+            .editor-workspace .mission-box:hover,
+            .editor-workspace .shape-circle:hover,
+            .editor-workspace .shape-pill:hover,
+            .editor-workspace .shape-speech:hover,
+            .editor-workspace .shape-cloud:hover,
+            .editor-workspace .shape-rectangle:hover {
                 outline: 2px dashed #8d55f1;
                 outline-offset: 2px;
                 background-color: rgba(141, 85, 241, 0.06);
@@ -1795,6 +2152,7 @@ const Editor: React.FC<EditorProps> = ({
                     e.preventDefault();
                     e.stopPropagation();
                 }
+
             }}
             onKeyDown={handleKeyDown}
             onDrop={handleDrop}
@@ -1959,6 +2317,11 @@ const Editor: React.FC<EditorProps> = ({
                 canPasteStyle={hasStyleClipboard}
                 onCreateQRCode={() => setQrModal({ isOpen: true, url: contextMenu.linkUrl || '' })}
                 onTransformToTOC={contextMenu.block?.closest('table') ? () => openTableTocModal(contextMenu.block!.closest('table') as HTMLTableElement) : undefined}
+                onRefreshTOC={contextMenu.block?.closest('.toc-container') ? () => {
+                    const container = contextMenu.block?.closest('.toc-container') as HTMLElement | null;
+                    const tocId = container?.getAttribute('data-toc-id') || undefined;
+                    onRefreshTOC(tocId);
+                } : undefined}
                 onDistributeHoriz={multiSelectedElements.length > 1 ? () => onStartDistributeAdjust('x') : undefined}
                 onDistributeVert={multiSelectedElements.length > 1 ? () => onStartDistributeAdjust('y') : undefined}
                 onAlignLeft={multiSelectedElements.length > 1 ? () => safeAlign('left') : undefined}

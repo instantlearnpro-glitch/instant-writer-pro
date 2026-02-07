@@ -6,14 +6,16 @@ interface TOCModalProps {
   isOpen: boolean;
   onClose: () => void;
   onInsert: (settings: TOCSettings) => void;
+  onRemove: () => void;
 }
 
-const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert }) => {
+const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert, onRemove }) => {
   const [settings, setSettings] = useState<TOCSettings>({
     includeH1: true,
     includeH2: true,
     includeH3: false,
-    style: 'classic'
+    style: 'classic',
+    dotSpacing: 6
   });
 
   if (!isOpen) return null;
@@ -69,26 +71,52 @@ const TOCModal: React.FC<TOCModalProps> = ({ isOpen, onClose, onInsert }) => {
                 onChange={(e) => setSettings({...settings, style: e.target.value as any})}
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
              >
-                 <option value="classic">Classic (Simple Links)</option>
-                 <option value="dotted">Book Style (Dotted Leaders)</option>
-                 <option value="modern">Modern (Clean Spacing)</option>
+                  <option value="classic">Classic (Simple Links)</option>
+                  <option value="dotted">Book Style (Dotted Leaders)</option>
+                  <option value="modern">Modern (Clean Spacing)</option>
              </select>
           </div>
+
+          {settings.style === 'dotted' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Dot spacing</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={4}
+                  max={12}
+                  step={1}
+                  value={settings.dotSpacing}
+                  onChange={(e) => setSettings({ ...settings, dotSpacing: Number(e.target.value) })}
+                  className="flex-1"
+                />
+                <div className="text-xs text-gray-600 w-10 text-right">{settings.dotSpacing}px</div>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="mt-6 flex justify-end space-x-3">
-           <button 
-             onClick={onClose}
-             className="px-4 py-2 text-sm text-brand-700 bg-brand-50 hover:bg-brand-100 rounded"
+        <div className="mt-6 flex items-center justify-between">
+           <button
+             onClick={onRemove}
+             className="px-3 py-2 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50"
            >
-              Cancel
-            </button>
-           <button 
-             onClick={() => onInsert(settings)}
-             className="px-4 py-2 text-sm text-white bg-[#8d55f1] hover:bg-[#7539d3] rounded shadow-sm"
-           >
-              Insert Table of Contents
-            </button>
+             Remove TOC
+           </button>
+           <div className="flex justify-end space-x-3">
+            <button 
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-brand-700 bg-brand-50 hover:bg-brand-100 rounded"
+            >
+               Cancel
+             </button>
+            <button 
+              onClick={() => onInsert(settings)}
+              className="px-4 py-2 text-sm text-white bg-[#8d55f1] hover:bg-[#7539d3] rounded shadow-sm"
+            >
+               Insert Table of Contents
+             </button>
+           </div>
         </div>
       </div>
     </div>

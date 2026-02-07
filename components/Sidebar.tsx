@@ -14,6 +14,14 @@ interface SidebarProps {
   onCancelSelection: () => void;
   onNavigateToEntry: (id: string) => void;
   onUpdateEntryStatus: (id: string, status: 'approved' | 'rejected') => void;
+  onClearStructure: () => void;
+  onAutoFillStructure: () => void;
+  autoStructureEnabled: boolean;
+  onToggleAutoStructure: () => void;
+  autoStructureSuggested: boolean;
+  autoStructureSuggestionLevel?: string | null;
+  onApplyAutoStructureSuggestion: () => void;
+  onDismissAutoStructureSuggestion: () => void;
   aiMessages: { role: 'user' | 'assistant' | 'system'; content: string }[];
   aiInput: string;
   aiLoading: boolean;
@@ -34,7 +42,15 @@ const Sidebar: React.FC<SidebarProps> = ({
     onConfirmSelection,
     onCancelSelection,
     onNavigateToEntry,
-    onUpdateEntryStatus,
+  onUpdateEntryStatus,
+  onClearStructure,
+  onAutoFillStructure,
+  autoStructureEnabled,
+  onToggleAutoStructure,
+  autoStructureSuggested,
+  autoStructureSuggestionLevel,
+  onApplyAutoStructureSuggestion,
+  onDismissAutoStructureSuggestion,
     aiMessages,
     aiInput,
     aiLoading,
@@ -141,11 +157,26 @@ const Sidebar: React.FC<SidebarProps> = ({
                             Click paragraphs in the document to tag them as {selectionMode.level}.
                         </p>
                         <div className="flex gap-2">
-                            <button onClick={onConfirmSelection} className="flex-1 bg-brand-600 text-white text-xs py-1 rounded hover:bg-brand-700 font-bold">
+                            <button onClick={onConfirmSelection} className="flex-1 bg-[#8d55f1] text-white text-xs py-1 rounded hover:bg-[#7539d3] font-bold">
                                 Done
                             </button>
-                            <button onClick={onCancelSelection} className="flex-1 bg-white text-gray-600 border border-gray-300 text-xs py-1 rounded hover:bg-brand-50">
+                            <button onClick={onCancelSelection} className="flex-1 bg-brand-100 text-brand-700 border border-brand-200 text-xs py-1 rounded hover:bg-brand-200">
                                 Cancel
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {autoStructureSuggested && (
+                    <div className="mx-2 mb-2 rounded border border-brand-200 bg-brand-50 px-3 py-2 text-[11px] text-brand-800">
+                        <div className="font-semibold mb-1">Pattern detected for {autoStructureSuggestionLevel?.toUpperCase()}</div>
+                        <div className="text-[10px] text-brand-600 mb-2">Open the approval list?</div>
+                        <div className="flex gap-2">
+                            <button onClick={onApplyAutoStructureSuggestion} className="flex-1 bg-brand-600 text-white text-[10px] py-1 rounded hover:bg-brand-700 font-bold">
+                                Review
+                            </button>
+                            <button onClick={onDismissAutoStructureSuggestion} className="flex-1 bg-brand-100 text-brand-700 border border-brand-200 text-[10px] py-1 rounded hover:bg-brand-200">
+                                Later
                             </button>
                         </div>
                     </div>
@@ -153,7 +184,29 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                 {/* 2. Unified TOC List */}
                 <div className="flex-1 overflow-y-auto p-2">
-                    <div className="text-[10px] font-bold text-gray-400 uppercase mb-2 mt-1">Table of Contents</div>
+                <div className="flex items-center justify-between mb-2 mt-1">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase">Table of Contents</div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={onAutoFillStructure}
+                            className="text-[10px] px-2 py-1 rounded bg-brand-600 text-white hover:bg-brand-700"
+                        >
+                            Auto Fill
+                        </button>
+                        <button
+                            onClick={onToggleAutoStructure}
+                            className={`text-[10px] px-2 py-1 rounded ${autoStructureEnabled ? 'bg-brand-600 text-white' : 'bg-brand-100 text-brand-700'} hover:bg-brand-700 hover:text-white`}
+                        >
+                            Auto: {autoStructureEnabled ? 'On' : 'Off'}
+                        </button>
+                        <button
+                            onClick={onClearStructure}
+                            className="text-[10px] text-red-600 hover:text-red-700"
+                        >
+                            Clear
+                        </button>
+                    </div>
+                </div>
                     
                     {structureEntries.filter(e => e.status !== 'rejected').length === 0 ? (
                         <div className="text-center text-gray-400 py-8 text-xs italic">
@@ -164,7 +217,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                             {structureEntries
                                 .filter(e => e.status !== 'rejected')
                                 .sort((a, b) => a.page - b.page) // Sort by page number
-                                .map(entry => {
+                                .map((entry, idx) => {
                                     // Determine indent based on type
                                     let indent = 'ml-0';
                                     let fontSize = 'text-sm font-semibold';
@@ -173,9 +226,12 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                                     return (
                                         <div 
-                                            key={entry.id}
+                                            key={`${entry.id}-${entry.page}-${idx}`}
                                             className={`group flex items-center justify-between p-1.5 rounded hover:bg-brand-50 cursor-pointer transition-colors ${indent}`}
-                                            onClick={() => onNavigateToEntry(entry.elementId)}
+                                            onClick={() => {
+                                                onNavigateToEntry(entry.elementId);
+                                                onPageSelect(Math.max(0, entry.page - 1));
+                                            }}
                                         >
                                             <div className="flex items-baseline gap-2 overflow-hidden">
                                                 <span className={`${fontSize} truncate`}>{entry.text}</span>

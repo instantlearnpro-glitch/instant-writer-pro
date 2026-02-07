@@ -14,6 +14,7 @@ interface BlockContextMenuProps {
   canPasteStyle?: boolean;
   onCreateQRCode?: () => void;
   onTransformToTOC?: () => void;
+  onRefreshTOC?: () => void;
   onDistributeHoriz?: () => void;
   onDistributeVert?: () => void;
   onDistributeHorizMore?: () => void;
@@ -47,6 +48,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
   canPasteStyle,
   onCreateQRCode,
   onTransformToTOC,
+  onRefreshTOC,
   onDistributeHoriz,
   onDistributeVert,
   onDistributeHorizMore,
@@ -202,6 +204,18 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
             </svg>
             Transform to TOC
+          </button>
+        )}
+
+        {onRefreshTOC && (
+          <button
+            onClick={() => { onRefreshTOC(); onClose(); }}
+            className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 border-t border-gray-100 pointer-events-auto"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5" />
+            </svg>
+            Refresh TOC
           </button>
         )}
 
