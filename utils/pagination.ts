@@ -273,6 +273,25 @@ const mergeIfSplitPair = (prev: HTMLElement | null, next: HTMLElement | null): b
     return true;
 };
 
+const HEURISTIC_MERGE_TAGS = new Set(['UL', 'OL', 'BLOCKQUOTE']);
+
+const canHeuristicMerge = (prev: HTMLElement, next: HTMLElement): boolean => {
+    if (prev.tagName !== next.tagName) return false;
+    if (!HEURISTIC_MERGE_TAGS.has(prev.tagName)) return false;
+    if (prev.classList.contains('page-footer') || next.classList.contains('page-footer')) return false;
+    if (prev.classList.contains('spacer') || next.classList.contains('spacer')) return false;
+    if (prev.classList.contains('mission-box') || next.classList.contains('mission-box')) return false;
+    return true;
+};
+
+const mergeAdjacentPair = (prev: HTMLElement, next: HTMLElement): boolean => {
+    while (next.firstChild) prev.appendChild(next.firstChild);
+    next.remove();
+    prev.removeAttribute('data-split-id');
+    prev.removeAttribute('data-split-original');
+    return true;
+};
+
 const autoMergeSplitSiblings = (page: HTMLElement): boolean => {
     let merged = false;
     let changed = true;
@@ -281,6 +300,24 @@ const autoMergeSplitSiblings = (page: HTMLElement): boolean => {
         const kids = getDirectFlowChildren(page);
         for (let i = 0; i < kids.length - 1; i++) {
             if (mergeIfSplitPair(kids[i], kids[i + 1])) {
+                merged = true;
+                changed = true;
+                break;
+            }
+        }
+    }
+    return merged;
+};
+
+const autoMergeHeuristic = (page: HTMLElement): boolean => {
+    let merged = false;
+    let changed = true;
+    while (changed) {
+        changed = false;
+        const kids = getDirectFlowChildren(page);
+        for (let i = 0; i < kids.length - 1; i++) {
+            if (canHeuristicMerge(kids[i], kids[i + 1])) {
+                mergeAdjacentPair(kids[i], kids[i + 1]);
                 merged = true;
                 changed = true;
                 break;
@@ -411,6 +448,7 @@ export const autoMergeAll = (editor: HTMLElement): boolean => {
     let merged = false;
     for (const page of pages) {
         if (autoMergeSplitSiblings(page)) merged = true;
+        if (autoMergeHeuristic(page)) merged = true;
     }
     if (merged) {
         reflowPages(editor);
