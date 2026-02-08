@@ -731,7 +731,7 @@ const App: React.FC = () => {
                     bodyContent = `<div class="page">${bodyContent}</div>`;
                 }
 
-                const finalCss = extractedCss.trim() ? extractedCss : '';
+                const finalCss = (extractedCss.trim() ? extractedCss + '\n' : '') + DEFAULT_CSS;
 
                 const newState = {
                     htmlContent: bodyContent,

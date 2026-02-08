@@ -352,6 +352,7 @@ const Editor: React.FC<EditorProps> = ({
     : '';
 
   // Initialize content
+  const processingRef = useRef(false);
   useEffect(() => {
     if (selectionMode?.active) return;
     if (contentRef.current) {
@@ -361,6 +362,13 @@ const Editor: React.FC<EditorProps> = ({
             imgs.forEach(img => {
                 img.onerror = () => { img.classList.add('broken-image'); };
             });
+            if (!processingRef.current) {
+                processingRef.current = true;
+                if (reflowPages(contentRef.current)) {
+                    onContentChange(contentRef.current.innerHTML);
+                }
+                setTimeout(() => { processingRef.current = false; }, 100);
+            }
         }
     }
   }, [htmlContent]);
