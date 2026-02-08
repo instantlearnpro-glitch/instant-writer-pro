@@ -269,7 +269,25 @@ const mergeIfSplitPair = (prev: HTMLElement | null, next: HTMLElement | null): b
     while (next.firstChild) prev.appendChild(next.firstChild);
     next.remove();
     prev.removeAttribute('data-split-id');
+    prev.removeAttribute('data-split-original');
     return true;
+};
+
+const autoMergeSplitSiblings = (page: HTMLElement): boolean => {
+    let merged = false;
+    let changed = true;
+    while (changed) {
+        changed = false;
+        const kids = getDirectFlowChildren(page);
+        for (let i = 0; i < kids.length - 1; i++) {
+            if (mergeIfSplitPair(kids[i], kids[i + 1])) {
+                merged = true;
+                changed = true;
+                break;
+            }
+        }
+    }
+    return merged;
 };
 
 export const reflowPages = (editor: HTMLElement): boolean => {
@@ -322,6 +340,11 @@ export const reflowPages = (editor: HTMLElement): boolean => {
             changesMade = true;
         }
 
+        // Auto-merge split siblings that ended up on the same page after push
+        if (autoMergeSplitSiblings(page)) {
+            changesMade = true;
+        }
+
         // PULL UP: fill remaining space from next page (skip page-break boundaries)
         if (i + 1 < pages.length) {
             const nextPage = pages[i + 1];
@@ -350,11 +373,20 @@ export const reflowPages = (editor: HTMLElement): boolean => {
                 changesMade = true;
             }
 
+            // Auto-merge after pull-up completed for this page
+            if (autoMergeSplitSiblings(page)) {
+                changesMade = true;
+                // After merge the element may be overflowing, re-check
+                if (isPageOverflowing(page)) {
+                    i--;
+                    continue;
+                }
+            }
+
             // Remove empty pages
             if (getDirectFlowChildren(nextPage).length === 0) {
                 nextPage.remove();
                 pages.splice(i + 1, 1);
-                // Don't decrement i — continue with the next page at same index
             }
         }
     }
