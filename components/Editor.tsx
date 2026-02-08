@@ -364,8 +364,12 @@ const Editor: React.FC<EditorProps> = ({
             });
             if (!processingRef.current) {
                 processingRef.current = true;
-                if (reflowPages(contentRef.current)) {
-                    onContentChange(contentRef.current.innerHTML);
+                try {
+                    if (reflowPages(contentRef.current)) {
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                } catch (err) {
+                    console.error('Reflow error on load:', err);
                 }
                 setTimeout(() => { processingRef.current = false; }, 100);
             }
@@ -770,6 +774,11 @@ const Editor: React.FC<EditorProps> = ({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
+          // Clear page-break markers so reflow can pull content up
+          if (contentRef.current) {
+              contentRef.current.querySelectorAll('[data-page-break]').forEach(el => el.removeAttribute('data-page-break'));
+          }
+
           const selection = window.getSelection();
           if (selection && selection.rangeCount > 0) {
               if (!selection.isCollapsed) {
@@ -1470,14 +1479,17 @@ const Editor: React.FC<EditorProps> = ({
           const target = (e?.target as HTMLElement | null) || null;
           const isFloatingText = !!target?.closest?.('.floating-text');
           if (contentRef.current) {
-              // Debounce reflow to avoid excessive calls
               if (reflowTimeout) clearTimeout(reflowTimeout);
               const delay = isFloatingText ? 0 : 180;
               reflowTimeout = window.setTimeout(() => {
                   if (contentRef.current) {
-                      if (!isFloatingText) {
-                          reflowPages(contentRef.current);
-                          updateTocTablePageNumbers(contentRef.current);
+                      try {
+                          if (!isFloatingText) {
+                              reflowPages(contentRef.current);
+                              updateTocTablePageNumbers(contentRef.current);
+                          }
+                      } catch (err) {
+                          console.error('Reflow error:', err);
                       }
                       onContentChange(contentRef.current.innerHTML);
                   }

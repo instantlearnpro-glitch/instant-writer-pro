@@ -2341,15 +2341,32 @@ const App: React.FC = () => {
       range.collapse(true);
       range.insertNode(marker);
 
-      const blockParent = marker.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)') as HTMLElement | null;
+      // Find the top-level block within the page (direct child of page)
+      let topBlock: HTMLElement | null = marker;
+      while (topBlock && topBlock.parentElement !== currentPage) {
+          topBlock = topBlock.parentElement;
+      }
 
-      if (blockParent && blockParent.parentElement === currentPage) {
-          const isAtStart = !marker.previousSibling ||
-              (marker.previousSibling.nodeType === Node.TEXT_NODE && !marker.previousSibling.textContent?.trim());
+      if (topBlock && topBlock.parentElement === currentPage) {
+          const isAtStart = (() => {
+              // Check if marker is at the very start of topBlock
+              let node: Node | null = marker;
+              while (node && node !== topBlock) {
+                  if (node.previousSibling) {
+                      const prev = node.previousSibling;
+                      if (prev.nodeType === Node.TEXT_NODE && !prev.textContent?.trim()) {
+                          node = prev;
+                          continue;
+                      }
+                      return false;
+                  }
+                  node = node.parentElement;
+              }
+              return true;
+          })();
 
           if (isAtStart) {
-              // Cursor at the start of the block: move this block and everything after
-              let node: Node | null = blockParent;
+              let node: Node | null = topBlock;
               const nodesToMove: Node[] = [];
               while (node) {
                   const next = node.nextSibling;
@@ -2360,8 +2377,7 @@ const App: React.FC = () => {
               }
               nodesToMove.forEach(n => newPage.appendChild(n));
           } else {
-              // Cursor in the middle: move everything after this block
-              let nextSibling = blockParent.nextSibling;
+              let nextSibling = topBlock.nextSibling;
               const nodesToMove: Node[] = [];
               while (nextSibling) {
                   if (!(nextSibling instanceof HTMLElement && nextSibling.classList.contains('page-footer'))) {

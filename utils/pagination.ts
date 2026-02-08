@@ -252,9 +252,12 @@ const appendBeforeFooter = (page: HTMLElement, node: HTMLElement) => {
 };
 
 export const reflowPages = (editor: HTMLElement): boolean => {
+    if (!editor || !editor.isConnected) return false;
+
     let changesMade = ensureContentIsPaginated(editor);
 
     const pages: HTMLElement[] = Array.from(editor.querySelectorAll('.page'));
+    if (pages.length === 0) return changesMade;
 
     // Flatten imported wrappers so blocks are direct page children
     for (const p of pages) {
