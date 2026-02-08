@@ -283,7 +283,8 @@ const HEURISTIC_MERGE_TAGS = new Set([
 const SKIP_CLASSES = new Set([
     'page', 'page-footer', 'spacer', 'mission-box', 'editor-workspace',
     'floating-text', 'image-overlay', 'resize-handle',
-    'toc-style-dotted'
+    'toc-style-dotted', 'recipe-card', 'meal-plan-day', 'faq-item',
+    'case-study', 'worksheet', 'qr-section', 'phase-header'
 ]);
 
 const hasSkipClass = (el: HTMLElement): boolean => {

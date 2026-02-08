@@ -2323,92 +2323,178 @@ const App: React.FC = () => {
 
   // --- Feature: Page Break ---
   const handlePageBreak = () => {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-      const range = selection.getRangeAt(0);
+     const selection = window.getSelection();
+     if (!selection || selection.rangeCount === 0) return;
+     const range = selection.getRangeAt(0);
 
-      const startNode = range.startContainer.nodeType === 1 ? range.startContainer as HTMLElement : range.startContainer.parentElement;
-      const currentPage = startNode?.closest('.page');
+     const startNode = range.startContainer.nodeType === 1 ? range.startContainer as HTMLElement : range.startContainer.parentElement;
+     const currentPage = startNode?.closest('.page') as HTMLElement | null;
 
-      if (!currentPage) return;
+     if (!currentPage) return;
 
-      const newPage = document.createElement('div');
-      newPage.className = 'page';
-      newPage.setAttribute('data-page-break', 'true');
+     const newPage = document.createElement('div');
+     newPage.className = 'page';
+     newPage.setAttribute('data-page-break', 'true');
 
-      const marker = document.createElement('span');
-      marker.id = 'page-break-marker-' + Date.now();
-      range.collapse(true);
-      range.insertNode(marker);
+     const marker = document.createElement('span');
+     marker.id = 'page-break-marker-' + Date.now();
+     range.collapse(true);
+     range.insertNode(marker);
 
-      // Find the top-level block within the page (direct child of page)
-      let topBlock: HTMLElement | null = marker;
-      while (topBlock && topBlock.parentElement !== currentPage) {
-          topBlock = topBlock.parentElement;
-      }
+     let topBlock: HTMLElement | null = marker;
+     while (topBlock && topBlock.parentElement !== currentPage) {
+         topBlock = topBlock.parentElement;
+     }
 
-      if (topBlock && topBlock.parentElement === currentPage) {
-          const isAtStart = (() => {
-              // Check if marker is at the very start of topBlock
-              let node: Node | null = marker;
-              while (node && node !== topBlock) {
-                  if (node.previousSibling) {
-                      const prev = node.previousSibling;
-                      if (prev.nodeType === Node.TEXT_NODE && !prev.textContent?.trim()) {
-                          node = prev;
-                          continue;
-                      }
-                      return false;
-                  }
-                  node = node.parentElement;
-              }
-              return true;
-          })();
+     if (topBlock && topBlock.parentElement === currentPage) {
+         const isAtStart = (() => {
+             let node: Node | null = marker;
+             while (node && node !== topBlock) {
+                 if (node.previousSibling) {
+                     const prev = node.previousSibling;
+                     if (prev.nodeType === Node.TEXT_NODE && !prev.textContent?.trim()) {
+                         node = prev;
+                         continue;
+                     }
+                     return false;
+                 }
+                 node = node.parentElement;
+             }
+             return true;
+         })();
 
-          if (isAtStart) {
-              let node: Node | null = topBlock;
-              const nodesToMove: Node[] = [];
-              while (node) {
-                  const next = node.nextSibling;
-                  if (node !== marker && !(node instanceof HTMLElement && node.classList.contains('page-footer'))) {
-                      nodesToMove.push(node);
-                  }
-                  node = next;
-              }
-              nodesToMove.forEach(n => newPage.appendChild(n));
-          } else {
-              let nextSibling = topBlock.nextSibling;
-              const nodesToMove: Node[] = [];
-              while (nextSibling) {
-                  if (!(nextSibling instanceof HTMLElement && nextSibling.classList.contains('page-footer'))) {
-                      nodesToMove.push(nextSibling);
-                  }
-                  nextSibling = nextSibling.nextSibling;
-              }
-              nodesToMove.forEach(n => newPage.appendChild(n));
-          }
+         const isAtEnd = (() => {
+             let node: Node | null = marker;
+             while (node && node !== topBlock) {
+                 if (node.nextSibling) {
+                     const next = node.nextSibling;
+                     if (next.nodeType === Node.TEXT_NODE && !next.textContent?.trim()) {
+                         node = next;
+                         continue;
+                     }
+                     return false;
+                 }
+                 node = node.parentElement;
+             }
+             return true;
+         })();
 
-          currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
-          marker.remove();
-      } else {
-          currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
-          marker.remove();
-      }
+         if (isAtStart) {
+             let node: Node | null = topBlock;
+             const nodesToMove: Node[] = [];
+             while (node) {
+                 const next = node.nextSibling;
+                 if (node !== marker && !(node instanceof HTMLElement && node.classList.contains('page-footer'))) {
+                     nodesToMove.push(node);
+                 }
+                 node = next;
+             }
+             nodesToMove.forEach(n => newPage.appendChild(n));
+         } else if (isAtEnd) {
+             let nextSibling = topBlock.nextSibling;
+             const nodesToMove: Node[] = [];
+             while (nextSibling) {
+                 if (!(nextSibling instanceof HTMLElement && nextSibling.classList.contains('page-footer'))) {
+                     nodesToMove.push(nextSibling);
+                 }
+                 nextSibling = nextSibling.nextSibling;
+             }
+             nodesToMove.forEach(n => newPage.appendChild(n));
+         } else {
+             const remainder = topBlock.cloneNode(false) as HTMLElement;
+             if (remainder.id) remainder.id = '';
 
-      const rangeNew = document.createRange();
-      if (newPage.firstChild) {
-          rangeNew.setStart(newPage.firstChild, 0);
-      } else {
-          rangeNew.setStart(newPage, 0);
-      }
-      rangeNew.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(rangeNew);
+             let moveMode = false;
+             const childNodes = Array.from(topBlock.childNodes);
+             for (const child of childNodes) {
+                 if (child === marker) {
+                     moveMode = true;
+                     continue;
+                 }
+                 if (moveMode) {
+                     remainder.appendChild(child);
+                 }
+             }
 
-      const workspace = document.querySelector('.editor-workspace');
-      if (workspace) {
-          updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
-      }
+             if (!remainder.hasChildNodes()) {
+                 const innerBlock = startNode?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page)') as HTMLElement | null;
+                 if (innerBlock && innerBlock !== topBlock && topBlock.contains(innerBlock)) {
+                     const innerRemainder = innerBlock.cloneNode(false) as HTMLElement;
+                     if (innerRemainder.id) (innerRemainder as HTMLElement).id = '';
+                     let innerMove = false;
+                     const innerNodes = Array.from(innerBlock.childNodes);
+                     for (const child of innerNodes) {
+                         if (child === marker) {
+                             innerMove = true;
+                             continue;
+                         }
+                         if (innerMove) {
+                             innerRemainder.appendChild(child);
+                         }
+                     }
+                     if (innerRemainder.hasChildNodes()) {
+                         let sibling = innerBlock.nextSibling;
+                         const siblings: Node[] = [];
+                         while (sibling) {
+                             if (!(sibling instanceof HTMLElement && sibling.classList.contains('page-footer'))) {
+                                 siblings.push(sibling);
+                             }
+                             sibling = sibling.nextSibling;
+                         }
+
+                         const outerRemainder = topBlock.cloneNode(false) as HTMLElement;
+                         if (outerRemainder.id) outerRemainder.id = '';
+                         outerRemainder.appendChild(innerRemainder);
+                         siblings.forEach(s => outerRemainder.appendChild(s));
+                         newPage.appendChild(outerRemainder);
+
+                         let afterTop = topBlock.nextSibling;
+                         const afterNodes: Node[] = [];
+                         while (afterTop) {
+                             if (!(afterTop instanceof HTMLElement && afterTop.classList.contains('page-footer'))) {
+                                 afterNodes.push(afterTop);
+                             }
+                             afterTop = afterTop.nextSibling;
+                         }
+                         afterNodes.forEach(n => newPage.appendChild(n));
+                     }
+                 }
+             } else {
+                 newPage.appendChild(remainder);
+                 let nextSibling = topBlock.nextSibling;
+                 const nodesToMove: Node[] = [];
+                 while (nextSibling) {
+                     if (!(nextSibling instanceof HTMLElement && nextSibling.classList.contains('page-footer'))) {
+                         nodesToMove.push(nextSibling);
+                     }
+                     nextSibling = nextSibling.nextSibling;
+                 }
+                 nodesToMove.forEach(n => newPage.appendChild(n));
+             }
+         }
+
+         currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
+         marker.remove();
+     } else {
+         currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
+         marker.remove();
+     }
+
+     const rangeNew = document.createRange();
+     if (newPage.firstChild) {
+         rangeNew.setStart(newPage.firstChild, 0);
+     } else {
+         rangeNew.setStart(newPage, 0);
+     }
+     rangeNew.collapse(true);
+     selection.removeAllRanges();
+     selection.addRange(rangeNew);
+
+     const workspace = document.querySelector('.editor-workspace');
+     if (workspace) {
+         reflowPages(workspace as HTMLElement);
+         updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+     }
   };
 
   const handleInsertTOC = (settings: TOCSettings) => {
