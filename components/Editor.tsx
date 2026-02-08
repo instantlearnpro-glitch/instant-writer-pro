@@ -1088,6 +1088,9 @@ const Editor: React.FC<EditorProps> = ({
               .map(block => ({ block, rect: block.getBoundingClientRect() }))
               .sort((a, b) => a.rect.top - b.rect.top);
 
+          // Guard against empty sorted array
+          if (sorted.length === 0) return false;
+
           const first = sorted[0];
           const last = sorted[sorted.length - 1];
 

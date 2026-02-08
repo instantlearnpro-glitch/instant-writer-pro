@@ -149,6 +149,9 @@ export class PatternTracker {
     // Get recent actions of same type
     const recentActions = this.actions.slice(-this.THRESHOLD);
     
+    // Guard against empty array
+    if (recentActions.length === 0) return null;
+    
     // Check if all actions are same type
     const actionType = recentActions[0].type;
     if (!recentActions.every(a => a.type === actionType)) return null;

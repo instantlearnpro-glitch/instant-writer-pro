@@ -891,6 +891,7 @@ const App: React.FC = () => {
                 }
                 resolve();
             };
+            reader.onerror = () => resolve();
             reader.readAsDataURL(file);
         })));
 
@@ -906,6 +907,7 @@ const App: React.FC = () => {
                 }
                 resolve();
             };
+            reader.onerror = () => resolve();
             reader.readAsText(file);
         })));
 
@@ -1453,13 +1455,17 @@ const App: React.FC = () => {
         })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        const message = data?.error?.message || 'AI request failed.';
+        let message = 'AI request failed.';
+        try {
+          const data = await response.json();
+          message = data?.error?.message || message;
+        } catch {}
         setAiMessages(prev => [...prev, { role: 'assistant', content: `AI error: ${message}` }]);
         return;
       }
+
+      const data = await response.json();
 
       const content = data?.choices?.[0]?.message?.content || '';
       const parsed = parseAiJson(content);
@@ -1709,13 +1715,14 @@ const App: React.FC = () => {
                   };
               });
 
-              const sorted = items.sort((a, b) => axis === 'x' ? a.centerX - b.centerX : a.centerY - b.centerY);
-              const first = sorted[0];
-              const last = sorted[sorted.length - 1];
-              const span = axis === 'x'
-                  ? (last.centerX - first.centerX)
-                  : (last.centerY - first.centerY);
-              const gap = span / (sorted.length - 1) + delta;
+               const sorted = items.sort((a, b) => axis === 'x' ? a.centerX - b.centerX : a.centerY - b.centerY);
+               if (sorted.length < 2) return;
+               const first = sorted[0];
+               const last = sorted[sorted.length - 1];
+               const span = axis === 'x'
+                   ? (last.centerX - first.centerX)
+                   : (last.centerY - first.centerY);
+               const gap = span / (sorted.length - 1) + delta;
 
               let cursorCenter = axis === 'x' ? first.centerX : first.centerY;
               sorted.forEach((item, index) => {
@@ -1748,23 +1755,24 @@ const App: React.FC = () => {
               };
           });
 
-          const sorted = items.sort((a, b) => axis === 'x' ? a.centerX - b.centerX : a.centerY - b.centerY);
-          const first = sorted[0];
-          const last = sorted[sorted.length - 1];
-          const span = axis === 'x'
-              ? (last.centerX - first.centerX)
-              : (last.centerY - first.centerY);
-          const gap = span / (sorted.length - 1) + delta;
+           const sorted = items.sort((a, b) => axis === 'x' ? a.centerX - b.centerX : a.centerY - b.centerY);
+           if (sorted.length < 2) return;
+           const first = sorted[0];
+           const last = sorted[sorted.length - 1];
+           const span = axis === 'x'
+               ? (last.centerX - first.centerX)
+               : (last.centerY - first.centerY);
+           const gap = span / (sorted.length - 1) + delta;
 
-          let cursorCenter = axis === 'x' ? first.centerX : first.centerY;
-          sorted.forEach((item, index) => {
-              if (index === 0) {
-                  cursorCenter = axis === 'x' ? item.centerX : item.centerY;
-              }
+           let cursorCenter = axis === 'x' ? first.centerX : first.centerY;
+           sorted.forEach((item, index) => {
+               if (index === 0) {
+                   cursorCenter = axis === 'x' ? item.centerX : item.centerY;
+               }
 
-              if (item.el.parentElement !== page) {
-                  page.appendChild(item.el);
-              }
+               if (item.el.parentElement !== page) {
+                   page.appendChild(item.el);
+               }
 
               item.el.style.position = 'absolute';
               item.el.style.margin = '0';
@@ -3911,7 +3919,7 @@ ${tempDiv.innerHTML}
               src = canvas.toDataURL('image/png');
             }
           }
-        } catch (e) { }
+        } catch (e) { console.warn('Image conversion failed:', e); }
 
         const width = img.offsetWidth || img.naturalWidth || 300;
         const height = img.offsetHeight || img.naturalHeight || 'auto';
