@@ -82,9 +82,37 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
         if (el.closest('.drag-handle')) continue;
         
         const match = el.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, hr, img, table');
-        if (match && match !== element) {
+        if (match && match !== element && match.closest('.page')) {
           targetBlock = match;
           break;
+        }
+      }
+      
+      if (!targetBlock) {
+        const pages = Array.from(document.querySelectorAll('.page'));
+        for (const page of pages) {
+          const rect = page.getBoundingClientRect();
+          if (e.clientY >= rect.top - 20 && e.clientY <= rect.bottom + 20 &&
+              e.clientX >= rect.left && e.clientX <= rect.right) {
+            const flowElements = Array.from(page.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, hr, img, table'))
+              .filter(el => el !== element && !el.classList.contains('drag-handle') && !el.closest('.drag-handle'));
+            
+            if (flowElements.length > 0) {
+              let closestEl = flowElements[0];
+              let closestDist = Infinity;
+              for (const el of flowElements) {
+                const elRect = el.getBoundingClientRect();
+                const elCenter = elRect.top + elRect.height / 2;
+                const dist = Math.abs(e.clientY - elCenter);
+                if (dist < closestDist) {
+                  closestDist = dist;
+                  closestEl = el;
+                }
+              }
+              targetBlock = closestEl;
+            }
+            break;
+          }
         }
       }
       
@@ -130,19 +158,18 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
        // Remove indicators
        document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
        
-       // Move element to drop target
-       if (dropTargetRef.current) {
-         const { element: target, isAbove } = dropTargetRef.current;
-         if (target !== element) {
-           if (isAbove) {
-             target.parentNode?.insertBefore(element, target);
-           } else {
-             target.parentNode?.insertBefore(element, target.nextSibling);
-           }
-           onAction?.('move', element);
-           onUpdate();
-         }
-       }
+        if (dropTargetRef.current) {
+          const { element: target, isAbove } = dropTargetRef.current;
+          if (target !== element && target.closest('.page')) {
+            if (isAbove) {
+              target.parentNode?.insertBefore(element, target);
+            } else {
+              target.parentNode?.insertBefore(element, target.nextSibling);
+            }
+            onAction?.('move', element);
+            onUpdate();
+          }
+        }
        
        dropTargetRef.current = null;
        updatePosition();
