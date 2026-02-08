@@ -3604,6 +3604,14 @@ ${contentHtml}
       const targetTag = selectionMode.level; // e.g., 'h1'
       const newEntries: StructureEntry[] = [];
       let domModified = false;
+      const confirmedElements: HTMLElement[] = [];
+
+      // Capture signatures BEFORE converting tags (so we match against original styles)
+      const preConvertSignatures: string[] = [];
+      selectionMode.selectedIds.forEach(id => {
+          const el = document.getElementById(id);
+          if (el) preConvertSignatures.push(getElementSignature(el));
+      });
 
       selectionMode.selectedIds.forEach(id => {
           const element = document.getElementById(id);
@@ -3624,6 +3632,7 @@ ${contentHtml}
           const liveElement = document.getElementById(id);
           if (!liveElement) return;
           liveElement.setAttribute('data-structure-status', 'approved');
+          confirmedElements.push(liveElement);
 
           // 3. Find page number
           const page = liveElement.closest('.page');
@@ -3643,7 +3652,6 @@ ${contentHtml}
 
       if (newEntries.length > 0) {
           setStructureEntries(prev => {
-              // Remove any existing entries with the same elementId to avoid duplicates
               const existingIds = new Set(newEntries.map(e => e.elementId));
               const filtered = prev.filter(e => !existingIds.has(e.elementId));
               return [...filtered, ...newEntries];
@@ -3658,6 +3666,63 @@ ${contentHtml}
       }
 
       setSelectionMode({ active: false, level: null, selectedIds: [] });
+
+      // --- Pattern Recognition: find similar elements ---
+      if (confirmedElements.length > 0 && preConvertSignatures.length > 0) {
+          const workspace = document.querySelector('.editor-workspace') as HTMLElement;
+          if (workspace) {
+              // Use the pre-conversion signature to find elements that look like the originals
+              const refSignature = preConvertSignatures[0];
+              const confirmedIds = new Set(confirmedElements.map(el => el.id));
+
+              // Find all similar elements that weren't already selected
+              const similarMatches = findSimilarElements(refSignature, null, workspace)
+                  .filter(m => !confirmedIds.has(m.element.id));
+
+              if (similarMatches.length > 0) {
+                  const capturedTag = targetTag;
+                  setPatternModal({
+                      isOpen: true,
+                      actionType: `Apply ${capturedTag.toUpperCase()} to similar elements`,
+                      matches: similarMatches,
+                      applyStyle: (el: HTMLElement) => {
+                          // Convert tag
+                          if (el.tagName.toLowerCase() !== capturedTag) {
+                              const newEl = document.createElement(capturedTag);
+                              Array.from(el.attributes).forEach(attr => {
+                                  newEl.setAttribute(attr.name, attr.value);
+                              });
+                              newEl.innerHTML = el.innerHTML;
+                              if (!newEl.id) {
+                                  newEl.id = `pattern-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                              }
+                              el.parentNode?.replaceChild(newEl, el);
+                          }
+                          // Mark as approved for structure
+                          const live = document.getElementById(el.id);
+                          if (live) {
+                              live.setAttribute('data-structure-status', 'approved');
+                              const page = live.closest('.page');
+                              const pages = document.querySelectorAll('.page');
+                              let pageNum = 1;
+                              pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+                              setStructureEntries(prev => {
+                                  if (prev.some(e => e.elementId === live.id)) return prev;
+                                  return [...prev, {
+                                      id: `pattern-${live.id}-${Date.now()}`,
+                                      elementId: live.id,
+                                      text: live.innerText.substring(0, 50),
+                                      page: pageNum,
+                                      type: capturedTag,
+                                      status: 'approved' as const
+                                  }];
+                              });
+                          }
+                      }
+                  });
+              }
+          }
+      }
   };
 
   const handleCancelSelection = () => {
