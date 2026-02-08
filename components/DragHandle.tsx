@@ -14,6 +14,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
   const startPos = useRef({ x: 0, y: 0, elementTop: 0, elementLeft: 0, width: 0, height: 0 });
   const isDraggingRef = useRef(false);
   const dropTargetRef = useRef<{ element: HTMLElement; isAbove: boolean } | null>(null);
+  const activeListenersRef = useRef<Array<[string, EventListener]>>([]);
 
   useEffect(() => {
     updatePosition();
@@ -27,9 +28,18 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       window.removeEventListener('scroll', updatePosition, true);
       window.removeEventListener('resize', updatePosition);
     };
-  }, [element]);
+   }, [element]);
 
-  const updatePosition = () => {
+   useEffect(() => {
+     return () => {
+       activeListenersRef.current.forEach(([event, handler]) => {
+         document.removeEventListener(event, handler);
+       });
+       activeListenersRef.current = [];
+     };
+   }, []);
+
+   const updatePosition = () => {
     if (!containerRef.current) return;
     const containerRect = containerRef.current.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
@@ -107,36 +117,41 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       }
     };
 
-    const onEnd = () => {
-      isDraggingRef.current = false;
-      element.style.opacity = '';
-      
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onEnd);
-      
-      // Remove indicators
-      document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
-      
-      // Move element to drop target
-      if (dropTargetRef.current) {
-        const { element: target, isAbove } = dropTargetRef.current;
-        if (target !== element) {
-          if (isAbove) {
-            target.parentNode?.insertBefore(element, target);
-          } else {
-            target.parentNode?.insertBefore(element, target.nextSibling);
-          }
-          onAction?.('move', element);
-          onUpdate();
-        }
-      }
-      
-      dropTargetRef.current = null;
-      updatePosition();
-    };
-    
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onEnd);
+     const onEnd = () => {
+       isDraggingRef.current = false;
+       element.style.opacity = '';
+       
+       document.removeEventListener('mousemove', onMove);
+       document.removeEventListener('mouseup', onEnd);
+       activeListenersRef.current = activeListenersRef.current.filter(
+         ([event, handler]) => !(event === 'mousemove' && handler === onMove) && !(event === 'mouseup' && handler === onEnd)
+       );
+       
+       // Remove indicators
+       document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+       
+       // Move element to drop target
+       if (dropTargetRef.current) {
+         const { element: target, isAbove } = dropTargetRef.current;
+         if (target !== element) {
+           if (isAbove) {
+             target.parentNode?.insertBefore(element, target);
+           } else {
+             target.parentNode?.insertBefore(element, target.nextSibling);
+           }
+           onAction?.('move', element);
+           onUpdate();
+         }
+       }
+       
+       dropTargetRef.current = null;
+       updatePosition();
+     };
+     
+     document.addEventListener('mousemove', onMove);
+     document.addEventListener('mouseup', onEnd);
+     activeListenersRef.current.push(['mousemove', onMove as EventListener]);
+     activeListenersRef.current.push(['mouseup', onEnd as EventListener]);
   };
 
   const handleResizeStart = (e: React.MouseEvent, direction: string) => {
@@ -186,15 +201,20 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       updatePosition();
     };
     
-    const handleResizeEnd = () => {
-      document.removeEventListener('mousemove', handleResizeMove);
-      document.removeEventListener('mouseup', handleResizeEnd);
-      onAction?.('resize', element);
-      onUpdate();
-    };
-    
-    document.addEventListener('mousemove', handleResizeMove);
-    document.addEventListener('mouseup', handleResizeEnd);
+     const handleResizeEnd = () => {
+       document.removeEventListener('mousemove', handleResizeMove);
+       document.removeEventListener('mouseup', handleResizeEnd);
+       activeListenersRef.current = activeListenersRef.current.filter(
+         ([event, handler]) => !(event === 'mousemove' && handler === handleResizeMove) && !(event === 'mouseup' && handler === handleResizeEnd)
+       );
+       onAction?.('resize', element);
+       onUpdate();
+     };
+     
+     document.addEventListener('mousemove', handleResizeMove);
+     document.addEventListener('mouseup', handleResizeEnd);
+     activeListenersRef.current.push(['mousemove', handleResizeMove as EventListener]);
+     activeListenersRef.current.push(['mouseup', handleResizeEnd as EventListener]);
   };
 
   const isHR = element.tagName === 'HR';

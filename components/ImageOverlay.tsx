@@ -29,6 +29,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   const [guides, setGuides] = useState<{ type: 'horizontal' | 'vertical', x?: number, y?: number, length?: number }[]>([]);
   const [lockAspect, setLockAspect] = useState(true);
   const PPI = 96;
+  const activeListenersRef = useRef<Array<[string, EventListener]>>([]);
 
   const getMarginBounds = (page: HTMLElement | null) => {
     if (!page || !pageMargins) return null;
@@ -78,14 +79,24 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   }, [image, containerRef]);
 
   // Initialize Crop Rect
-  useEffect(() => {
-    if (isCropping && rect) {
-        // Start with full image
-        setCropRect({ x: 0, y: 0, w: rect.width, h: rect.height });
-    }
-  }, [isCropping]); // Only reset when entering crop mode
+   useEffect(() => {
+     if (isCropping && rect) {
+         // Start with full image
+         setCropRect({ x: 0, y: 0, w: rect.width, h: rect.height });
+     }
+   }, [isCropping]); // Only reset when entering crop mode
 
-  if (!rect) return null;
+   // Cleanup all document event listeners on unmount
+   useEffect(() => {
+     return () => {
+       activeListenersRef.current.forEach(([event, handler]) => {
+         document.removeEventListener(event, handler);
+       });
+       activeListenersRef.current = [];
+     };
+   }, []);
+
+   if (!rect) return null;
 
   // --- RESIZE LOGIC ---
   const handleResizeStart = (e: React.MouseEvent, direction: string) => {
@@ -241,15 +252,20 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                 updatePosition();
             };
 
-            const onUp = () => {
-                document.removeEventListener('mousemove', onMove);
-                document.removeEventListener('mouseup', onUp);
-                if (onResize) onResize();
-            };
+             const onUp = () => {
+                 document.removeEventListener('mousemove', onMove);
+                 document.removeEventListener('mouseup', onUp);
+                 activeListenersRef.current = activeListenersRef.current.filter(
+                   ([event, handler]) => !(event === 'mousemove' && handler === onMove) && !(event === 'mouseup' && handler === onUp)
+                 );
+                 if (onResize) onResize();
+             };
 
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
-            return;
+             document.addEventListener('mousemove', onMove);
+             document.addEventListener('mouseup', onUp);
+             activeListenersRef.current.push(['mousemove', onMove as EventListener]);
+             activeListenersRef.current.push(['mouseup', onUp as EventListener]);
+             return;
     }
 
     let startX = e.clientX;
@@ -369,15 +385,20 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
         updatePosition();
     };
 
-    const onUp = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        if (onResize) onResize();
-    };
+     const onUp = () => {
+         document.removeEventListener('mousemove', onMove);
+         document.removeEventListener('mouseup', onUp);
+         activeListenersRef.current = activeListenersRef.current.filter(
+           ([event, handler]) => !(event === 'mousemove' && handler === onMove) && !(event === 'mouseup' && handler === onUp)
+         );
+         if (onResize) onResize();
+     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  };
+     document.addEventListener('mousemove', onMove);
+     document.addEventListener('mouseup', onUp);
+     activeListenersRef.current.push(['mousemove', onMove as EventListener]);
+     activeListenersRef.current.push(['mouseup', onUp as EventListener]);
+   };
 
   // --- DRAG (FREE POSITION) LOGIC ---
   const handleDragStart = (e: React.MouseEvent) => {
@@ -609,16 +630,21 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
       updatePosition();
     };
 
-    const onUp = () => {
-      setGuides([]);
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      if (onResize) onResize();
-    };
+     const onUp = () => {
+       setGuides([]);
+       document.removeEventListener('mousemove', onMove);
+       document.removeEventListener('mouseup', onUp);
+       activeListenersRef.current = activeListenersRef.current.filter(
+         ([event, handler]) => !(event === 'mousemove' && handler === onMove) && !(event === 'mouseup' && handler === onUp)
+       );
+       if (onResize) onResize();
+     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  };
+     document.addEventListener('mousemove', onMove);
+     document.addEventListener('mouseup', onUp);
+     activeListenersRef.current.push(['mousemove', onMove as EventListener]);
+     activeListenersRef.current.push(['mouseup', onUp as EventListener]);
+   };
 
   // --- CROP LOGIC ---
   const handleCropStart = (e: React.MouseEvent, type: string) => {
@@ -667,14 +693,19 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
           setCropRect({ x: newX, y: newY, w: newW, h: newH });
       };
 
-      const onUp = () => {
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-      };
+       const onUp = () => {
+           document.removeEventListener('mousemove', onMove);
+           document.removeEventListener('mouseup', onUp);
+           activeListenersRef.current = activeListenersRef.current.filter(
+             ([event, handler]) => !(event === 'mousemove' && handler === onMove) && !(event === 'mouseup' && handler === onUp)
+           );
+       };
 
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-  };
+       document.addEventListener('mousemove', onMove);
+       document.addEventListener('mouseup', onUp);
+       activeListenersRef.current.push(['mousemove', onMove as EventListener]);
+       activeListenersRef.current.push(['mouseup', onUp as EventListener]);
+   };
 
   const applyCrop = () => {
       if (!cropRect) return;
