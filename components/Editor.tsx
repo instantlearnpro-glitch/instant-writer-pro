@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { SelectionState, ImageProperties, HRProperties, StructureEntry } from '../types';
 import ImageOverlay from './ImageOverlay';
 import { reflowPages } from '../utils/pagination';
+import { mergeAdjacentTables, mergeSplitTableParts } from '../utils/tableMerge';
 import MarginGuides from './MarginGuides';
 import PageRuler from './PageRuler';
 import BlockContextMenu from './BlockContextMenu';
@@ -1346,6 +1347,196 @@ const Editor: React.FC<EditorProps> = ({
       }
   };
 
+  const getTableColumnCount = (table: HTMLTableElement): number => {
+      const headRow = table.querySelector('thead tr');
+      if (headRow) return (headRow as HTMLTableRowElement).cells.length;
+      const firstRow = table.querySelector('tr');
+      return firstRow ? (firstRow as HTMLTableRowElement).cells.length : 0;
+  };
+
+  const getTableHeaderSignature = (table: HTMLTableElement): string => {
+      const cells = Array.from(table.querySelectorAll('thead th, thead td')) as HTMLElement[];
+      if (cells.length === 0) return '';
+      return cells.map(c => (c.textContent || '').trim()).join('|');
+  };
+
+  const isMergeCompatible = (table: HTMLTableElement, neighbor: HTMLTableElement): boolean => {
+      const colsA = getTableColumnCount(table);
+      const colsB = getTableColumnCount(neighbor);
+      if (!colsA || !colsB || colsA !== colsB) return false;
+      const headA = getTableHeaderSignature(table);
+      const headB = getTableHeaderSignature(neighbor);
+      if (headA && headB && headA !== headB) return false;
+      return true;
+  };
+
+  const getNeighborTable = (table: HTMLTableElement, direction: 'prev' | 'next'): HTMLTableElement | null => {
+      if (!contentRef.current) return null;
+      const tables = Array.from(contentRef.current.querySelectorAll('table')) as HTMLTableElement[];
+      const index = tables.findIndex(t => t === table);
+      if (index < 0) return null;
+      const neighbor = direction === 'prev' ? tables[index - 1] : tables[index + 1];
+      return neighbor || null;
+  };
+
+  const resolveTableMergeState = (table: HTMLTableElement | null) => {
+      if (!table || !contentRef.current) return { canMergePrev: false, canMergeNext: false };
+      const group = table.getAttribute('data-split-group');
+      if (group) {
+          let tables: HTMLTableElement[] = [];
+          try {
+              const selector = `table[data-split-group="${CSS.escape(group)}"]`;
+              tables = Array.from(contentRef.current.querySelectorAll(selector)) as HTMLTableElement[];
+          } catch {
+              tables = Array.from(contentRef.current.querySelectorAll('table[data-split-group]'))
+                  .filter(el => (el as HTMLElement).getAttribute('data-split-group') === group) as HTMLTableElement[];
+          }
+          if (tables.length < 2) return { canMergePrev: false, canMergeNext: false };
+          const index = tables.findIndex(t => t === table);
+          if (index < 0) return { canMergePrev: false, canMergeNext: false };
+          return { canMergePrev: index > 0, canMergeNext: index < tables.length - 1 };
+      }
+
+      const prev = getNeighborTable(table, 'prev');
+      const next = getNeighborTable(table, 'next');
+      return {
+          canMergePrev: !!prev && isMergeCompatible(table, prev),
+          canMergeNext: !!next && isMergeCompatible(table, next)
+      };
+  };
+
+  const handleMergeTable = (direction: 'prev' | 'next') => {
+      const table = contextMenu?.block?.closest('table') as HTMLTableElement | null;
+      if (!table || !contentRef.current) return;
+      let merged = false;
+      const group = table.getAttribute('data-split-group');
+      if (group) {
+          merged = mergeSplitTableParts(table, direction);
+      }
+      if (!merged) {
+          const neighbor = getNeighborTable(table, direction);
+          if (neighbor && isMergeCompatible(table, neighbor)) {
+              const target = direction === 'prev' ? neighbor : table;
+              const source = direction === 'prev' ? table : neighbor;
+              merged = mergeAdjacentTables(target, source);
+          }
+      }
+      if (merged) {
+          reflowPages(contentRef.current, { pullUp: true });
+          onContentChange(contentRef.current.innerHTML);
+      }
+  };
+
+  const getNeighborWorksheet = (worksheet: HTMLElement, direction: 'prev' | 'next'): HTMLElement | null => {
+      if (!contentRef.current) return null;
+      const worksheets = Array.from(contentRef.current.querySelectorAll('.worksheet')) as HTMLElement[];
+      const index = worksheets.findIndex(el => el === worksheet);
+      if (index < 0) return null;
+      const neighbor = direction === 'prev' ? worksheets[index - 1] : worksheets[index + 1];
+      return neighbor || null;
+  };
+
+  const resolveWorksheetMergeState = (worksheet: HTMLElement | null) => {
+      if (!worksheet || !contentRef.current) return { canMergePrev: false, canMergeNext: false };
+      const prev = getNeighborWorksheet(worksheet, 'prev');
+      const next = getNeighborWorksheet(worksheet, 'next');
+      return { canMergePrev: !!prev, canMergeNext: !!next };
+  };
+
+  const mergeWorksheets = (target: HTMLElement, source: HTMLElement): boolean => {
+      if (source.getAttribute('data-selected') === 'true' && target.getAttribute('data-selected') !== 'true') {
+          target.setAttribute('data-selected', 'true');
+      }
+      while (source.firstChild) {
+          target.appendChild(source.firstChild);
+      }
+      source.remove();
+      return true;
+  };
+
+  const handleMergeWorksheet = (direction: 'prev' | 'next') => {
+      const worksheet = contextMenu?.block?.closest('.worksheet') as HTMLElement | null;
+      if (!worksheet || !contentRef.current) return;
+      const neighbor = getNeighborWorksheet(worksheet, direction);
+      if (!neighbor) return;
+      const target = direction === 'prev' ? neighbor : worksheet;
+      const source = direction === 'prev' ? worksheet : neighbor;
+      const merged = mergeWorksheets(target, source);
+      if (merged) {
+          setActiveBlock(target);
+          reflowPages(contentRef.current, { pullUp: true });
+          onContentChange(contentRef.current.innerHTML);
+      }
+  };
+
+  const getSelectedElements = () => {
+      if (!contentRef.current) return [] as HTMLElement[];
+      const elements = multiSelectedElements
+          .map(id => document.getElementById(id))
+          .filter(Boolean) as HTMLElement[];
+      return elements.filter(el => contentRef.current?.contains(el));
+  };
+
+  const getMergeKey = (el: HTMLElement): string | null => {
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'table') return 'table';
+      if (tag === 'ul' || tag === 'ol') return `list:${tag}`;
+      if (el.classList.contains('worksheet')) return 'worksheet';
+      return null;
+  };
+
+  const mergeListElements = (target: HTMLElement, source: HTMLElement): boolean => {
+      while (source.firstChild) {
+          target.appendChild(source.firstChild);
+      }
+      source.remove();
+      return true;
+  };
+
+  const canMergeSelectedElements = () => {
+      const elements = getSelectedElements();
+      if (elements.length < 2) return { canMerge: false, key: null as string | null, ordered: [] as HTMLElement[] };
+      const key = getMergeKey(elements[0]);
+      if (!key) return { canMerge: false, key: null as string | null, ordered: [] as HTMLElement[] };
+      if (!elements.every(el => getMergeKey(el) === key)) {
+          return { canMerge: false, key: null as string | null, ordered: [] as HTMLElement[] };
+      }
+      const ordered = elements.slice().sort((a, b) => {
+          if (a === b) return 0;
+          const position = a.compareDocumentPosition(b);
+          if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+          if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+          return 0;
+      });
+      return { canMerge: true, key, ordered };
+  };
+
+  const handleMergeSelectedElements = () => {
+      if (!contentRef.current) return;
+      const { canMerge, key, ordered } = canMergeSelectedElements();
+      if (!canMerge || !key || ordered.length < 2) return;
+      const target = ordered[0];
+      let merged = false;
+      for (let i = 1; i < ordered.length; i += 1) {
+          const source = ordered[i];
+          if (!source || !source.isConnected) continue;
+          if (key === 'table' && source.tagName.toLowerCase() === 'table') {
+              merged = mergeAdjacentTables(target as HTMLTableElement, source as HTMLTableElement) || merged;
+          } else if (key.startsWith('list')) {
+              merged = mergeListElements(target, source) || merged;
+          } else if (key === 'worksheet') {
+              merged = mergeWorksheets(target, source) || merged;
+          }
+      }
+      if (merged) {
+          onClearMultiSelect();
+          target.setAttribute('data-selected', 'true');
+          setActiveBlock(target);
+          reflowPages(contentRef.current, { pullUp: true });
+          onContentChange(contentRef.current.innerHTML);
+      }
+  };
+
   const handleDeleteBlock = () => {
       if (!activeBlock) return;
       
@@ -1940,6 +2131,16 @@ const Editor: React.FC<EditorProps> = ({
     ? 'editor-workspace flex flex-row flex-wrap justify-center gap-4 outline-none relative'
     : 'editor-workspace w-full flex flex-col items-center outline-none relative';
 
+  const splitTableState = contextMenu?.block
+      ? resolveTableMergeState(contextMenu.block.closest('table') as HTMLTableElement | null)
+      : { canMergePrev: false, canMergeNext: false };
+
+  const worksheetMergeState = contextMenu?.block
+      ? resolveWorksheetMergeState(contextMenu.block.closest('.worksheet') as HTMLElement | null)
+      : { canMergePrev: false, canMergeNext: false };
+
+  const mergeSelectedState = canMergeSelectedElements();
+
   return (
     <div 
         ref={containerRef}
@@ -2342,6 +2543,11 @@ const Editor: React.FC<EditorProps> = ({
                 canPasteStyle={hasStyleClipboard}
                 onCreateQRCode={() => setQrModal({ isOpen: true, url: contextMenu.linkUrl || '' })}
                 onTransformToTOC={contextMenu.block?.closest('table') ? () => openTableTocModal(contextMenu.block!.closest('table') as HTMLTableElement) : undefined}
+                onMergeWorksheetPrev={worksheetMergeState.canMergePrev ? () => handleMergeWorksheet('prev') : undefined}
+                onMergeWorksheetNext={worksheetMergeState.canMergeNext ? () => handleMergeWorksheet('next') : undefined}
+                onMergeTablePrev={splitTableState.canMergePrev ? () => handleMergeTable('prev') : undefined}
+                onMergeTableNext={splitTableState.canMergeNext ? () => handleMergeTable('next') : undefined}
+                onMergeSelected={mergeSelectedState.canMerge ? handleMergeSelectedElements : undefined}
                 onRefreshTOC={contextMenu.block?.closest('.toc-container') ? () => {
                     const container = contextMenu.block?.closest('.toc-container') as HTMLElement | null;
                     const tocId = container?.getAttribute('data-toc-id') || undefined;

@@ -15,6 +15,11 @@ interface BlockContextMenuProps {
   onCreateQRCode?: () => void;
   onTransformToTOC?: () => void;
   onRefreshTOC?: () => void;
+  onMergeWorksheetPrev?: () => void;
+  onMergeWorksheetNext?: () => void;
+  onMergeTablePrev?: () => void;
+  onMergeTableNext?: () => void;
+  onMergeSelected?: () => void;
   onDistributeHoriz?: () => void;
   onDistributeVert?: () => void;
   onDistributeHorizMore?: () => void;
@@ -49,6 +54,11 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
   onCreateQRCode,
   onTransformToTOC,
   onRefreshTOC,
+  onMergeWorksheetPrev,
+  onMergeWorksheetNext,
+  onMergeTablePrev,
+  onMergeTableNext,
+  onMergeSelected,
   onDistributeHoriz,
   onDistributeVert,
   onDistributeHorizMore,
@@ -217,6 +227,77 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
             </svg>
             Refresh TOC
           </button>
+        )}
+
+        {(onMergeWorksheetPrev || onMergeWorksheetNext) && (
+          <>
+            <div className="border-t border-gray-100 my-1" />
+            {onMergeWorksheetPrev && (
+              <button
+                onClick={() => { onMergeWorksheetPrev(); onClose(); }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                </svg>
+                Merge box above
+              </button>
+            )}
+            {onMergeWorksheetNext && (
+              <button
+                onClick={() => { onMergeWorksheetNext(); onClose(); }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+                Merge box below
+              </button>
+            )}
+          </>
+        )}
+
+        {(onMergeTablePrev || onMergeTableNext) && (
+          <>
+            <div className="border-t border-gray-100 my-1" />
+            {onMergeTablePrev && (
+              <button
+                onClick={() => { onMergeTablePrev(); onClose(); }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                </svg>
+                Merge table above
+              </button>
+            )}
+            {onMergeTableNext && (
+              <button
+                onClick={() => { onMergeTableNext(); onClose(); }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+                Merge table below
+              </button>
+            )}
+          </>
+        )}
+
+        {onMergeSelected && (
+          <>
+            <div className="border-t border-gray-100 my-1" />
+            <button
+              onClick={() => { onMergeSelected(); onClose(); }}
+              className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h8M4 12h16M4 17h8" />
+              </svg>
+              Merge elements
+            </button>
+          </>
         )}
 
         {(onDistributeHoriz || onDistributeVert || onAlignLeft || onAlignCenter || onAlignRight || onAlignTop || onAlignMiddle || onAlignBottom) && (
