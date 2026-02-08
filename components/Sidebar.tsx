@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layers, FileText, ListTree, Check, X, Search, RefreshCw, Plus, MousePointer, Sparkles } from 'lucide-react';
+import { Layers, FileText, ListTree, Check, X, Search, RefreshCw, Plus, MousePointer, Sparkles, Trash2 } from 'lucide-react';
 import { StructureEntry } from '../types';
 
 interface SidebarProps {
@@ -21,6 +21,9 @@ interface SidebarProps {
   onAiInputChange: (value: string) => void;
   onAiSend: () => void;
   onOpenSettings: () => void;
+  onClearStructure: () => void;
+  onResetAutoScan: () => void;
+  isManualMode?: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
@@ -41,7 +44,10 @@ const Sidebar: React.FC<SidebarProps> = ({
     hasApiKey,
     onAiInputChange,
     onAiSend,
-    onOpenSettings
+    onOpenSettings,
+    onClearStructure,
+    onResetAutoScan,
+    isManualMode
 }) => {
   const [activeTab, setActiveTab] = useState<'pages' | 'structure' | 'ai'>('pages');
 
@@ -52,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <div className={`app-sidebar w-72 border-r border-gray-200 bg-white h-[calc(100vh-68px)] overflow-hidden flex flex-col flex-shrink-0 transition-all duration-300 ${isSidebarOpen ? 'ml-0' : '-ml-72'}`}>
+    <div className={`app-sidebar w-72 border-r border-gray-200 bg-white h-full overflow-hidden flex flex-col flex-shrink-0 transition-all duration-300 ${isSidebarOpen ? 'ml-0' : '-ml-72'}`}>
       
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
@@ -111,7 +117,35 @@ const Sidebar: React.FC<SidebarProps> = ({
                 
                 {/* 1. Tools Section (Add Buttons) */}
                 <div className="p-2 border-b border-gray-100 bg-gray-50">
-                    <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">Add Manual Entries</div>
+                    {/* Clear / Auto row — always visible */}
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="text-[10px] font-bold text-gray-400 uppercase">Structure</div>
+                        <div className="flex items-center gap-1.5">
+                            {!isManualMode && (
+                                <span className="text-[9px] text-green-600 font-bold uppercase">Auto</span>
+                            )}
+                            <button
+                                onClick={isManualMode ? onResetAutoScan : onClearStructure}
+                                className={`px-2 py-0.5 text-[10px] rounded font-bold flex items-center gap-0.5 ${
+                                    isManualMode
+                                    ? 'bg-brand-100 text-brand-700 hover:bg-brand-200'
+                                    : 'bg-red-100 text-red-600 hover:bg-red-200'
+                                }`}
+                                title={isManualMode ? 'Enable auto-scan' : 'Clear all and switch to manual'}
+                            >
+                                {isManualMode ? <><RefreshCw size={9} /> Auto Scan</> : <><Trash2 size={9} /> Clear</>}
+                            </button>
+                            {structureEntries.filter(e => e.status !== 'rejected').length > 0 && isManualMode && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onClearStructure(); }}
+                                    className="px-2 py-0.5 text-[10px] bg-red-100 text-red-600 hover:bg-red-200 rounded font-bold flex items-center gap-0.5"
+                                >
+                                    <Trash2 size={9} /> Clear
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                    {/* H1/H2/H3 manual selection buttons */}
                     <div className="flex gap-2">
                         {categories.map(cat => (
                             <button 
@@ -133,19 +167,31 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                 {/* Selection Mode Banner (Overlay or pushed) */}
                 {selectionMode.active && (
-                    <div className="bg-brand-50 border-b border-brand-200 p-3 animate-in fade-in slide-in-from-top-2">
-                        <div className="flex items-center gap-2 text-brand-800 font-bold text-xs uppercase mb-1">
+                    <div className="bg-violet-50 border-b-2 border-violet-400 p-3 animate-in fade-in slide-in-from-top-2">
+                        <div className="flex items-center gap-2 text-violet-800 font-bold text-xs uppercase mb-1">
                             <MousePointer size={14} /> Selecting {selectionMode.level?.toUpperCase()}
                         </div>
-                        <p className="text-[10px] text-brand-600 mb-2 leading-tight">
+                        <p className="text-[10px] text-violet-600 mb-2 leading-tight">
                             Click paragraphs in the document to tag them as {selectionMode.level}.
+                            {selectionMode.selectedIds.length > 0 && (
+                                <span className="ml-1 font-bold text-violet-800">({selectionMode.selectedIds.length} selected)</span>
+                            )}
                         </p>
                         <div className="flex gap-2">
-                            <button onClick={onConfirmSelection} className="flex-1 bg-brand-600 text-white text-xs py-1 rounded hover:bg-brand-700 font-bold">
-                                Done
-                            </button>
-                            <button onClick={onCancelSelection} className="flex-1 bg-white text-gray-600 border border-gray-300 text-xs py-1 rounded hover:bg-brand-50">
-                                Cancel
+                            {selectionMode.selectedIds.length > 0 ? (
+                                <button 
+                                    onClick={onConfirmSelection} 
+                                    className="flex-1 bg-violet-600 text-white text-xs py-2.5 rounded-md font-bold hover:bg-violet-700 shadow-lg shadow-violet-300 border-2 border-violet-400"
+                                >
+                                    ✓ CONFIRM ({selectionMode.selectedIds.length})
+                                </button>
+                            ) : (
+                                <div className="flex-1 bg-gray-100 text-gray-400 text-xs py-2.5 rounded-md font-medium text-center border border-dashed border-gray-300">
+                                    Select elements...
+                                </div>
+                            )}
+                            <button onClick={onCancelSelection} className="px-4 bg-white text-gray-600 border border-gray-300 text-xs py-2.5 rounded-md hover:bg-red-50 hover:text-red-600 hover:border-red-300">
+                                ✕
                             </button>
                         </div>
                     </div>

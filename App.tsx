@@ -131,6 +131,9 @@ const App: React.FC = () => {
 
   const [availableFonts, setAvailableFonts] = useState<FontDefinition[]>(FONTS.map(f => ({ ...f, available: true })));
   const [structureEntries, setStructureEntries] = useState<StructureEntry[]>([]);
+  const [structureManualMode, setStructureManualMode] = useState(true);
+  const structureManualModeRef = useRef(true);
+  const structureClearCounterRef = useRef(0);
   
   // Manual Structure Selection State
   const [selectionMode, setSelectionMode] = useState<{ active: boolean; level: string | null; selectedIds: string[] }>({
@@ -594,14 +597,23 @@ const App: React.FC = () => {
   }, [docState.htmlContent]);
 
   // Scan headings (H1/H2/H3) for Structure panel (debounced)
+  // Only runs when NOT in manual mode (auto-scan)
   useEffect(() => {
-    if (!isSidebarOpen && !selectionMode.active) return;
-
     if (structureScanTimeoutRef.current) {
       window.clearTimeout(structureScanTimeoutRef.current);
+      structureScanTimeoutRef.current = null;
     }
 
+    if (structureManualMode) return;
+    if (!isSidebarOpen) return;
+
+    // Capture counter so stale callbacks from before Clear are discarded
+    const counterAtSchedule = structureClearCounterRef.current;
+
     structureScanTimeoutRef.current = window.setTimeout(() => {
+      if (structureManualModeRef.current) return;
+      if (structureClearCounterRef.current !== counterAtSchedule) return;
+
       const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
       if (!workspace) return;
 
@@ -612,7 +624,7 @@ const App: React.FC = () => {
       }
 
       setStructureEntries(entries);
-    }, 350);
+    }, 500);
 
     return () => {
       if (structureScanTimeoutRef.current) {
@@ -620,7 +632,7 @@ const App: React.FC = () => {
         structureScanTimeoutRef.current = null;
       }
     };
-  }, [docState.htmlContent, isSidebarOpen, selectionMode.active]);
+  }, [docState.htmlContent, isSidebarOpen, structureManualMode]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
@@ -3568,6 +3580,8 @@ ${contentHtml}
 
   // --- Structure & Navigation ---
   const handleStartSelection = (level: string) => {
+      structureManualModeRef.current = true;
+      setStructureManualMode(true);
       setSelectionMode({ active: true, level, selectedIds: [] });
   };
 
@@ -3593,45 +3607,47 @@ ${contentHtml}
 
       selectionMode.selectedIds.forEach(id => {
           const element = document.getElementById(id);
-          if (element) {
-              // 1. Convert Tag if needed
-              if (element.tagName.toLowerCase() !== targetTag) {
-                  const newElement = document.createElement(targetTag);
-                  Array.from(element.attributes).forEach(attr => {
-                      newElement.setAttribute(attr.name, attr.value);
-                  });
-                  newElement.innerHTML = element.innerHTML;
-                  element.parentNode?.replaceChild(newElement, element);
-                  domModified = true;
-              }
+          if (!element) return;
 
-              const updatedElement = document.getElementById(id);
-              if (updatedElement) {
-                updatedElement.setAttribute('data-structure-status', 'approved');
-              }
-
-              // 2. Add to Structure List (avoid duplicates)
-              if (!structureEntries.some(e => e.id === id)) {
-                  // Find page number (approximate)
-                  const page = element.closest('.page');
-                  const pages = document.querySelectorAll('.page');
-                  let pageNum = 1;
-                  pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
-
-                  newEntries.push({
-                      id: id,
-                      elementId: id, // ID persists even if tag changes if we copied attrs
-                      text: element.innerText.substring(0, 50),
-                      page: pageNum,
-                      type: targetTag,
-                      status: 'approved'
-                  });
-              }
+          // 1. Convert Tag if needed
+          if (element.tagName.toLowerCase() !== targetTag) {
+              const newElement = document.createElement(targetTag);
+              Array.from(element.attributes).forEach(attr => {
+                  newElement.setAttribute(attr.name, attr.value);
+              });
+              newElement.innerHTML = element.innerHTML;
+              element.parentNode?.replaceChild(newElement, element);
+              domModified = true;
           }
+
+          // 2. Get the live element (may have been replaced)
+          const liveElement = document.getElementById(id);
+          if (!liveElement) return;
+          liveElement.setAttribute('data-structure-status', 'approved');
+
+          // 3. Find page number
+          const page = liveElement.closest('.page');
+          const pages = document.querySelectorAll('.page');
+          let pageNum = 1;
+          pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+
+          newEntries.push({
+              id: `manual-${id}-${Date.now()}`,
+              elementId: id,
+              text: liveElement.innerText.substring(0, 50),
+              page: pageNum,
+              type: targetTag,
+              status: 'approved'
+          });
       });
 
       if (newEntries.length > 0) {
-          setStructureEntries(prev => [...prev, ...newEntries]);
+          setStructureEntries(prev => {
+              // Remove any existing entries with the same elementId to avoid duplicates
+              const existingIds = new Set(newEntries.map(e => e.elementId));
+              const filtered = prev.filter(e => !existingIds.has(e.elementId));
+              return [...filtered, ...newEntries];
+          });
       }
 
       if (domModified || newEntries.length > 0) {
@@ -3792,6 +3808,24 @@ ${contentHtml}
           onAiInputChange={setAiInput}
           onAiSend={handleAiSend}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onClearStructure={() => {
+            structureManualModeRef.current = true;
+            structureClearCounterRef.current += 1;
+            if (structureScanTimeoutRef.current) {
+              window.clearTimeout(structureScanTimeoutRef.current);
+              structureScanTimeoutRef.current = null;
+            }
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+              workspace.querySelectorAll('[data-structure-status]').forEach(el => {
+                el.removeAttribute('data-structure-status');
+              });
+            }
+            setStructureEntries([]);
+            setStructureManualMode(true);
+          }}
+          onResetAutoScan={() => { structureManualModeRef.current = false; setStructureManualMode(false); }}
+          isManualMode={structureManualMode}
         />
         
         <div className="flex-1 relative" onScroll={handleScroll}>

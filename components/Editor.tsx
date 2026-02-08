@@ -1749,7 +1749,7 @@ const Editor: React.FC<EditorProps> = ({
   return (
     <div 
         ref={containerRef}
-        className={`editor-container flex-1 bg-gray-200 overflow-auto h-[calc(100vh-68px)] relative p-8 flex flex-col items-center ${isTextLayerMode ? 'text-layer-mode' : ''}`}
+        className={`editor-container flex-1 bg-gray-200 overflow-auto h-full relative p-8 flex flex-col items-center ${isTextLayerMode ? 'text-layer-mode' : ''}`}
     >
         <style dangerouslySetInnerHTML={{ __html: cssContent }} />
         <style>{selectionStyle}</style>
