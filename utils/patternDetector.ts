@@ -67,7 +67,7 @@ export const findSimilarElements = (
     const htmlEl = el as HTMLElement;
     if (htmlEl === excludeElement) return;
     if (!htmlEl.id) {
-      htmlEl.id = `pattern-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      htmlEl.id = `pattern-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     }
     
     const elSignature = getElementSignature(htmlEl);

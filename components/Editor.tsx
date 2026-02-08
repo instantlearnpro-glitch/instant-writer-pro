@@ -1580,7 +1580,7 @@ const Editor: React.FC<EditorProps> = ({
       if (!activeBlock) return;
       const clone = activeBlock.cloneNode(true) as HTMLElement;
       if (clone.id) {
-          clone.id = `dup-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+           clone.id = `dup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       }
       activeBlock.parentNode?.insertBefore(clone, activeBlock.nextSibling);
       if (contentRef.current) {
@@ -1927,7 +1927,7 @@ const Editor: React.FC<EditorProps> = ({
 
                   let dirty = false;
                   if (!block.id) {
-                      block.id = `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                       block.id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
                       dirty = true;
                   }
                   

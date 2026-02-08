@@ -100,7 +100,7 @@ export const scanStructure = (workspace: HTMLElement): { entries: StructureEntry
             if (isExplicit || matchedRef || (isPageTop && isVisuallyProminent)) {
                 // Ensure ID
                 if (!element.id) {
-                    element.id = `struct-${pageIndex}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                    element.id = `struct-${pageIndex}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
                     domModified = true;
                 }
 
