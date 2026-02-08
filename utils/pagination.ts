@@ -143,6 +143,13 @@ const getFooterLimit = (page: HTMLElement): number | null => {
     return limit;
 };
 
+const cloneFooterElements = (sourcePage: HTMLElement, targetPage: HTMLElement) => {
+    const selectors = '.page-footer, .page-number, [data-page-footer="true"], [data-page-number="true"], footer';
+    if (targetPage.querySelector(selectors)) return;
+    const footers = Array.from(sourcePage.querySelectorAll(selectors)) as HTMLElement[];
+    footers.forEach(el => targetPage.appendChild(el.cloneNode(true) as HTMLElement));
+};
+
 const summarizeFooterCandidates = (page: HTMLElement) => {
     const candidates = Array.from(page.querySelectorAll('.page-footer, .page-number, [data-page-footer="true"], [data-page-number="true"], footer')) as HTMLElement[];
     return candidates.map(el => summarizeElement(el));
@@ -668,6 +675,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                         nextPage.className = 'page';
                         editor.appendChild(nextPage);
                         pages.push(nextPage);
+                        cloneFooterElements(page, nextPage);
                     }
 
                     if (nextPage.firstChild) {
@@ -689,6 +697,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                         nextPage.className = 'page';
                         editor.appendChild(nextPage);
                         pages.push(nextPage);
+                        cloneFooterElements(page, nextPage);
                     }
 
                     if (nextPage.firstChild) {
@@ -705,6 +714,31 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             const firstFlow = getFirstFlowChild(page);
             const isOnlyFlow = firstFlow && firstFlow === lastEl;
             if (availableHeight > 0 && lastElRectHeight > availableHeight + 1 * scale && isOnlyFlow) {
+                const trailing: HTMLElement[] = [];
+                for (let el = lastEl.nextElementSibling as HTMLElement | null; el; el = el.nextElementSibling as HTMLElement | null) {
+                    if (isFlowElement(el)) trailing.push(el);
+                }
+                if (trailing.length > 0) {
+                    let nextPage = pages[i + 1];
+                    if (!nextPage) {
+                        nextPage = document.createElement('div');
+                        nextPage.className = 'page';
+                        editor.appendChild(nextPage);
+                        pages.push(nextPage);
+                        cloneFooterElements(page, nextPage);
+                    }
+                    const frag = document.createDocumentFragment();
+                    trailing.forEach(el => frag.appendChild(el));
+                    const breakMarker = getPageBreakMarker(nextPage);
+                    if (breakMarker && breakMarker.parentElement === nextPage) {
+                        nextPage.insertBefore(frag, breakMarker.nextSibling);
+                    } else if (nextPage.firstChild) {
+                        nextPage.insertBefore(frag, nextPage.firstChild);
+                    } else {
+                        nextPage.appendChild(frag);
+                    }
+                    changesMade = true;
+                }
                 break;
             }
             
@@ -715,6 +749,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 nextPage.className = 'page';
                 editor.appendChild(nextPage);
                 pages.push(nextPage);
+                cloneFooterElements(page, nextPage);
             }
             
             // Move the WHOLE element to the beginning of next page
