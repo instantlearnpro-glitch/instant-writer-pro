@@ -2334,36 +2334,61 @@ const App: React.FC = () => {
 
       const newPage = document.createElement('div');
       newPage.className = 'page';
-      
+      newPage.setAttribute('data-page-break', 'true');
+
       const marker = document.createElement('span');
       marker.id = 'page-break-marker-' + Date.now();
+      range.collapse(true);
       range.insertNode(marker);
 
-      const blockParent = marker.closest('p, h1, h2, h3, div:not(.page)');
-      
+      const blockParent = marker.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)') as HTMLElement | null;
+
       if (blockParent && blockParent.parentElement === currentPage) {
-           let nextSibling = blockParent.nextSibling;
-           const nodesToMove = [];
-           while (nextSibling) {
-               nodesToMove.push(nextSibling);
-               nextSibling = nextSibling.nextSibling;
-           }
-           
-           nodesToMove.forEach(n => newPage.appendChild(n));
-           currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
-           marker.remove();
+          const isAtStart = !marker.previousSibling ||
+              (marker.previousSibling.nodeType === Node.TEXT_NODE && !marker.previousSibling.textContent?.trim());
+
+          if (isAtStart) {
+              // Cursor at the start of the block: move this block and everything after
+              let node: Node | null = blockParent;
+              const nodesToMove: Node[] = [];
+              while (node) {
+                  const next = node.nextSibling;
+                  if (node !== marker && !(node instanceof HTMLElement && node.classList.contains('page-footer'))) {
+                      nodesToMove.push(node);
+                  }
+                  node = next;
+              }
+              nodesToMove.forEach(n => newPage.appendChild(n));
+          } else {
+              // Cursor in the middle: move everything after this block
+              let nextSibling = blockParent.nextSibling;
+              const nodesToMove: Node[] = [];
+              while (nextSibling) {
+                  if (!(nextSibling instanceof HTMLElement && nextSibling.classList.contains('page-footer'))) {
+                      nodesToMove.push(nextSibling);
+                  }
+                  nextSibling = nextSibling.nextSibling;
+              }
+              nodesToMove.forEach(n => newPage.appendChild(n));
+          }
+
+          currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
+          marker.remove();
       } else {
-           currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
-           marker.remove();
+          currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
+          marker.remove();
       }
 
       const rangeNew = document.createRange();
-      rangeNew.setStart(newPage, 0);
+      if (newPage.firstChild) {
+          rangeNew.setStart(newPage.firstChild, 0);
+      } else {
+          rangeNew.setStart(newPage, 0);
+      }
       rangeNew.collapse(true);
       selection.removeAllRanges();
       selection.addRange(rangeNew);
-      
-      // Page break is a significant structural change
+
       const workspace = document.querySelector('.editor-workspace');
       if (workspace) {
           updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);

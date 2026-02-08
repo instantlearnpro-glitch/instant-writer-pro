@@ -264,11 +264,12 @@ export const reflowPages = (editor: HTMLElement): boolean => {
     let iterations = 0;
     const maxIterations = 5000;
 
-    // PUSH: move overflowing elements forward
+    // Process each page: PUSH overflow forward, then PULL UP from next page
     for (let i = 0; i < pages.length && iterations < maxIterations; i++) {
         const page = pages[i];
         flattenWrappers(page);
 
+        // PUSH: move overflowing elements to next page
         while (isPageOverflowing(page) && iterations < maxIterations) {
             iterations++;
             const lastEl = getLastFlowChild(page);
@@ -285,10 +286,8 @@ export const reflowPages = (editor: HTMLElement): boolean => {
             const flowCount = getDirectFlowChildren(page).length;
 
             if (flowCount <= 1) {
-                // Only one element — try to split it (e.g., split a <ul> into two)
                 if (!trySplitOverflow(page, nextPage)) break;
             } else if (SPLITTABLE_TAGS.has(lastEl.tagName) && lastEl.getBoundingClientRect().top < getPageContentBottom(page)) {
-                // Element starts on this page but overflows — split it rather than moving entirely
                 if (!trySplitOverflow(page, nextPage)) {
                     insertAtPageStart(nextPage, lastEl);
                 }
@@ -298,33 +297,34 @@ export const reflowPages = (editor: HTMLElement): boolean => {
 
             changesMade = true;
         }
-    }
 
-    // PULL UP: bring content back from next page if space allows
-    for (let i = 0; i < pages.length - 1 && iterations < maxIterations; i++) {
-        const page = pages[i];
-        const nextPage = pages[i + 1];
+        // PULL UP: fill remaining space from next page (skip page-break boundaries)
+        if (i + 1 < pages.length) {
+            const nextPage = pages[i + 1];
+            if (nextPage.hasAttribute('data-page-break')) continue;
+            flattenWrappers(nextPage);
 
-        while (iterations < maxIterations) {
-            const firstNext = getDirectFlowChildren(nextPage)[0];
-            if (!firstNext) break;
+            while (iterations < maxIterations) {
+                const firstNext = getDirectFlowChildren(nextPage)[0];
+                if (!firstNext) break;
 
-            appendBeforeFooter(page, firstNext);
+                appendBeforeFooter(page, firstNext);
 
-            if (isPageOverflowing(page)) {
-                insertAtPageStart(nextPage, firstNext);
-                break;
+                if (isPageOverflowing(page)) {
+                    insertAtPageStart(nextPage, firstNext);
+                    break;
+                }
+
+                iterations++;
+                changesMade = true;
             }
 
-            iterations++;
-            changesMade = true;
-        }
-
-        // Remove empty pages
-        if (getDirectFlowChildren(nextPage).length === 0) {
-            nextPage.remove();
-            pages.splice(i + 1, 1);
-            i--;
+            // Remove empty pages
+            if (getDirectFlowChildren(nextPage).length === 0) {
+                nextPage.remove();
+                pages.splice(i + 1, 1);
+                // Don't decrement i — continue with the next page at same index
+            }
         }
     }
 
