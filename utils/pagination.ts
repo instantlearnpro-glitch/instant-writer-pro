@@ -718,7 +718,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 for (let el = lastEl.nextElementSibling as HTMLElement | null; el; el = el.nextElementSibling as HTMLElement | null) {
                     if (isFlowElement(el)) trailing.push(el);
                 }
-                if (trailing.length > 0) {
+                if (trailing.length) {
                     let nextPage = pages[i + 1];
                     if (!nextPage) {
                         nextPage = document.createElement('div');
@@ -730,13 +730,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     const frag = document.createDocumentFragment();
                     trailing.forEach(el => frag.appendChild(el));
                     const breakMarker = getPageBreakMarker(nextPage);
-                    if (breakMarker && breakMarker.parentElement === nextPage) {
-                        nextPage.insertBefore(frag, breakMarker.nextSibling);
-                    } else if (nextPage.firstChild) {
-                        nextPage.insertBefore(frag, nextPage.firstChild);
-                    } else {
-                        nextPage.appendChild(frag);
-                    }
+                    nextPage.insertBefore(frag, breakMarker && breakMarker.parentElement === nextPage ? breakMarker.nextSibling : nextPage.firstChild);
                     changesMade = true;
                 }
                 break;
