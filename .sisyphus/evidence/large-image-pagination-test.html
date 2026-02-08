@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Pagination Footer Test</title>
+    <style>
+      body { font-family: system-ui, -apple-system, sans-serif; }
+      .page-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 8px 12px; }
+    </style>
+  </head>
+  <body>
+    <p>Text before image</p>
+    <img
+      alt="Tall Test Image"
+      src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='1200'%3E%3Crect fill='%23f00' width='200' height='1200'/%3E%3C/svg%3E"
+      style="height: 1200px; width: 200px; display: block;"
+    />
+    <div class="page-footer">Footer text</div>
+    <p>Text after the image that should flow to next page</p>
+  </body>
+</html>
