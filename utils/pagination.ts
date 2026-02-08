@@ -616,7 +616,10 @@ const splitContainerByRange = (container: HTMLElement, pageBottom: number): HTML
  * Never splits elements, never pulls content up, never removes pages.
  * This preserves the original document structure and spacing.
  */
-export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number }) => {
+export const reflowPages = (
+    editor: HTMLElement,
+    options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number; startIndex?: number }
+) => {
     // 1. Sanitize first
     ensureContentIsPaginated(editor);
 
@@ -629,8 +632,12 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
     const pullUp = options?.pullUp ?? true;
     let budgetExceeded = false;
     
-    for (let i = 0; i < pages.length && iterations < maxIterations; i++) {
+    const startIndex = Math.max(0, Math.floor(options?.startIndex ?? 0));
+    let resumeIndex = startIndex;
+
+    for (let i = startIndex; i < pages.length && iterations < maxIterations; i++) {
         if (performance.now() - start > timeBudgetMs) {
+            resumeIndex = i;
             budgetExceeded = true;
             break;
         }
@@ -650,6 +657,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
         // Only handle overflow - push elements to next page
         while (isPageOverflowing(page) && iterations < maxIterations) {
             if (performance.now() - start > timeBudgetMs) {
+                resumeIndex = i;
                 budgetExceeded = true;
                 break;
             }
@@ -768,6 +776,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             }
             while (nextPage && hasPageSpace(page, 12) && iterations < maxIterations) {
                 if (performance.now() - start > timeBudgetMs) {
+                    resumeIndex = i;
                     budgetExceeded = true;
                     break;
                 }
@@ -853,7 +862,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             editor.setAttribute('data-reflow-scheduled', 'true');
             requestAnimationFrame(() => {
                 editor.removeAttribute('data-reflow-scheduled');
-                reflowPages(editor, options);
+                reflowPages(editor, { ...options, startIndex: resumeIndex });
             });
         }
     }

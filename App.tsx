@@ -71,7 +71,7 @@ ${LAYOUT_MARKER_START}
     width: ${width} !important;
     height: ${height} !important;
     padding: calc(${margins.top}in + var(--header-reserve, 0in)) ${margins.right}in calc(${margins.bottom}in + var(--footer-reserve, 0in)) ${margins.left}in !important;
-    overflow: visible !important;
+    overflow: hidden !important;
 }
 ${LAYOUT_MARKER_END}
 `;
