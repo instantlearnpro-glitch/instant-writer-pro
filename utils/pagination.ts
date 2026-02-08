@@ -246,6 +246,8 @@ const trySplitOverflow = (page: HTMLElement, nextPage: HTMLElement): boolean => 
 };
 
 const insertAtPageStart = (page: HTMLElement, node: HTMLElement) => {
+    if (node.contains(page) || node === page) return;
+    if (!node.parentNode && !node.isConnected && page.contains(node)) return;
     const firstFlow = getDirectFlowChildren(page)[0];
     const footer = getDirectFooter(page);
     if (firstFlow) page.insertBefore(node, firstFlow);
@@ -254,6 +256,7 @@ const insertAtPageStart = (page: HTMLElement, node: HTMLElement) => {
 };
 
 const appendBeforeFooter = (page: HTMLElement, node: HTMLElement) => {
+    if (node.contains(page) || node === page) return;
     const footer = getDirectFooter(page);
     if (footer) page.insertBefore(node, footer);
     else page.appendChild(node);
@@ -295,13 +298,11 @@ const canHeuristicMerge = (prev: HTMLElement, next: HTMLElement): boolean => {
     if (prev.tagName !== next.tagName) return false;
     if (!HEURISTIC_MERGE_TAGS.has(prev.tagName)) return false;
     if (hasSkipClass(prev) || hasSkipClass(next)) return false;
-    if (prev.tagName === 'DIV') {
-        const prevHasKids = prev.children.length > 0;
-        const nextHasKids = next.children.length > 0;
-        if (!prevHasKids || !nextHasKids) return false;
-        const prevFirstTag = prev.children[0]?.tagName;
-        const nextFirstTag = next.children[0]?.tagName;
-        if (prevFirstTag !== nextFirstTag) return false;
+    if (prev.tagName === 'DIV' || prev.tagName === 'SECTION') {
+        const prevClass = prev.className.trim();
+        const nextClass = next.className.trim();
+        if (!prevClass || !nextClass) return false;
+        if (prevClass !== nextClass) return false;
     }
     return true;
 };
@@ -375,6 +376,7 @@ export const reflowPages = (editor: HTMLElement): boolean => {
             iterations++;
             const lastEl = getLastFlowChild(page);
             if (!lastEl) break;
+            if (lastEl.contains(page)) break;
 
             let nextPage = pages[i + 1];
             if (!nextPage) {
