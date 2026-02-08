@@ -131,7 +131,7 @@ const Editor: React.FC<EditorProps> = ({
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [pageRects, setPageRects] = useState<{ top: number; left: number; width: number; height: number }[]>([]);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; block: HTMLElement | null; linkUrl?: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; block: HTMLElement | null; linkUrl?: string; page?: HTMLElement | null } | null>(null);
   const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
   const [qrModal, setQrModal] = useState<{ isOpen: boolean; url: string }>({ isOpen: false, url: '' });
   const [activeLink, setActiveLink] = useState<{ url: string; x: number; y: number; element: HTMLAnchorElement } | null>(null);
@@ -1000,7 +1000,8 @@ const Editor: React.FC<EditorProps> = ({
       }
       
       setActiveBlock(block);
-      setContextMenu({ x: e.clientX, y: e.clientY, block, linkUrl });
+      const page = target.closest('.page') as HTMLElement | null;
+      setContextMenu({ x: e.clientX, y: e.clientY, block, linkUrl, page });
   };
 
   const handleToggleMarginOverride = useCallback((block: HTMLElement | null) => {
@@ -1206,6 +1207,45 @@ const Editor: React.FC<EditorProps> = ({
      first.removeAttribute('data-split-original');
      reflowPages(contentRef.current);
      onContentChange(contentRef.current.innerHTML);
+  };
+
+  const handleMergePageElements = () => {
+      const page = contextMenu?.page;
+      if (!page || !contentRef.current) return;
+
+      const isFlow = (el: Element): el is HTMLElement =>
+          el instanceof HTMLElement &&
+          !el.classList.contains('page-footer') &&
+          !el.classList.contains('image-overlay') &&
+          !el.classList.contains('resize-handle') &&
+          el.tagName !== 'STYLE' &&
+          window.getComputedStyle(el).position !== 'absolute' &&
+          window.getComputedStyle(el).position !== 'fixed';
+
+      let merged = false;
+      let changed = true;
+      while (changed) {
+          changed = false;
+          const kids = (Array.from(page.children) as HTMLElement[]).filter(isFlow);
+          for (let i = 0; i < kids.length - 1; i++) {
+              const a = kids[i];
+              const b = kids[i + 1];
+              if (a.tagName === b.tagName) {
+                  while (b.firstChild) a.appendChild(b.firstChild);
+                  b.remove();
+                  a.removeAttribute('data-split-id');
+                  a.removeAttribute('data-split-original');
+                  merged = true;
+                  changed = true;
+                  break;
+              }
+          }
+      }
+
+      if (merged) {
+          reflowPages(contentRef.current);
+          onContentChange(contentRef.current.innerHTML);
+      }
   };
 
   // Clipboard operations
@@ -2130,6 +2170,7 @@ const Editor: React.FC<EditorProps> = ({
                 onDelete={handleDeleteBlock}
                 onDuplicate={handleDuplicateBlock}
                 onMerge={getMergeableElements() ? handleMerge : undefined}
+                onMergePageElements={contextMenu.page ? handleMergePageElements : undefined}
                 hasBlock={!!contextMenu.block}
             />
         )}
