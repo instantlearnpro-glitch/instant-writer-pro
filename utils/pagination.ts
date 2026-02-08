@@ -154,6 +154,8 @@ const flattenWrappers = (page: HTMLElement): boolean => {
 
 const SPLITTABLE_TAGS = new Set(['UL', 'OL', 'BLOCKQUOTE', 'DIV', 'SECTION']);
 
+const genSplitId = () => `split-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 /**
  * Split a container element (ul, ol, blockquote, div) at the overflow point.
  * Returns the remainder element to be placed on the next page, or null if can't split.
@@ -175,11 +177,17 @@ const splitContainer = (container: HTMLElement, contentBottom: number): HTMLElem
 
     if (splitIndex <= 0) return null;
 
-    // Clone the container for the remainder
+    if (!container.getAttribute('data-split-id')) {
+        container.setAttribute('data-split-original', container.outerHTML);
+    }
+
     const remainder = container.cloneNode(false) as HTMLElement;
     remainder.removeAttribute('id');
 
-    // Move children from splitIndex onward to the remainder
+    const splitId = container.getAttribute('data-split-id') ?? genSplitId();
+    container.setAttribute('data-split-id', splitId);
+    remainder.setAttribute('data-split-id', splitId);
+
     for (let i = splitIndex; i < children.length; i++) {
         remainder.appendChild(children[i]);
     }
@@ -251,6 +259,19 @@ const appendBeforeFooter = (page: HTMLElement, node: HTMLElement) => {
     else page.appendChild(node);
 };
 
+const mergeIfSplitPair = (prev: HTMLElement | null, next: HTMLElement | null): boolean => {
+    if (!prev || !next) return false;
+    const idA = prev.getAttribute('data-split-id');
+    const idB = next.getAttribute('data-split-id');
+    if (!idA || idA !== idB) return false;
+    if (prev.tagName !== next.tagName) return false;
+
+    while (next.firstChild) prev.appendChild(next.firstChild);
+    next.remove();
+    prev.removeAttribute('data-split-id');
+    return true;
+};
+
 export const reflowPages = (editor: HTMLElement): boolean => {
     if (!editor || !editor.isConnected) return false;
 
@@ -316,6 +337,13 @@ export const reflowPages = (editor: HTMLElement): boolean => {
                 if (isPageOverflowing(page)) {
                     insertAtPageStart(nextPage, firstNext);
                     break;
+                }
+
+                const flowKids = getDirectFlowChildren(page);
+                const prevSibling = flowKids.length >= 2 ? flowKids[flowKids.length - 2] : null;
+                const movedEl = flowKids[flowKids.length - 1];
+                if (mergeIfSplitPair(prevSibling, movedEl)) {
+                    changesMade = true;
                 }
 
                 iterations++;

@@ -789,6 +789,78 @@ const Editor: React.FC<EditorProps> = ({
               const element = node.nodeType === Node.ELEMENT_NODE
                   ? (node as HTMLElement)
                   : node.parentElement;
+
+              // Cross-page backspace: merge first block on page with last block on previous page
+              if (e.key === 'Backspace' && element) {
+                  const textBlockSel = 'p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, div[contenteditable="true"]';
+                  const block = element.closest(textBlockSel) as HTMLElement | null;
+                  const page = block?.closest('.page') as HTMLElement | null;
+
+                  if (block && page) {
+                      const isFlowEl = (el: Element): el is HTMLElement =>
+                          el instanceof HTMLElement &&
+                          !el.classList.contains('page-footer') &&
+                          !el.classList.contains('image-overlay') &&
+                          !el.classList.contains('resize-handle') &&
+                          el.tagName !== 'STYLE' &&
+                          window.getComputedStyle(el).position !== 'absolute' &&
+                          window.getComputedStyle(el).position !== 'fixed';
+
+                      const flowChildren = (Array.from(page.children) as HTMLElement[]).filter(isFlowEl);
+                      const firstFlow = flowChildren[0] ?? null;
+                      const isFirstBlock = firstFlow === block || (firstFlow && firstFlow.contains(block));
+
+                      if (isFirstBlock) {
+                          const pre = range.cloneRange();
+                          pre.selectNodeContents(block);
+                          pre.setEnd(range.startContainer, range.startOffset);
+                          const caretAtStart = pre.toString() === '';
+
+                          if (caretAtStart) {
+                              const prevPage = page.previousElementSibling as HTMLElement | null;
+                              if (prevPage && prevPage.classList.contains('page')) {
+                                  const prevFlowChildren = (Array.from(prevPage.children) as HTMLElement[]).filter(isFlowEl);
+                                  const prevBlock = prevFlowChildren.length > 0 ? prevFlowChildren[prevFlowChildren.length - 1] : null;
+
+                                  if (prevBlock) {
+                                      e.preventDefault();
+
+                                      const sameTag = prevBlock.tagName === block.tagName;
+                                      const isTextTag = /^(P|H[1-6]|LI|BLOCKQUOTE)$/.test(block.tagName);
+
+                                      if (sameTag && isTextTag) {
+                                          const caretRange = document.createRange();
+                                          if (prevBlock.lastChild) {
+                                              caretRange.setStartAfter(prevBlock.lastChild);
+                                          } else {
+                                              caretRange.setStart(prevBlock, 0);
+                                          }
+                                          caretRange.collapse(true);
+                                          selection.removeAllRanges();
+                                          selection.addRange(caretRange);
+
+                                          while (block.firstChild) prevBlock.appendChild(block.firstChild);
+                                          block.remove();
+                                      } else {
+                                          const footer = Array.from(prevPage.children).find(
+                                              c => (c as HTMLElement).classList?.contains('page-footer')
+                                          ) as HTMLElement | undefined;
+                                          if (footer) prevPage.insertBefore(block, footer);
+                                          else prevPage.appendChild(block);
+                                      }
+
+                                      if (contentRef.current) {
+                                          reflowPages(contentRef.current);
+                                          onContentChange(contentRef.current.innerHTML);
+                                      }
+                                      return;
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+
               const inTextBlock = !!element?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, div[contenteditable="true"]');
               if (inTextBlock) {
                   return;
@@ -1060,16 +1132,80 @@ const Editor: React.FC<EditorProps> = ({
   };
 
   const handleDuplicateBlock = () => {
-      if (!activeBlock) return;
-      const clone = activeBlock.cloneNode(true) as HTMLElement;
-      if (clone.id) {
-          clone.id = `dup-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-      }
-      activeBlock.parentNode?.insertBefore(clone, activeBlock.nextSibling);
-      if (contentRef.current) {
-          reflowPages(contentRef.current);
-          onContentChange(contentRef.current.innerHTML);
-      }
+     if (!activeBlock) return;
+     const clone = activeBlock.cloneNode(true) as HTMLElement;
+     if (clone.id) {
+         clone.id = `dup-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+     }
+     activeBlock.parentNode?.insertBefore(clone, activeBlock.nextSibling);
+     if (contentRef.current) {
+         reflowPages(contentRef.current);
+         onContentChange(contentRef.current.innerHTML);
+     }
+  };
+
+  const MERGEABLE_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'BLOCKQUOTE', 'DIV', 'SECTION', 'TABLE']);
+
+  const getMergeableElements = (): HTMLElement[] | null => {
+     if (!contentRef.current) return null;
+
+     if (multiSelectedElements.length === 2) {
+         const elA = document.getElementById(multiSelectedElements[0]);
+         const elB = document.getElementById(multiSelectedElements[1]);
+         if (!elA || !elB) return null;
+         if (elA.tagName === elB.tagName && MERGEABLE_TAGS.has(elA.tagName)) {
+             const posA = elA.compareDocumentPosition(elB);
+             if (posA & Node.DOCUMENT_POSITION_FOLLOWING) return [elA, elB];
+             return [elB, elA];
+         }
+         return null;
+     }
+
+     if (contextMenu?.block) {
+         const block = contextMenu.block;
+         const splitId = block.getAttribute('data-split-id');
+         if (!splitId) return null;
+         const all = Array.from(contentRef.current.querySelectorAll(`[data-split-id="${CSS.escape(splitId)}"]`)) as HTMLElement[];
+         if (all.length >= 2 && all.every(el => el.tagName === all[0].tagName)) return all;
+     }
+
+     return null;
+  };
+
+  const handleMerge = () => {
+     const parts = getMergeableElements();
+     if (!parts || parts.length < 2 || !contentRef.current) return;
+
+     const first = parts[0];
+     const originalHtml = first.getAttribute('data-split-original');
+
+     if (originalHtml) {
+         const temp = document.createElement('div');
+         temp.innerHTML = originalHtml;
+         const restored = temp.firstElementChild as HTMLElement | null;
+         if (restored) {
+             restored.removeAttribute('data-split-id');
+             restored.removeAttribute('data-split-original');
+             first.replaceWith(restored);
+             for (let i = 1; i < parts.length; i++) {
+                 parts[i].remove();
+             }
+             reflowPages(contentRef.current);
+             onContentChange(contentRef.current.innerHTML);
+             return;
+         }
+     }
+
+     for (let i = 1; i < parts.length; i++) {
+         while (parts[i].firstChild) {
+             first.appendChild(parts[i].firstChild);
+         }
+         parts[i].remove();
+     }
+     first.removeAttribute('data-split-id');
+     first.removeAttribute('data-split-original');
+     reflowPages(contentRef.current);
+     onContentChange(contentRef.current.innerHTML);
   };
 
   // Clipboard operations
@@ -1993,6 +2129,7 @@ const Editor: React.FC<EditorProps> = ({
                 onMoveDown={handleMoveDown}
                 onDelete={handleDeleteBlock}
                 onDuplicate={handleDuplicateBlock}
+                onMerge={getMergeableElements() ? handleMerge : undefined}
                 hasBlock={!!contextMenu.block}
             />
         )}

@@ -30,6 +30,7 @@ interface BlockContextMenuProps {
   onMoveDown: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onMerge?: () => void;
   onToggleMarginOverride?: () => void;
   isMarginOverride?: boolean;
   hasBlock: boolean;
@@ -63,6 +64,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
   onMoveDown,
   onDelete,
   onDuplicate,
+  onMerge,
   onToggleMarginOverride,
   isMarginOverride,
   hasBlock
@@ -165,6 +167,18 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
             Paste style
+          </button>
+        )}
+
+        {onMerge && (
+          <button
+            onClick={() => { onMerge(); onClose(); }}
+            className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto border-t border-gray-100"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+            </svg>
+            Merge
           </button>
         )}
 
