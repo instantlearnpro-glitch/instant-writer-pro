@@ -273,14 +273,36 @@ const mergeIfSplitPair = (prev: HTMLElement | null, next: HTMLElement | null): b
     return true;
 };
 
-const HEURISTIC_MERGE_TAGS = new Set(['UL', 'OL', 'BLOCKQUOTE']);
+const HEURISTIC_MERGE_TAGS = new Set([
+    'UL', 'OL', 'BLOCKQUOTE', 'DIV', 'SECTION', 'TABLE'
+]);
+
+const SKIP_CLASSES = new Set([
+    'page', 'page-footer', 'spacer', 'mission-box', 'editor-workspace',
+    'floating-text', 'image-overlay', 'resize-handle',
+    'toc-style-dotted'
+]);
+
+const hasSkipClass = (el: HTMLElement): boolean => {
+    for (const cls of SKIP_CLASSES) {
+        if (el.classList.contains(cls)) return true;
+    }
+    if (/shape-/.test(el.className)) return true;
+    return false;
+};
 
 const canHeuristicMerge = (prev: HTMLElement, next: HTMLElement): boolean => {
     if (prev.tagName !== next.tagName) return false;
     if (!HEURISTIC_MERGE_TAGS.has(prev.tagName)) return false;
-    if (prev.classList.contains('page-footer') || next.classList.contains('page-footer')) return false;
-    if (prev.classList.contains('spacer') || next.classList.contains('spacer')) return false;
-    if (prev.classList.contains('mission-box') || next.classList.contains('mission-box')) return false;
+    if (hasSkipClass(prev) || hasSkipClass(next)) return false;
+    if (prev.tagName === 'DIV') {
+        const prevHasKids = prev.children.length > 0;
+        const nextHasKids = next.children.length > 0;
+        if (!prevHasKids || !nextHasKids) return false;
+        const prevFirstTag = prev.children[0]?.tagName;
+        const nextFirstTag = next.children[0]?.tagName;
+        if (prevFirstTag !== nextFirstTag) return false;
+    }
     return true;
 };
 
@@ -446,10 +468,29 @@ export const autoMergeAll = (editor: HTMLElement): boolean => {
     if (!editor || !editor.isConnected) return false;
     const pages = Array.from(editor.querySelectorAll('.page')) as HTMLElement[];
     let merged = false;
-    for (const page of pages) {
-        if (autoMergeSplitSiblings(page)) merged = true;
-        if (autoMergeHeuristic(page)) merged = true;
+
+    console.group('[AutoMerge] Scanning pages...');
+    for (let p = 0; p < pages.length; p++) {
+        const kids = getDirectFlowChildren(pages[p]);
+        const tags = kids.map(k => `${k.tagName}${k.className ? '.' + k.className.split(' ')[0] : ''}`);
+        console.log(`Page ${p + 1}: ${kids.length} flow children → [${tags.join(', ')}]`);
+
+        const pairs: string[] = [];
+        for (let i = 0; i < kids.length - 1; i++) {
+            if (kids[i].tagName === kids[i + 1].tagName) {
+                pairs.push(`${kids[i].tagName} @ index ${i}-${i + 1}`);
+            }
+        }
+        if (pairs.length > 0) {
+            console.log(`  Same-type adjacent pairs: ${pairs.join('; ')}`);
+        }
+
+        if (autoMergeSplitSiblings(pages[p])) merged = true;
+        if (autoMergeHeuristic(pages[p])) merged = true;
     }
+    console.groupEnd();
+    console.log(`[AutoMerge] Result: ${merged ? 'merged elements' : 'nothing to merge'}`);
+
     if (merged) {
         reflowPages(editor);
     }
