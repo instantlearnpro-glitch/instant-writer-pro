@@ -124,6 +124,15 @@ const getElementBottomWithMargin = (el: HTMLElement, scale: number = 1) => {
     return rect.bottom + marginBottom * scale;
 };
 
+const looksLikePageNumber = (el: HTMLElement) => {
+    const text = (el.textContent || '').trim();
+    if (!text) return false;
+    if (text.length > 10) return false;
+    if (/^\d{1,5}$/.test(text)) return true;
+    if (/^[ivxlcdm]{1,10}$/i.test(text)) return true;
+    return false;
+};
+
 const getFooterLimit = (page: HTMLElement): number | null => {
     const candidates = Array.from(page.querySelectorAll('.page-footer, .page-number, [data-page-footer="true"], [data-page-number="true"], footer')) as HTMLElement[];
     let limit: number | null = null;
@@ -140,6 +149,30 @@ const getFooterLimit = (page: HTMLElement): number | null => {
             limit = top;
         }
     });
+
+    if (limit !== null) return limit;
+
+    const pageRect = page.getBoundingClientRect();
+    const scale = getScale(page);
+    const computed = window.getComputedStyle(page);
+    const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+    const contentBottom = pageRect.bottom - paddingBottom * scale;
+    const absoluteEls = Array.from(page.querySelectorAll('*')) as HTMLElement[];
+    absoluteEls.forEach(el => {
+        if (!el.isConnected) return;
+        if (isFooterElement(el)) return;
+        if (!looksLikePageNumber(el)) return;
+        const style = window.getComputedStyle(el);
+        if (style.position !== 'absolute' && style.position !== 'fixed') return;
+        const rect = el.getBoundingClientRect();
+        if (rect.height <= 0 || rect.width <= 0) return;
+        if (rect.top < contentBottom) return;
+        const top = rect.top;
+        if (limit === null || top < limit) {
+            limit = top;
+        }
+    });
+
     return limit;
 };
 
