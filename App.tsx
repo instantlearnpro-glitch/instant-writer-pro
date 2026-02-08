@@ -3668,11 +3668,15 @@ ${contentHtml}
         onOpenLogs={() => setIsAutoLogModalOpen(true)}
         onAutoMerge={() => {
           const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
-          if (workspace) {
-            if (autoMergeAll(workspace)) {
-              updateDocStatePreserveScroll(workspace.innerHTML);
-            }
+          if (!workspace) return;
+          const didMerge = autoMergeAll(workspace);
+          if (didMerge) {
+            updateDocStatePreserveScroll(workspace.innerHTML);
+            setFontUploadMessage('✔ Auto Merge completato');
+          } else {
+            setFontUploadMessage('Nessun elemento da unire trovato');
           }
+          window.setTimeout(() => setFontUploadMessage(''), 2500);
         }}
       />
 
