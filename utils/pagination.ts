@@ -404,3 +404,16 @@ export const reflowPages = (editor: HTMLElement): boolean => {
 
     return changesMade;
 };
+
+export const autoMergeAll = (editor: HTMLElement): boolean => {
+    if (!editor || !editor.isConnected) return false;
+    const pages = Array.from(editor.querySelectorAll('.page')) as HTMLElement[];
+    let merged = false;
+    for (const page of pages) {
+        if (autoMergeSplitSiblings(page)) merged = true;
+    }
+    if (merged) {
+        reflowPages(editor);
+    }
+    return merged;
+};

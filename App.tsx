@@ -14,7 +14,7 @@ import PatternModal from './components/PatternModal';
 import ExportModal from './components/ExportModal';
 import SettingsModal from './components/SettingsModal';
 import AutoLogModal from './components/AutoLogModal';
-import { reflowPages } from './utils/pagination';
+import { reflowPages, autoMergeAll } from './utils/pagination';
 import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
 
 declare global {
@@ -3666,6 +3666,14 @@ ${contentHtml}
         onAddFont={handleAddFont}
         onCaptureSelection={handleCaptureSelection}
         onOpenLogs={() => setIsAutoLogModalOpen(true)}
+        onAutoMerge={() => {
+          const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+          if (workspace) {
+            if (autoMergeAll(workspace)) {
+              updateDocStatePreserveScroll(workspace.innerHTML);
+            }
+          }
+        }}
       />
 
       {fontUploadMessage && (
