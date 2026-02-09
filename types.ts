@@ -70,7 +70,12 @@ export interface TOCSettings {
   includeH1: boolean;
   includeH2: boolean;
   includeH3: boolean;
-  style: 'classic' | 'modern' | 'dotted';
+  fontSize: number;
+  fontFamily: string;
+  h2Indent: number;
+  h3Indent: number;
+  showLeader: boolean;
+  lineHeight: number;
 }
 
 export interface BorderSettings {

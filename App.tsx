@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { X } from 'lucide-react';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
@@ -391,6 +392,76 @@ const App: React.FC = () => {
   // Zoom and View Mode
   const [zoom, setZoom] = useState(100);
   const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
+
+  const [tocEditorOpen, setTocEditorOpen] = useState(false);
+  const [tocSettings, setTocSettings] = useState<{fontSize: number; fontFamily: string; h2Indent: number; h3Indent: number; showLeader: boolean; lineHeight: number}>({
+    fontSize: 11, fontFamily: 'inherit', h2Indent: 20, h3Indent: 40, showLeader: true, lineHeight: 1.6
+  });
+
+  const handleTocSelect = () => {
+    const workspace = document.querySelector('.editor-workspace');
+    if (!workspace) return;
+    const firstEntry = workspace.querySelector('.toc-entry') as HTMLElement;
+    if (!firstEntry) return;
+
+    const computed = window.getComputedStyle(firstEntry);
+    const fontSize = parseFloat(computed.fontSize) || 11;
+    const fontFamily = firstEntry.style.fontFamily || 'inherit';
+    const lineHeight = parseFloat(computed.lineHeight) / parseFloat(computed.fontSize) || 1.6;
+
+    const h2Entry = workspace.querySelector('.toc-entry[data-level="h2"]') as HTMLElement;
+    const h3Entry = workspace.querySelector('.toc-entry[data-level="h3"]') as HTMLElement;
+    const h2Title = h2Entry?.querySelector('span:first-child') as HTMLElement;
+    const h3Title = h3Entry?.querySelector('span:first-child') as HTMLElement;
+    const h2Indent = h2Title ? parseFloat(h2Title.style.paddingLeft) || 20 : 20;
+    const h3Indent = h3Title ? parseFloat(h3Title.style.paddingLeft) || 40 : 40;
+
+    const leaderSpan = firstEntry.children[1] as HTMLElement;
+    const showLeader = leaderSpan ? leaderSpan.style.borderBottom !== '' && leaderSpan.style.borderBottom !== 'none' : true;
+
+    setTocSettings({ fontSize, fontFamily, h2Indent, h3Indent, showLeader, lineHeight: Math.round(lineHeight * 10) / 10 });
+    setTocEditorOpen(true);
+  };
+
+  const applyTocSettings = (newSettings: typeof tocSettings) => {
+    setTocSettings(newSettings);
+    const workspace = document.querySelector('.editor-workspace');
+    if (!workspace) return;
+
+    const entries = workspace.querySelectorAll('.toc-entry') as NodeListOf<HTMLElement>;
+    entries.forEach(entry => {
+      const level = entry.getAttribute('data-level') || 'h1';
+      const indent = level === 'h2' ? newSettings.h2Indent : level === 'h3' ? newSettings.h3Indent : 0;
+      const weight = level === 'h1' ? 'bold' : 'normal';
+      const fStyle = level === 'h3' ? 'italic' : 'normal';
+
+      entry.style.fontSize = `${newSettings.fontSize}px`;
+      entry.style.lineHeight = String(newSettings.lineHeight);
+      entry.style.fontWeight = weight;
+      entry.style.fontStyle = fStyle;
+      if (newSettings.fontFamily !== 'inherit') {
+        entry.style.fontFamily = newSettings.fontFamily;
+      } else {
+        entry.style.removeProperty('font-family');
+      }
+
+      const titleSpan = entry.children[0] as HTMLElement;
+      if (titleSpan) titleSpan.style.paddingLeft = `${indent}px`;
+
+      const leaderSpan = entry.children[1] as HTMLElement;
+      if (leaderSpan) {
+        leaderSpan.style.borderBottom = newSettings.showLeader ? '1px dotted #aaa' : 'none';
+      }
+    });
+  };
+
+  const handleTocEditorClose = () => {
+    setTocEditorOpen(false);
+    const workspace = document.querySelector('.editor-workspace');
+    if (workspace) {
+      updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+    }
+  };
 
   const handleZoomChange = (nextZoom: number) => {
       const container = editorContainerRef.current;
@@ -2549,28 +2620,54 @@ const App: React.FC = () => {
           return;
       }
 
-      let tocHtml = `
-      <div class="toc-container toc-style-${settings.style}" contenteditable="false">
-          <div class="toc-title">Table of Contents</div>
-          <ul class="toc-list">
-      `;
+      let tocHtml = '';
 
       tocEntries.forEach(entry => {
-          tocHtml += `
-            <li class="toc-item toc-${entry.level}">
-                <a href="#${entry.id}" onclick="const el = document.getElementById('${entry.id}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;">
-                    ${entry.text}
-                </a>
-                <span class="toc-page">${entry.page}</span>
-            </li>
-          `;
+          const level = entry.level;
+          const indent = level === 'h2' ? settings.h2Indent : level === 'h3' ? settings.h3Indent : 0;
+          const weight = level === 'h1' ? 'bold' : 'normal';
+          const fStyle = level === 'h3' ? 'italic' : 'normal';
+          const fontFam = settings.fontFamily === 'inherit' ? '' : `font-family:${settings.fontFamily};`;
+
+          const entryStyle = `display:flex;align-items:baseline;width:100%;white-space:nowrap;overflow:hidden;margin:0;padding:1px 0;line-height:${settings.lineHeight};font-size:${settings.fontSize}px;font-weight:${weight};font-style:${fStyle};${fontFam}`;
+          const titleStyle = `flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:${indent}px`;
+          const leaderStyle = `flex:1 1 auto;min-width:20px;height:0;margin:0 4px;${settings.showLeader ? 'border-bottom:1px dotted #aaa' : ''}`;
+          const pageStyle = `flex-shrink:0;min-width:2ch;text-align:right;font-variant-numeric:tabular-nums`;
+
+          tocHtml += `<div class="toc-entry" data-level="${level}" style="${entryStyle}"><span style="${titleStyle}"><a href="#${entry.id}" style="color:inherit;text-decoration:none" onclick="const el = document.getElementById('${entry.id}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;">${entry.text}</a></span><span style="${leaderStyle}"></span><span style="${pageStyle}">${entry.page}</span></div>`;
       });
 
-      tocHtml += `</ul></div><br/>`;
+      // Insert TOC using DOM manipulation (execCommand fails after modal focus loss)
+      const savedRange = selectionState.range;
+      if (savedRange && workspace.contains(savedRange.commonAncestorContainer)) {
+          // Restore saved selection and insert there
+          const sel = window.getSelection();
+          if (sel) {
+              sel.removeAllRanges();
+              sel.addRange(savedRange);
+              document.execCommand('insertHTML', false, tocHtml);
+          }
+      } else {
+          // Fallback: insert at the beginning of the first page
+          const firstPage = workspace.querySelector('.page') as HTMLElement;
+          if (firstPage) {
+              const temp = document.createElement('div');
+              temp.innerHTML = tocHtml;
+              const fragment = document.createDocumentFragment();
+              while (temp.firstChild) {
+                  fragment.appendChild(temp.firstChild);
+              }
+              firstPage.insertBefore(fragment, firstPage.firstChild);
+          }
+      }
 
-      document.execCommand('insertHTML', false, tocHtml);
+      // Save state
+      const ws = document.querySelector('.editor-workspace');
+      if (ws) {
+          updateDocState({ ...docState, htmlContent: ws.innerHTML }, true);
+      }
+
       setIsTOCModalOpen(false);
-      // History saved by content change debounce
   };
 
   const preparePageAnchors = () => {
@@ -3939,6 +4036,7 @@ ${contentHtml}
                 onCopyStyle={handleCopyStyle}
                 onPasteStyle={handlePasteStyle}
                 hasStyleClipboard={!!styleClipboard}
+                onTocSelect={handleTocSelect}
             />
             <ZoomControls
                 zoom={zoom}
@@ -3948,6 +4046,46 @@ ${contentHtml}
             />
         </div>
       </div>
+
+      {tocEditorOpen && (
+        <div className="fixed right-4 top-1/3 z-40 bg-white rounded-lg shadow-2xl border border-gray-200 w-64 overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 bg-violet-50 border-b border-violet-200">
+            <span className="text-xs font-bold text-violet-800 uppercase">Edit TOC</span>
+            <button onClick={handleTocEditorClose} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
+          </div>
+          <div className="p-3 space-y-3">
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase">Font Size ({tocSettings.fontSize}px)</label>
+              <input type="range" min={8} max={18} value={tocSettings.fontSize} onChange={(e) => applyTocSettings({...tocSettings, fontSize: Number(e.target.value)})} className="w-full accent-violet-600 h-1.5" />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase">Font</label>
+              <select value={tocSettings.fontFamily} onChange={(e) => applyTocSettings({...tocSettings, fontFamily: e.target.value})} className="w-full border border-gray-300 rounded px-2 py-1 text-xs mt-0.5">
+                <option value="inherit">Document Font</option>
+                <option value="'Times New Roman', serif">Times New Roman</option>
+                <option value="Arial, sans-serif">Arial</option>
+                <option value="Georgia, serif">Georgia</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase">H2 Indent ({tocSettings.h2Indent}px)</label>
+              <input type="range" min={0} max={60} value={tocSettings.h2Indent} onChange={(e) => applyTocSettings({...tocSettings, h2Indent: Number(e.target.value)})} className="w-full accent-violet-600 h-1.5" />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase">H3 Indent ({tocSettings.h3Indent}px)</label>
+              <input type="range" min={0} max={80} value={tocSettings.h3Indent} onChange={(e) => applyTocSettings({...tocSettings, h3Indent: Number(e.target.value)})} className="w-full accent-violet-600 h-1.5" />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase">Line Height ({tocSettings.lineHeight})</label>
+              <input type="range" min={1.0} max={2.5} step={0.1} value={tocSettings.lineHeight} onChange={(e) => applyTocSettings({...tocSettings, lineHeight: Number(e.target.value)})} className="w-full accent-violet-600 h-1.5" />
+            </div>
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={tocSettings.showLeader} onChange={(e) => applyTocSettings({...tocSettings, showLeader: e.target.checked})} className="rounded text-violet-600" />
+              Dotted leader
+            </label>
+          </div>
+        </div>
+      )}
 
       <TOCModal 
         isOpen={isTOCModalOpen} 

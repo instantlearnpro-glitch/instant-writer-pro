@@ -55,6 +55,7 @@ interface EditorProps {
   onCopyStyle: () => void;
   onPasteStyle: () => void;
   hasStyleClipboard: boolean;
+  onTocSelect?: () => void;
 }
 
 // Helper to convert RGB/RGBA to Hex
@@ -127,7 +128,8 @@ const Editor: React.FC<EditorProps> = ({
   viewMode,
   onCopyStyle,
   onPasteStyle,
-  hasStyleClipboard
+  hasStyleClipboard,
+  onTocSelect
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [pageRects, setPageRects] = useState<{ top: number; left: number; width: number; height: number }[]>([]);
@@ -1542,6 +1544,11 @@ const Editor: React.FC<EditorProps> = ({
               });
           } else {
               setActiveLink(null);
+          }
+
+          const tocEntry = target.closest('.toc-entry');
+          if (tocEntry && onTocSelect) {
+              onTocSelect();
           }
 
           if (selectionMode?.active && onBlockSelection) {

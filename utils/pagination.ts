@@ -379,6 +379,15 @@ export const reflowPages = (editor: HTMLElement): boolean => {
             if (lastEl.contains(page)) break;
 
             let nextPage = pages[i + 1];
+            // If the next page is a page-break boundary, insert a new page before it
+            // so we don't push content into a page that must start fresh
+            if (nextPage && nextPage.hasAttribute('data-page-break')) {
+                const spillPage = document.createElement('div');
+                spillPage.className = 'page';
+                editor.insertBefore(spillPage, nextPage);
+                pages.splice(i + 1, 0, spillPage);
+                nextPage = spillPage;
+            }
             if (!nextPage) {
                 nextPage = document.createElement('div');
                 nextPage.className = 'page';
@@ -444,17 +453,17 @@ export const reflowPages = (editor: HTMLElement): boolean => {
                 }
             }
 
-            // Remove empty pages
-            if (getDirectFlowChildren(nextPage).length === 0) {
+            // Remove empty pages (but NEVER remove pages with data-page-break)
+            if (getDirectFlowChildren(nextPage).length === 0 && !nextPage.hasAttribute('data-page-break')) {
                 nextPage.remove();
                 pages.splice(i + 1, 1);
             }
         }
     }
 
-    // Cleanup trailing empty pages
+    // Cleanup trailing empty pages (but NEVER remove pages with data-page-break)
     for (let i = pages.length - 1; i >= 1; i--) {
-        if (getDirectFlowChildren(pages[i]).length === 0) {
+        if (getDirectFlowChildren(pages[i]).length === 0 && !pages[i].hasAttribute('data-page-break')) {
             pages[i].remove();
             pages.splice(i, 1);
             changesMade = true;
