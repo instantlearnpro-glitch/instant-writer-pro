@@ -776,11 +776,6 @@ const Editor: React.FC<EditorProps> = ({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
-          // Clear page-break markers so reflow can pull content up
-          if (contentRef.current) {
-              contentRef.current.querySelectorAll('[data-page-break]').forEach(el => el.removeAttribute('data-page-break'));
-          }
-
           const selection = window.getSelection();
           if (selection && selection.rangeCount > 0) {
               if (!selection.isCollapsed) {

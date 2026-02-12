@@ -17,6 +17,7 @@ import SettingsModal from './components/SettingsModal';
 import AutoLogModal from './components/AutoLogModal';
 import { reflowPages, autoMergeAll } from './utils/pagination';
 import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
+import { scopeCss } from './utils/scopeCss';
 
 declare global {
   interface Window {
@@ -814,7 +815,8 @@ const App: React.FC = () => {
                     bodyContent = `<div class="page">${bodyContent}</div>`;
                 }
 
-                const finalCss = (extractedCss.trim() ? extractedCss + '\n' : '') + DEFAULT_CSS;
+                const scopedImportedCss = extractedCss.trim() ? scopeCss(extractedCss, '.editor-workspace') : '';
+                const finalCss = (scopedImportedCss ? scopedImportedCss + '\n' : '') + DEFAULT_CSS;
 
                 const newState = {
                     htmlContent: bodyContent,
@@ -3367,10 +3369,121 @@ ${tempDiv.innerHTML}
   };
 
   const handleExportDOCX = async (fileName: string) => {
-    if (!window.html2canvas || !window.htmlDocx) {
-      alert('DOCX export requires html2canvas and html-docx-js to be loaded.');
+    if (!window.html2canvas) {
+      alert('DOCX export requires html2canvas to be loaded.');
       return;
     }
+
+    const {
+      Document,
+      Packer,
+      Paragraph,
+      TextRun,
+      ImageRun,
+      AlignmentType,
+      TabStopType,
+      LeaderType,
+      SectionType
+    } = await import('docx');
+
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = docState.htmlContent;
+
+    tempDiv.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
+    tempDiv.querySelectorAll('[data-multi-selected]').forEach(el => el.removeAttribute('data-multi-selected'));
+    tempDiv.querySelectorAll('[data-structure-status]').forEach(el => el.removeAttribute('data-structure-status'));
+
+    tempDiv
+      .querySelectorAll('.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides')
+      .forEach(el => el.remove());
+
+    const fontLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+      .map(link => link.getAttribute('href'))
+      .filter((href): href is string => Boolean(href) && href.includes('fonts.googleapis.com'));
+    const fontLinksHtml = fontLinks.map(href => `<link rel="stylesheet" href="${href}">`).join('\n');
+
+    let customFontCss = '';
+    try {
+      const storedFonts = localStorage.getItem('custom_fonts');
+      if (storedFonts) {
+        const list = JSON.parse(storedFonts) as Array<{ name: string; dataUrl: string }>;
+        customFontCss = list
+          .map(font => {
+            const safeName = font.name.replace(/'/g, "\\'");
+            return `@font-face { font-family: '${safeName}'; src: url("${font.dataUrl}"); font-display: swap; }`;
+          })
+          .join('\n');
+      }
+    } catch {
+      customFontCss = '';
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0';
+    iframe.style.pointerEvents = 'none';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc || !iframe.contentWindow) {
+      iframe.remove();
+      alert('Unable to prepare DOCX export frame.');
+      return;
+    }
+
+    const baseHref = document.baseURI || window.location.href;
+
+    doc.open();
+    doc.write(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="${baseHref}">
+  <title>${fileName}</title>
+  ${fontLinksHtml}
+  <style>
+${customFontCss}
+${docState.cssContent}
+  </style>
+</head>
+<body>
+${tempDiv.innerHTML}
+</body>
+</html>
+    `);
+    doc.close();
+
+    const waitForImages = () => {
+      const images = Array.from(doc.images);
+      if (images.length === 0) return Promise.resolve();
+      return Promise.all(images.map(img => {
+        if (img.complete) return Promise.resolve();
+        return new Promise<void>(resolve => {
+          const done = () => {
+            img.removeEventListener('load', done);
+            img.removeEventListener('error', done);
+            resolve();
+          };
+          img.addEventListener('load', done);
+          img.addEventListener('error', done);
+        });
+      }));
+    };
+
+    const frameReady = new Promise<void>(resolve => {
+      if (doc.readyState === 'complete') resolve();
+      else iframe.onload = () => resolve();
+    });
+
+    const fontReady = (doc.fonts && doc.fonts.ready) ? doc.fonts.ready : Promise.resolve();
+    await Promise.all([frameReady, fontReady, waitForImages()]);
 
     // Helper: px to pt
     const pxToPt = (px: string): string => {
@@ -3378,256 +3491,358 @@ ${tempDiv.innerHTML}
       return isNaN(num) ? px : `${Math.round(num * 0.75)}pt`;
     };
 
-    // Render element as image using html2canvas
-    const renderElementAsImage = async (el: HTMLElement): Promise<string> => {
-      try {
-        const scale = 2;
-        const canvas = await window.html2canvas(el, {
-          scale,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: null,
-          logging: false,
-          windowWidth: el.scrollWidth + 50,
-          windowHeight: el.scrollHeight + 50
-        });
-        const imgData = canvas.toDataURL('image/png', 1.0);
-        const width = Math.min(Math.round(el.offsetWidth * scale), 800);
-        const height = Math.round(canvas.height * (width / canvas.width));
-        return `<p style="margin: 8pt 0; text-align: center;"><img src="${imgData}" width="${width}" height="${height}" style="max-width: 100%;"></p>`;
-      } catch (e) {
-        console.error('Error rendering element as image:', e);
-        return `<p style="margin: 8pt 0;">${el.textContent || ''}</p>`;
+    const frameWindow = iframe.contentWindow;
+    const firstPage = doc.querySelector('.page') as HTMLElement | null;
+    if (!firstPage) {
+      iframe.remove();
+      alert('No pages available for DOCX export.');
+      return;
+    }
+
+    const pxToTwip = (value: string | number): number => {
+      const num = typeof value === 'number' ? value : parseFloat(value);
+      return Math.round((Number.isFinite(num) ? num : 0) * 15);
+    };
+
+    const pxToHalfPoint = (value: string | number): number => {
+      const num = typeof value === 'number' ? value : parseFloat(value);
+      return Math.max(1, Math.round((Number.isFinite(num) ? num : 0) * 1.5));
+    };
+
+    const colorToHex = (value: string): string | undefined => {
+      if (!value) return undefined;
+      if (value.startsWith('#')) {
+        return value.replace('#', '').toUpperCase();
+      }
+      const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+      if (!match) return undefined;
+      const r = Number.parseInt(match[1], 10);
+      const g = Number.parseInt(match[2], 10);
+      const b = Number.parseInt(match[3], 10);
+      const toHex = (num: number) => num.toString(16).padStart(2, '0').toUpperCase();
+      return `${toHex(r)}${toHex(g)}${toHex(b)}`;
+    };
+
+    const getFontFamily = (value: string): string | undefined => {
+      if (!value) return undefined;
+      const family = value.split(',')[0]?.trim().replace(/['"]/g, '');
+      return family || undefined;
+    };
+
+    const getAlignment = (value: string): typeof AlignmentType[keyof typeof AlignmentType] | undefined => {
+      switch (value) {
+        case 'center':
+          return AlignmentType.CENTER;
+        case 'right':
+          return AlignmentType.RIGHT;
+        case 'justify':
+          return AlignmentType.JUSTIFIED;
+        default:
+          return AlignmentType.LEFT;
       }
     };
 
-    // Check if element should be rendered as image
-    const shouldRenderAsImage = (el: HTMLElement): boolean => {
-      const classList = el.classList;
-      const computed = window.getComputedStyle(el);
-      const hasBackgroundImage = computed.backgroundImage && computed.backgroundImage !== 'none';
+    const pageRect = firstPage.getBoundingClientRect();
+    const pageStyle = frameWindow.getComputedStyle(firstPage);
+    const paddingTopPx = pageStyle.paddingTop || '0px';
+    const paddingRightPx = pageStyle.paddingRight || '0px';
+    const paddingBottomPx = pageStyle.paddingBottom || '0px';
+    const paddingLeftPx = pageStyle.paddingLeft || '0px';
+    const paddingRight = parseFloat(paddingRightPx) || 0;
+    const paddingLeft = parseFloat(paddingLeftPx) || 0;
+    const contentWidthPx = Math.max(pageRect.width - paddingLeft - paddingRight, 1);
+    const contentWidthTwip = pxToTwip(contentWidthPx);
 
-      if (classList.contains('tracing-line') ||
-          classList.contains('writing-lines') ||
-          classList.contains('toc-container')) {
-        return true;
+    const dataUrlToBytes = (dataUrl: string): Uint8Array => {
+      const base64 = dataUrl.split(',')[1] || '';
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
       }
-      if (el.tagName === 'TABLE') return true;
-      if (hasBackgroundImage) return true;
+      return bytes;
+    };
+
+    const resolveImageData = async (src: string): Promise<{ data: Uint8Array; type: 'png' | 'jpg' | 'gif' | 'bmp' }> => {
+      if (src.startsWith('data:')) {
+        const match = src.match(/data:image\/(png|jpeg|jpg|gif|bmp)/i);
+        const type = (match?.[1] || 'png').replace('jpeg', 'jpg') as 'png' | 'jpg' | 'gif' | 'bmp';
+        return { data: dataUrlToBytes(src), type };
+      }
+
+      const response = await fetch(src);
+      const buffer = await response.arrayBuffer();
+      const contentType = response.headers.get('content-type') || '';
+      const match = contentType.match(/image\/(png|jpeg|jpg|gif|bmp)/i) || src.match(/\.(png|jpg|jpeg|gif|bmp)(\?.*)?$/i);
+      const type = ((match?.[1] || 'png').replace('jpeg', 'jpg')) as 'png' | 'jpg' | 'gif' | 'bmp';
+      return { data: new Uint8Array(buffer), type };
+    };
+
+    const buildRunsFromNode = (node: Node, styleEl: HTMLElement): TextRun[] => {
+      if (node.nodeType === frameWindow.Node.TEXT_NODE) {
+        const text = node.textContent || '';
+        if (!text.trim()) return [];
+        const computed = frameWindow.getComputedStyle(styleEl);
+        const fontFamily = getFontFamily(computed.fontFamily);
+        const fontSize = pxToHalfPoint(computed.fontSize || '12px');
+        const color = colorToHex(computed.color || '');
+        const isBold = Number.parseInt(computed.fontWeight || '400', 10) >= 600;
+        const isItalic = computed.fontStyle === 'italic';
+        const isUnderline = computed.textDecorationLine?.includes('underline');
+        return [
+          new TextRun({
+            text,
+            font: fontFamily ? { name: fontFamily } : undefined,
+            size: fontSize,
+            color,
+            bold: isBold,
+            italics: isItalic,
+            underline: isUnderline ? {} : undefined
+          })
+        ];
+      }
+
+      if (!(node instanceof frameWindow.HTMLElement)) return [];
+      const tagName = node.tagName.toLowerCase();
+      if (tagName === 'br') {
+        return [new TextRun({ break: 1 })];
+      }
+
+      const runs: TextRun[] = [];
+      node.childNodes.forEach(child => {
+        runs.push(...buildRunsFromNode(child, node));
+      });
+      return runs;
+    };
+
+    const buildParagraphFromElement = (el: HTMLElement): {
+      runs: TextRun[];
+      alignment?: typeof AlignmentType[keyof typeof AlignmentType];
+      spacing?: { before?: number; after?: number };
+      indent?: { firstLine?: number };
+    } | null => {
+      const runs = buildRunsFromNode(el, el);
+      if (runs.length === 0) return null;
+      const computed = frameWindow.getComputedStyle(el);
+      const alignment = getAlignment(computed.textAlign || 'left');
+      const marginTop = pxToTwip(computed.marginTop || 0);
+      const marginBottom = pxToTwip(computed.marginBottom || 0);
+      const indent = pxToTwip(computed.textIndent || 0);
+
+      return {
+        runs,
+        alignment,
+        spacing: { before: marginTop, after: marginBottom },
+        indent: indent ? { firstLine: indent } : undefined
+      };
+    };
+
+    const isComplexElement = (el: HTMLElement): boolean => {
+      const classList = el.classList;
+      const computed = frameWindow.getComputedStyle(el);
+      if (classList.contains('tracing-line') || classList.contains('writing-lines')) return true;
+      if (classList.contains('shape-circle') || classList.contains('shape-pill') || classList.contains('shape-speech') || classList.contains('shape-cloud') || classList.contains('shape-rectangle') || classList.contains('mission-box')) return true;
+      if (el.tagName === 'TABLE' || el.tagName === 'SVG' || el.tagName === 'CANVAS') return true;
+      if (computed.backgroundImage && computed.backgroundImage !== 'none') return true;
+      if (computed.position === 'absolute' || computed.position === 'fixed') return true;
       return false;
     };
 
-    // Get inline styles for text elements using computed styles
-    const getInlineStyle = (el: HTMLElement): string => {
-      const styles: string[] = [];
-      const style = el.style;
-      const computed = window.getComputedStyle(el);
-
-      const color = style.color || computed.color;
-      const backgroundColor = style.backgroundColor || computed.backgroundColor;
-      const fontFamily = style.fontFamily || computed.fontFamily;
-      const fontSize = style.fontSize || computed.fontSize;
-      const fontWeight = style.fontWeight || computed.fontWeight;
-      const fontStyle = style.fontStyle || computed.fontStyle;
-      const textDecoration = style.textDecoration || computed.textDecoration;
-      const textAlign = style.textAlign || computed.textAlign;
-      const lineHeight = style.lineHeight || computed.lineHeight;
-      const letterSpacing = style.letterSpacing || computed.letterSpacing;
-      const borderRadius = style.borderRadius || computed.borderRadius;
-      const border = style.border || computed.border;
-      const paddingTop = style.paddingTop || computed.paddingTop;
-      const paddingRight = style.paddingRight || computed.paddingRight;
-      const paddingBottom = style.paddingBottom || computed.paddingBottom;
-      const paddingLeft = style.paddingLeft || computed.paddingLeft;
-      const marginTop = style.marginTop || computed.marginTop;
-      const marginBottom = style.marginBottom || computed.marginBottom;
-
-      if (color) styles.push(`color: ${color}`);
-      if (backgroundColor && backgroundColor !== 'transparent' && backgroundColor !== 'rgba(0, 0, 0, 0)') {
-        styles.push(`background-color: ${backgroundColor}`);
-      }
-      if (fontFamily) styles.push(`font-family: ${fontFamily}`);
-      if (fontSize) styles.push(`font-size: ${pxToPt(fontSize)}`);
-      if (fontWeight && fontWeight !== '400') styles.push(`font-weight: ${fontWeight}`);
-      if (fontStyle && fontStyle !== 'normal') styles.push(`font-style: ${fontStyle}`);
-      if (textDecoration && textDecoration !== 'none') styles.push(`text-decoration: ${textDecoration}`);
-      if (textAlign && textAlign !== 'start') styles.push(`text-align: ${textAlign}`);
-      if (lineHeight && lineHeight !== 'normal') styles.push(`line-height: ${lineHeight}`);
-      if (letterSpacing && letterSpacing !== 'normal') styles.push(`letter-spacing: ${letterSpacing}`);
-      if (borderRadius && borderRadius !== '0px') styles.push(`border-radius: ${borderRadius}`);
-      if (border && border !== 'none') styles.push(`border: ${border}`);
-      if (paddingTop || paddingRight || paddingBottom || paddingLeft) {
-        styles.push(`padding: ${pxToPt(paddingTop)} ${pxToPt(paddingRight)} ${pxToPt(paddingBottom)} ${pxToPt(paddingLeft)}`);
-      }
-      if (marginTop && marginTop !== '0px') styles.push(`margin-top: ${pxToPt(marginTop)}`);
-      if (marginBottom && marginBottom !== '0px') styles.push(`margin-bottom: ${pxToPt(marginBottom)}`);
-
-      return styles.length > 0 ? styles.join('; ') : '';
-    };
-
-    // Process element recursively
-    const processElement = async (el: Node): Promise<string> => {
-      if (el.nodeType === Node.TEXT_NODE) {
-        return el.textContent || '';
-      }
-      if (!(el instanceof HTMLElement)) return '';
-
-      const tagName = el.tagName.toLowerCase();
-      if (tagName === 'style' || tagName === 'script' || tagName === 'head' || tagName === 'meta') return '';
-
-      if (shouldRenderAsImage(el)) {
-        return await renderElementAsImage(el);
-      }
-
-      // Handle images - apply filters (brightness/contrast/saturate)
-      if (tagName === 'img') {
-        const img = el as HTMLImageElement;
-        let src = img.src || img.getAttribute('src') || '';
-        if (!src) return '';
-
-        const computed = window.getComputedStyle(img);
-        const filter = img.style.filter || computed.filter || '';
-
-        try {
-          if (img.complete && img.naturalWidth > 0) {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              if (filter && filter !== 'none') {
-                ctx.filter = filter;
-              }
-              ctx.drawImage(img, 0, 0);
-              src = canvas.toDataURL('image/png');
-            }
-          }
-        } catch (e) { }
-
-        const width = img.offsetWidth || img.naturalWidth || 300;
-        const height = img.offsetHeight || img.naturalHeight || 'auto';
-        return `<p style="text-align: center; margin: 10pt 0;"><img src="${src}" width="${width}" height="${height}" style="max-width: 100%;"></p>`;
-      }
-
-      if (tagName === 'hr') {
-        return `<hr style="border: none; border-top: 1.5pt solid #000; margin: 12pt 0;">`;
-      }
-
-      let childrenHtml = '';
-      for (const child of Array.from(el.childNodes)) {
-        childrenHtml += await processElement(child);
-      }
-
-      if (el.classList.contains('page')) {
-        return childrenHtml;
-      }
-
-      if (el.classList.contains('page-footer')) {
-        return `<p style="text-align: center; font-size: 10pt; margin-top: 16pt; color: #666;">${childrenHtml}</p>`;
-      }
-
-      const inlineStyle = getInlineStyle(el);
-      const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : '';
-
-      switch (tagName) {
-        case 'h1':
-          return `<h1${styleAttr}><strong>${childrenHtml}</strong></h1>`;
-        case 'h2':
-          return `<h2${styleAttr}><strong>${childrenHtml}</strong></h2>`;
-        case 'h3':
-          return `<h3${styleAttr}><strong>${childrenHtml}</strong></h3>`;
-        case 'p':
-          return `<p${styleAttr}>${childrenHtml}</p>`;
-        case 'ul':
-          return `<ul style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ul>`;
-        case 'ol':
-          return `<ol style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ol>`;
-        case 'li':
-          return `<li${styleAttr}>${childrenHtml}</li>`;
-        case 'strong':
-        case 'b':
-          return `<b>${childrenHtml}</b>`;
-        case 'em':
-        case 'i':
-          return `<i>${childrenHtml}</i>`;
-        case 'u':
-          return `<u>${childrenHtml}</u>`;
-        case 'br':
-          return '<br>';
-        case 'span':
-        case 'div':
-          if (childrenHtml.trim()) {
-            return `<${tagName}${styleAttr}>${childrenHtml}</${tagName}>`;
-          }
-          return childrenHtml;
-        default:
-          return childrenHtml;
-      }
-    };
-
-    // Create a temporary container and render the content
-    const tempContainer = document.createElement('div');
-    tempContainer.innerHTML = docState.htmlContent;
-    tempContainer.style.position = 'absolute';
-    tempContainer.style.left = '-9999px';
-    tempContainer.style.top = '0';
-    tempContainer.style.width = '816px'; // Approx 8.5in at 96dpi
-    tempContainer.style.background = 'white';
-    document.body.appendChild(tempContainer);
-
-    if (document.fonts && document.fonts.ready) {
-      await document.fonts.ready;
-    }
-
-    const images = tempContainer.querySelectorAll('img');
-    await Promise.all(Array.from(images).map(img => {
-      if ((img as HTMLImageElement).complete) return Promise.resolve();
-      return new Promise(resolve => {
-        img.onload = resolve;
-        img.onerror = resolve;
+    const renderElementAsImage = async (el: HTMLElement): Promise<InstanceType<typeof Paragraph>> => {
+      const scale = 2;
+      const canvas = await window.html2canvas(el, {
+        scale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: null,
+        logging: false,
+        windowWidth: el.scrollWidth + 50,
+        windowHeight: el.scrollHeight + 50
       });
-    }));
+      const dataUrl = canvas.toDataURL('image/png', 1.0);
+      const rect = el.getBoundingClientRect();
+      const width = Math.max(1, Math.round(Math.min(rect.width, contentWidthPx)));
+      const height = Math.max(1, Math.round(rect.height * (width / rect.width)));
+      const imageRun = new ImageRun({
+        type: 'png',
+        data: dataUrlToBytes(dataUrl),
+        transformation: { width, height }
+      });
+      return new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [imageRun]
+      });
+    };
 
-    const pages = tempContainer.querySelectorAll('.page');
-    let contentHtml = '';
+    const renderImageElement = async (img: HTMLImageElement): Promise<InstanceType<typeof Paragraph> | null> => {
+      const src = img.currentSrc || img.src || img.getAttribute('src') || '';
+      if (!src) return null;
+      const { data, type } = await resolveImageData(src);
+      const rect = img.getBoundingClientRect();
+      const rawWidth = rect.width || img.naturalWidth || contentWidthPx;
+      const rawHeight = rect.height || img.naturalHeight || rawWidth;
+      const width = Math.max(1, Math.round(Math.min(rawWidth, contentWidthPx)));
+      const height = Math.max(1, Math.round(rawHeight * (width / rawWidth)));
 
-    for (let i = 0; i < pages.length; i++) {
-      if (i > 0) {
-        contentHtml += `<br clear="all" style="page-break-before: always;">`;
+      return new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new ImageRun({
+            type,
+            data,
+            transformation: { width, height }
+          })
+        ]
+      });
+    };
+
+    const renderToc = (el: HTMLElement): InstanceType<typeof Paragraph>[] => {
+      const entries = Array.from(el.querySelectorAll('.toc-entry')) as HTMLElement[];
+      return entries.map(entry => {
+        const titleEl = entry.querySelector('span') as HTMLElement | null;
+        const pageEl = entry.querySelector('span:last-child') as HTMLElement | null;
+        const titleText = titleEl?.textContent || '';
+        const pageText = pageEl?.textContent || '';
+        const entryStyle = frameWindow.getComputedStyle(entry);
+        const indent = pxToTwip(entryStyle.paddingLeft || entryStyle.marginLeft || 0);
+        const alignment = getAlignment(entryStyle.textAlign || 'left');
+        const titleRuns = buildRunsFromNode(titleEl || entry, titleEl || entry);
+        const pageRuns = buildRunsFromNode(pageEl || entry, pageEl || entry);
+
+        return new Paragraph({
+          children: [
+            ...(titleRuns.length ? titleRuns : [new TextRun({ text: titleText })]),
+            new TextRun({ text: `\t${pageText}` }),
+            ...pageRuns
+          ],
+          alignment,
+          indent: indent ? { left: indent } : undefined,
+          tabStops: [
+            {
+              type: TabStopType.RIGHT,
+              position: contentWidthTwip,
+              leader: LeaderType.DOT
+            }
+          ]
+        });
+      });
+    };
+
+    const hasBlockChildren = (el: HTMLElement): boolean =>
+      Array.from(el.children).some(child =>
+        ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'img', 'table', 'ul', 'ol', 'li', 'hr'].includes(child.tagName.toLowerCase())
+      );
+
+    const collectBlocks = async (container: HTMLElement, blocks: InstanceType<typeof Paragraph>[]) => {
+      for (const node of Array.from(container.childNodes)) {
+        if (!(node instanceof frameWindow.HTMLElement)) continue;
+        const tagName = node.tagName.toLowerCase();
+
+        if (node.classList.contains('toc-container')) {
+          blocks.push(...renderToc(node));
+          continue;
+        }
+
+        if (tagName === 'img') {
+          const paragraph = await renderImageElement(node as HTMLImageElement);
+          if (paragraph) blocks.push(paragraph);
+          continue;
+        }
+
+        if (isComplexElement(node)) {
+          blocks.push(await renderElementAsImage(node));
+          continue;
+        }
+
+        if (tagName === 'ul') {
+          const items = Array.from(node.querySelectorAll('li')) as HTMLElement[];
+          items.forEach(item => {
+            const paragraph = buildParagraphFromElement(item);
+            if (paragraph) {
+              blocks.push(
+                new Paragraph({
+                  children: paragraph.runs,
+                  alignment: paragraph.alignment,
+                  spacing: paragraph.spacing,
+                  indent: paragraph.indent,
+                  bullet: { level: 0 }
+                })
+              );
+            }
+          });
+          continue;
+        }
+
+        if (tagName === 'ol') {
+          const items = Array.from(node.querySelectorAll('li')) as HTMLElement[];
+          items.forEach((item, index) => {
+            const paragraph = buildParagraphFromElement(item);
+            if (paragraph) {
+              blocks.push(
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: `${index + 1}. ` }),
+                    ...paragraph.runs
+                  ],
+                  alignment: paragraph.alignment,
+                  spacing: paragraph.spacing,
+                  indent: paragraph.indent
+                })
+              );
+            }
+          });
+          continue;
+        }
+
+        if (tagName === 'hr') {
+          blocks.push(new Paragraph({}));
+          continue;
+        }
+
+        if (tagName === 'div' && hasBlockChildren(node)) {
+          await collectBlocks(node, blocks);
+          continue;
+        }
+
+        const paragraph = buildParagraphFromElement(node);
+        if (paragraph) {
+          blocks.push(
+            new Paragraph({
+              children: paragraph.runs,
+              alignment: paragraph.alignment,
+              spacing: paragraph.spacing,
+              indent: paragraph.indent
+            })
+          );
+        }
       }
-      contentHtml += await processElement(pages[i]);
+    };
+
+    const sections = [] as Array<{ properties: { page: { size: { width: number; height: number }; margin: { top: number; right: number; bottom: number; left: number } }; type: (typeof SectionType)[keyof typeof SectionType] }; children: InstanceType<typeof Paragraph>[] }>;
+    const pages = Array.from(doc.querySelectorAll('.page')) as HTMLElement[];
+
+    for (const page of pages) {
+      const children: InstanceType<typeof Paragraph>[] = [];
+      await collectBlocks(page, children);
+      sections.push({
+        properties: {
+          page: {
+            size: { width: pxToTwip(pageRect.width), height: pxToTwip(pageRect.height) },
+            margin: {
+              top: pxToTwip(paddingTopPx),
+              right: pxToTwip(paddingRightPx),
+              bottom: pxToTwip(paddingBottomPx),
+              left: pxToTwip(paddingLeftPx)
+            }
+          },
+          type: SectionType.NEXT_PAGE
+        },
+        children
+      });
     }
 
-    document.body.removeChild(tempContainer);
-
-    const htmlContent = `<!DOCTYPE html>
-<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta name="ProgId" content="Word.Document">
-<!--[if gte mso 9]>
-<xml>
-<w:WordDocument>
-<w:View>Print</w:View>
-<w:Zoom>100</w:Zoom>
-</w:WordDocument>
-</xml>
-<![endif]-->
-<style>
-@page { size: 8.5in 11in; margin: 0.6in; }
-body { font-size: 12pt; margin: 0; padding: 0; line-height: 1.5; }
-h1, h2, h3, p, div, span { display: block; }
-ul, ol { margin-left: 24pt; }
-img { max-width: 100%; height: auto; }
-.page { page-break-after: always; }
-</style>
-</head>
-<body>
-${contentHtml}
-</body>
-</html>`;
-
-    const docxBlob = window.htmlDocx.asBlob(htmlContent);
+    const docxDocument = new Document({ sections });
+    const docxBlob = await Packer.toBlob(docxDocument);
     const url = URL.createObjectURL(docxBlob);
     const a = document.createElement('a');
     a.href = url;
@@ -3636,6 +3851,7 @@ ${contentHtml}
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    iframe.remove();
   };
 
   const scrollToPage = (pageIndex: number) => {
