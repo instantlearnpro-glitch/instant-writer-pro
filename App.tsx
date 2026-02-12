@@ -1967,7 +1967,36 @@ const App: React.FC = () => {
 
     // 3. Standard Text Command (if not inside a shape)
     document.execCommand(command, false, value);
-    
+
+    // 3b. For justify commands, reinforce with inline style to override imported CSS
+    if (['justifyLeft', 'justifyCenter', 'justifyRight', 'justifyFull'].includes(command)) {
+        const alignMap: Record<string, string> = { justifyLeft: 'left', justifyCenter: 'center', justifyRight: 'right', justifyFull: 'justify' };
+        const alignValue = alignMap[command];
+        let target: HTMLElement | null = null;
+        if (activeBlock && activeBlock.isConnected) {
+            target = activeBlock;
+        }
+        if (!target) {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                const node = sel.getRangeAt(0).commonAncestorContainer;
+                let el = (node.nodeType === 1 ? node : node.parentElement) as HTMLElement | null;
+                const ws = document.querySelector('.editor-workspace');
+                while (el && el !== ws && !el.classList.contains('page')) {
+                    const d = window.getComputedStyle(el).display;
+                    if (d === 'block' || d === 'list-item' || d === 'flex' || d === 'table-cell') { target = el; break; }
+                    el = el.parentElement;
+                }
+            }
+        }
+        if (!target) {
+            const ws = document.querySelector('.editor-workspace');
+            const sel = ws?.querySelector('[data-selected="true"]') as HTMLElement | null;
+            if (sel) target = sel;
+        }
+        if (target) target.style.setProperty('text-align', alignValue, 'important');
+    }
+
     // For font size, ensure we force focus back if dropdown was used
     const editor = document.querySelector('.editor-workspace') as HTMLElement;
     editor?.focus();
