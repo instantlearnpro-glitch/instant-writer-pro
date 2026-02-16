@@ -3382,233 +3382,241 @@ ${tempDiv.innerHTML}
       return;
     }
 
-    // Helper: px to pt
-    const pxToPt = (px: string): string => {
-      const num = parseFloat(px);
-      return isNaN(num) ? px : `${Math.round(num * 0.75)}pt`;
-    };
-
-    // Render element as image using html2canvas
-    const renderElementAsImage = async (el: HTMLElement): Promise<string> => {
-      try {
-        const scale = 2;
-        const canvas = await window.html2canvas(el, {
-          scale,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: null,
-          logging: false,
-          windowWidth: el.scrollWidth + 50,
-          windowHeight: el.scrollHeight + 50
-        });
-        const imgData = canvas.toDataURL('image/png', 1.0);
-        const width = Math.min(Math.round(el.offsetWidth * scale), 800);
-        const height = Math.round(canvas.height * (width / canvas.width));
-        return `<p style="margin: 8pt 0; text-align: center;"><img src="${imgData}" width="${width}" height="${height}" style="max-width: 100%;"></p>`;
-      } catch (e) {
-        console.error('Error rendering element as image:', e);
-        return `<p style="margin: 8pt 0;">${el.textContent || ''}</p>`;
-      }
-    };
-
-    // Check if element should be rendered as image
-    const shouldRenderAsImage = (el: HTMLElement): boolean => {
-      const classList = el.classList;
-      const computed = window.getComputedStyle(el);
-      const hasBackgroundImage = computed.backgroundImage && computed.backgroundImage !== 'none';
-
-      if (classList.contains('tracing-line') ||
-          classList.contains('writing-lines') ||
-          classList.contains('toc-container')) {
-        return true;
-      }
-      if (el.tagName === 'TABLE') return true;
-      if (hasBackgroundImage) return true;
-      return false;
-    };
-
-    // Get inline styles for text elements using computed styles
-    const getInlineStyle = (el: HTMLElement): string => {
-      const styles: string[] = [];
-      const style = el.style;
-      const computed = window.getComputedStyle(el);
-
-      const color = style.color || computed.color;
-      const backgroundColor = style.backgroundColor || computed.backgroundColor;
-      const fontFamily = style.fontFamily || computed.fontFamily;
-      const fontSize = style.fontSize || computed.fontSize;
-      const fontWeight = style.fontWeight || computed.fontWeight;
-      const fontStyle = style.fontStyle || computed.fontStyle;
-      const textDecoration = style.textDecoration || computed.textDecoration;
-      const textAlign = style.textAlign || computed.textAlign;
-      const lineHeight = style.lineHeight || computed.lineHeight;
-      const letterSpacing = style.letterSpacing || computed.letterSpacing;
-      const borderRadius = style.borderRadius || computed.borderRadius;
-      const border = style.border || computed.border;
-      const paddingTop = style.paddingTop || computed.paddingTop;
-      const paddingRight = style.paddingRight || computed.paddingRight;
-      const paddingBottom = style.paddingBottom || computed.paddingBottom;
-      const paddingLeft = style.paddingLeft || computed.paddingLeft;
-      const marginTop = style.marginTop || computed.marginTop;
-      const marginBottom = style.marginBottom || computed.marginBottom;
-
-      if (color) styles.push(`color: ${color}`);
-      if (backgroundColor && backgroundColor !== 'transparent' && backgroundColor !== 'rgba(0, 0, 0, 0)') {
-        styles.push(`background-color: ${backgroundColor}`);
-      }
-      if (fontFamily) styles.push(`font-family: ${fontFamily}`);
-      if (fontSize) styles.push(`font-size: ${pxToPt(fontSize)}`);
-      if (fontWeight && fontWeight !== '400') styles.push(`font-weight: ${fontWeight}`);
-      if (fontStyle && fontStyle !== 'normal') styles.push(`font-style: ${fontStyle}`);
-      if (textDecoration && textDecoration !== 'none') styles.push(`text-decoration: ${textDecoration}`);
-      if (textAlign && textAlign !== 'start') styles.push(`text-align: ${textAlign}`);
-      if (lineHeight && lineHeight !== 'normal') styles.push(`line-height: ${lineHeight}`);
-      if (letterSpacing && letterSpacing !== 'normal') styles.push(`letter-spacing: ${letterSpacing}`);
-      if (borderRadius && borderRadius !== '0px') styles.push(`border-radius: ${borderRadius}`);
-      if (border && border !== 'none') styles.push(`border: ${border}`);
-      if (paddingTop || paddingRight || paddingBottom || paddingLeft) {
-        styles.push(`padding: ${pxToPt(paddingTop)} ${pxToPt(paddingRight)} ${pxToPt(paddingBottom)} ${pxToPt(paddingLeft)}`);
-      }
-      if (marginTop && marginTop !== '0px') styles.push(`margin-top: ${pxToPt(marginTop)}`);
-      if (marginBottom && marginBottom !== '0px') styles.push(`margin-bottom: ${pxToPt(marginBottom)}`);
-
-      return styles.length > 0 ? styles.join('; ') : '';
-    };
-
-    // Process element recursively
-    const processElement = async (el: Node): Promise<string> => {
-      if (el.nodeType === Node.TEXT_NODE) {
-        return el.textContent || '';
-      }
-      if (!(el instanceof HTMLElement)) return '';
-
-      const tagName = el.tagName.toLowerCase();
-      if (tagName === 'style' || tagName === 'script' || tagName === 'head' || tagName === 'meta') return '';
-
-      if (shouldRenderAsImage(el)) {
-        return await renderElementAsImage(el);
-      }
-
-      // Handle images - apply filters (brightness/contrast/saturate)
-      if (tagName === 'img') {
-        const img = el as HTMLImageElement;
-        let src = img.src || img.getAttribute('src') || '';
-        if (!src) return '';
-
-        const computed = window.getComputedStyle(img);
-        const filter = img.style.filter || computed.filter || '';
-
-        try {
-          if (img.complete && img.naturalWidth > 0) {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              if (filter && filter !== 'none') {
-                ctx.filter = filter;
-              }
-              ctx.drawImage(img, 0, 0);
-              src = canvas.toDataURL('image/png');
-            }
-          }
-        } catch (e) { }
-
-        const width = img.offsetWidth || img.naturalWidth || 300;
-        const height = img.offsetHeight || img.naturalHeight || 'auto';
-        return `<p style="text-align: center; margin: 10pt 0;"><img src="${src}" width="${width}" height="${height}" style="max-width: 100%;"></p>`;
-      }
-
-      if (tagName === 'hr') {
-        return `<hr style="border: none; border-top: 1.5pt solid #000; margin: 12pt 0;">`;
-      }
-
-      let childrenHtml = '';
-      for (const child of Array.from(el.childNodes)) {
-        childrenHtml += await processElement(child);
-      }
-
-      if (el.classList.contains('page')) {
-        return childrenHtml;
-      }
-
-      if (el.classList.contains('page-footer')) {
-        return `<p style="text-align: center; font-size: 10pt; margin-top: 16pt; color: #666;">${childrenHtml}</p>`;
-      }
-
-      const inlineStyle = getInlineStyle(el);
-      const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : '';
-
-      switch (tagName) {
-        case 'h1':
-          return `<h1${styleAttr}><strong>${childrenHtml}</strong></h1>`;
-        case 'h2':
-          return `<h2${styleAttr}><strong>${childrenHtml}</strong></h2>`;
-        case 'h3':
-          return `<h3${styleAttr}><strong>${childrenHtml}</strong></h3>`;
-        case 'p':
-          return `<p${styleAttr}>${childrenHtml}</p>`;
-        case 'ul':
-          return `<ul style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ul>`;
-        case 'ol':
-          return `<ol style="margin: 10pt 0 10pt 20pt;">${childrenHtml}</ol>`;
-        case 'li':
-          return `<li${styleAttr}>${childrenHtml}</li>`;
-        case 'strong':
-        case 'b':
-          return `<b>${childrenHtml}</b>`;
-        case 'em':
-        case 'i':
-          return `<i>${childrenHtml}</i>`;
-        case 'u':
-          return `<u>${childrenHtml}</u>`;
-        case 'br':
-          return '<br>';
-        case 'span':
-        case 'div':
-          if (childrenHtml.trim()) {
-            return `<${tagName}${styleAttr}>${childrenHtml}</${tagName}>`;
-          }
-          return childrenHtml;
-        default:
-          return childrenHtml;
-      }
-    };
-
-    // Create a temporary container and render the content
-    const tempContainer = document.createElement('div');
-    tempContainer.innerHTML = docState.htmlContent;
-    tempContainer.style.position = 'absolute';
-    tempContainer.style.left = '-9999px';
-    tempContainer.style.top = '0';
-    tempContainer.style.width = '816px'; // Approx 8.5in at 96dpi
-    tempContainer.style.background = 'white';
-    document.body.appendChild(tempContainer);
+    // Work from the LIVE editor DOM — it already has all CSS, fonts, and rendering correct
+    const liveWorkspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+    if (!liveWorkspace) {
+      alert('No editor content found.');
+      return;
+    }
 
     if (document.fonts && document.fonts.ready) {
       await document.fonts.ready;
     }
 
-    const images = tempContainer.querySelectorAll('img');
-    await Promise.all(Array.from(images).map(img => {
-      if ((img as HTMLImageElement).complete) return Promise.resolve();
-      return new Promise(resolve => {
-        img.onload = resolve;
-        img.onerror = resolve;
-      });
-    }));
+    // Helper: px string to pt string
+    const pxToPt = (px: string): string => {
+      const num = parseFloat(px);
+      return isNaN(num) ? px : `${Math.round(num * 0.75)}pt`;
+    };
 
-    const pages = tempContainer.querySelectorAll('.page');
-    let contentHtml = '';
-
-    for (let i = 0; i < pages.length; i++) {
-      if (i > 0) {
-        contentHtml += `<br clear="all" style="page-break-before: always;">`;
+    // Render a single element as a small image
+    const renderAsImage = async (el: HTMLElement): Promise<string> => {
+      try {
+        const canvas = await window.html2canvas(el, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: null,
+          logging: false,
+        });
+        const imgData = canvas.toDataURL('image/png', 1.0);
+        // Max ~480px to fit safely within Word page content area (8.5in - margins)
+        const maxW = 480;
+        const width = Math.min(el.offsetWidth, maxW);
+        const height = Math.round(el.offsetHeight * (width / Math.max(el.offsetWidth, 1)));
+        return `<p style="margin: 6pt 0; text-align: center;"><img src="${imgData}" width="${width}" height="${height}" style="max-width: 100%;"></p>`;
+      } catch (e) {
+        return `<p style="margin: 6pt 0;">${el.textContent || ''}</p>`;
       }
-      contentHtml += await processElement(pages[i]);
+    };
+
+    // System-safe fonts that Word can render
+    const systemFonts = ['times', 'arial', 'helvetica', 'georgia', 'verdana', 'courier',
+      'roboto', 'sans-serif', 'serif', 'monospace', 'tahoma', 'trebuchet', 'palatino',
+      'garamond', 'cambria', 'calibri', 'segoe', 'inter'];
+
+    const hasWebFont = (el: HTMLElement): boolean => {
+      const ff = window.getComputedStyle(el).fontFamily.toLowerCase();
+      // Check if ALL font families are system-safe
+      const families = ff.split(',').map(f => f.trim().replace(/['"]/g, ''));
+      return families.length > 0 && !families.some(f => systemFonts.some(sf => f.includes(sf)));
+    };
+
+    // Should this element be rendered as image? (things DOCX/Word can't handle)
+    const shouldBeImage = (el: HTMLElement): boolean => {
+      const cl = el.classList;
+      if (cl.contains('shape-circle') || cl.contains('shape-pill') ||
+          cl.contains('shape-speech') || cl.contains('shape-cloud') ||
+          cl.contains('shape-rectangle') || cl.contains('mission-box') ||
+          cl.contains('floating-text') || cl.contains('tracing-line') ||
+          cl.contains('writing-lines') || cl.contains('toc-container')) return true;
+      if (el.tagName === 'TABLE') return true;
+      const computed = window.getComputedStyle(el);
+      if (computed.backgroundImage && computed.backgroundImage !== 'none') return true;
+      // Elements with web fonts that Word can't render — capture as image
+      if (hasWebFont(el) && el.textContent?.trim()) return true;
+      // Block elements with colored backgrounds — Word/html-docx-js can't render bg-color on divs/spans
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'div' || tag === 'span' || tag === 'p') {
+        const bg = computed.backgroundColor;
+        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') {
+          return true;
+        }
+      }
+      // Block elements with visible borders (boxes, frames)
+      if (tag === 'div' || tag === 'span') {
+        const bw = parseFloat(computed.borderTopWidth || '0');
+        if (bw > 0 && computed.borderTopStyle !== 'none') return true;
+      }
+      return false;
+    };
+
+    // Get inline style string from computed styles of the live element
+    const getStyle = (el: HTMLElement): string => {
+      const c = window.getComputedStyle(el);
+      const s: string[] = [];
+
+      const color = c.color;
+      if (color && color !== 'rgb(0, 0, 0)') s.push(`color: ${color}`);
+
+      const bg = c.backgroundColor;
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') s.push(`background-color: ${bg}`);
+
+      const ff = c.fontFamily;
+      if (ff) s.push(`font-family: ${ff}`);
+
+      const fs = c.fontSize;
+      if (fs) s.push(`font-size: ${pxToPt(fs)}`);
+
+      const fw = c.fontWeight;
+      if (fw && fw !== '400' && fw !== 'normal') s.push(`font-weight: ${fw}`);
+
+      const fi = c.fontStyle;
+      if (fi && fi !== 'normal') s.push(`font-style: ${fi}`);
+
+      const td = c.textDecorationLine || c.textDecoration;
+      if (td && td !== 'none') s.push(`text-decoration: ${td}`);
+
+      const ta = c.textAlign;
+      if (ta && ta !== 'start' && ta !== 'left') s.push(`text-align: ${ta === 'end' ? 'right' : ta}`);
+
+      const lh = c.lineHeight;
+      if (lh && lh !== 'normal') s.push(`line-height: ${lh}`);
+
+      const ls = c.letterSpacing;
+      if (ls && ls !== 'normal' && ls !== '0px') s.push(`letter-spacing: ${ls}`);
+
+      const tt = c.textTransform;
+      if (tt && tt !== 'none') s.push(`text-transform: ${tt}`);
+
+      // Border (for boxes like mission-box rendered as text fallback)
+      const bw = c.borderTopWidth;
+      const bs = c.borderTopStyle;
+      const bc = c.borderTopColor;
+      if (bs && bs !== 'none' && bw && bw !== '0px') {
+        s.push(`border: ${bw} ${bs} ${bc}`);
+      }
+
+      // Padding
+      const pt = c.paddingTop, pr = c.paddingRight, pb = c.paddingBottom, pl = c.paddingLeft;
+      if ((pt && pt !== '0px') || (pr && pr !== '0px') || (pb && pb !== '0px') || (pl && pl !== '0px')) {
+        s.push(`padding: ${pxToPt(pt)} ${pxToPt(pr)} ${pxToPt(pb)} ${pxToPt(pl)}`);
+      }
+
+      // Margins
+      const mt = c.marginTop, mb = c.marginBottom;
+      if (mt && mt !== '0px') s.push(`margin-top: ${pxToPt(mt)}`);
+      if (mb && mb !== '0px') s.push(`margin-bottom: ${pxToPt(mb)}`);
+
+      return s.length > 0 ? s.join('; ') : '';
+    };
+
+    // Process a live DOM node recursively
+    const processNode = async (node: Node): Promise<string> => {
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+      if (!(node instanceof HTMLElement)) return '';
+
+      const tag = node.tagName.toLowerCase();
+      if (tag === 'style' || tag === 'script' || tag === 'meta' || tag === 'link') return '';
+
+      // Skip editor UI elements
+      if (node.classList.contains('image-overlay') || node.classList.contains('resize-handle') ||
+          node.classList.contains('drag-handle') || node.classList.contains('text-mode-badge') ||
+          node.classList.contains('context-menu') || node.classList.contains('page-ruler') ||
+          node.classList.contains('margin-guides')) return '';
+
+      // Render complex elements as small images
+      if (shouldBeImage(node)) return await renderAsImage(node);
+
+      // Images — bake with filters
+      if (tag === 'img') {
+        const img = node as HTMLImageElement;
+        let src = img.src || '';
+        if (!src) return '';
+        try {
+          if (img.complete && img.naturalWidth > 0) {
+            const cvs = document.createElement('canvas');
+            cvs.width = img.naturalWidth;
+            cvs.height = img.naturalHeight;
+            const ctx = cvs.getContext('2d');
+            if (ctx) {
+              const filter = window.getComputedStyle(img).filter;
+              if (filter && filter !== 'none') ctx.filter = filter;
+              ctx.drawImage(img, 0, 0);
+              src = cvs.toDataURL('image/png');
+            }
+          }
+        } catch {}
+        const rawW = img.offsetWidth || img.naturalWidth || 300;
+        const rawH = img.offsetHeight || img.naturalHeight || 200;
+        const w = Math.min(rawW, 480);
+        const h = Math.round(rawH * (w / Math.max(rawW, 1)));
+        return `<p style="text-align: center; margin: 8pt 0;"><img src="${src}" width="${w}" height="${h}" style="max-width: 100%;"></p>`;
+      }
+
+      if (tag === 'hr') return `<hr style="border: none; border-top: 1pt solid #000; margin: 10pt 0;">`;
+
+      // Recurse children
+      let inner = '';
+      for (const child of Array.from(node.childNodes)) {
+        inner += await processNode(child);
+      }
+
+      // Page wrapper — just pass through children
+      if (node.classList.contains('page')) return inner;
+      if (node.classList.contains('page-footer')) {
+        return `<p style="text-align: center; font-size: 9pt; color: #666; margin-top: 12pt;">${inner}</p>`;
+      }
+
+      const style = getStyle(node);
+      const sa = style ? ` style="${style}"` : '';
+
+      switch (tag) {
+        case 'h1': return `<h1${sa}>${inner}</h1>`;
+        case 'h2': return `<h2${sa}>${inner}</h2>`;
+        case 'h3': case 'h4': case 'h5': case 'h6':
+          return `<h3${sa}>${inner}</h3>`;
+        case 'p': return `<p${sa}>${inner}</p>`;
+        case 'blockquote':
+          return `<p style="${style}; border-left: 3pt solid #ccc; padding-left: 10pt; margin-left: 10pt;">${inner}</p>`;
+        case 'ul': return `<ul style="margin: 8pt 0 8pt 20pt;">${inner}</ul>`;
+        case 'ol': return `<ol style="margin: 8pt 0 8pt 20pt;">${inner}</ol>`;
+        case 'li': return `<li${sa}>${inner}</li>`;
+        case 'strong': case 'b': return `<b>${inner}</b>`;
+        case 'em': case 'i': return `<i>${inner}</i>`;
+        case 'u': return `<u>${inner}</u>`;
+        case 'br': return '<br>';
+        case 'a': return `<span${sa}>${inner}</span>`;
+        case 'span': return `<span${sa}>${inner}</span>`;
+        case 'div':
+          return inner.trim() ? `<div${sa}>${inner}</div>` : inner;
+        default: return inner;
+      }
+    };
+
+    // Process all pages from the live DOM
+    const livePages = liveWorkspace.querySelectorAll('.page') as NodeListOf<HTMLElement>;
+    let contentHtml = '';
+    for (let i = 0; i < livePages.length; i++) {
+      if (i > 0) contentHtml += `<br clear="all" style="page-break-before: always;">`;
+      contentHtml += await processNode(livePages[i]);
     }
 
-    document.body.removeChild(tempContainer);
+    // Detect page dimensions
+    const pageMatch = docState.cssContent.match(/\.page\s*\{[^}]*width:\s*([\d.]+(?:in|cm|mm|px))/);
+    const heightMatch = docState.cssContent.match(/\.page\s*\{[^}]*(?:max-|min-)?height:\s*([\d.]+(?:in|cm|mm|px))/);
+    const docPageWidth = pageMatch ? pageMatch[1] : '8.5in';
+    const docPageHeight = heightMatch ? heightMatch[1] : '11in';
 
     const htmlContent = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
@@ -3624,12 +3632,12 @@ ${tempDiv.innerHTML}
 </xml>
 <![endif]-->
 <style>
-@page { size: 8.5in 11in; margin: 0.6in; }
-body { font-size: 12pt; margin: 0; padding: 0; line-height: 1.5; }
-h1, h2, h3, p, div, span { display: block; }
+@page { size: ${docPageWidth} ${docPageHeight}; margin: 0.5in 0.5in 0.5in 0.375in; }
+body { margin: 0; padding: 0; line-height: 1.5; }
+p { margin-bottom: 8pt; }
 ul, ol { margin-left: 24pt; }
+li { margin-bottom: 4pt; }
 img { max-width: 100%; height: auto; }
-.page { page-break-after: always; }
 </style>
 </head>
 <body>
