@@ -13,7 +13,9 @@
     "tauri:build:desktop": "tauri build && rm -rf \"$HOME/Desktop/Instant Writer Pro.app\" && cp -R \"src-tauri/target/release/bundle/macos/Instant Writer Pro.app\" \"$HOME/Desktop/Instant Writer Pro.app\"",
     "tauri:build:dock": "tauri build && mkdir -p \"$HOME/Applications\" && rm -rf \"$HOME/Applications/Instant Writer Pro.app\" && cp -R \"src-tauri/target/release/bundle/macos/Instant Writer Pro.app\" \"$HOME/Applications/Instant Writer Pro.app\" && rm -rf \"$HOME/Desktop/Instant Writer Pro.app\" && cp -R \"src-tauri/target/release/bundle/macos/Instant Writer Pro.app\" \"$HOME/Desktop/Instant Writer Pro.app\"",
     "tauri:watch:desktop": "node scripts/tauri-watch-desktop.mjs",
-    "tauri:watch:dock": "node scripts/tauri-watch-desktop.mjs"
+    "tauri:watch:dock": "node scripts/tauri-watch-desktop.mjs",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
   },
   "dependencies": {
     "@google/genai": "^1.39.0",
@@ -29,6 +31,7 @@
     "@tauri-apps/cli": "^2.10.0",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "gh-pages": "^6.3.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
