@@ -121,6 +121,9 @@ const isSafeToUnwrap = (el: HTMLElement): boolean => {
     if (el.className && el.className.startsWith && /shape-/.test(el.className)) return false;
     if (el.classList.contains('toc-style-dotted')) return false;
     if (el.children.length === 0) return false;
+    // Preserve any styled element (imported wrappers with classes or inline styles)
+    if (el.className && el.className.trim()) return false;
+    if (el.hasAttribute('style')) return false;
 
     const cs = window.getComputedStyle(el);
     const hasPadding = (parseFloat(cs.paddingTop) || 0) > 0 ||

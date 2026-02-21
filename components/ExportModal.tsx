@@ -125,7 +125,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               <>📄 The PDF keeps layout, images, and formatting exactly as shown.</>
             )}
             {format === 'html' && (
-              <>🌐 HTML preserves all content and can be reopened in SpyWriter Pro.</>
+              <>🌐 HTML preserves all content and can be reopened in Instant Writer PRO.</>
             )}
             {format === 'docx' && (
               <>📝 DOCX can be opened in Microsoft Word, Google Docs, and other editors.</>

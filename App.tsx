@@ -146,7 +146,7 @@ const App: React.FC = () => {
   // Load available system fonts on mount and when web fonts are ready
   useEffect(() => {
       const openFontDb = () => new Promise<IDBDatabase>((resolve, reject) => {
-          const request = indexedDB.open('spywriter-fonts', 1);
+          const request = indexedDB.open('instantwriter-fonts', 1);
           request.onupgradeneeded = () => {
               const db = request.result;
               if (!db.objectStoreNames.contains('fonts')) {
@@ -264,7 +264,7 @@ const App: React.FC = () => {
           }
 
           try {
-              const dbRequest = indexedDB.open('spywriter-fonts', 1);
+              const dbRequest = indexedDB.open('instantwriter-fonts', 1);
               dbRequest.onupgradeneeded = () => {
                   const db = dbRequest.result;
                   if (!db.objectStoreNames.contains('fonts')) {
@@ -807,6 +807,23 @@ const App: React.FC = () => {
                 tempDiv.querySelectorAll('[contenteditable="false"]').forEach(el => {
                     el.removeAttribute('contenteditable');
                 });
+
+                // Normalize page structure: convert article/section.page to div.page,
+                // unwrap header/main/nav wrappers inside pages so content is direct children
+                tempDiv.querySelectorAll('.page').forEach(page => {
+                    if (page.tagName !== 'DIV') {
+                        const div = document.createElement('div');
+                        Array.from(page.attributes).forEach(a => div.setAttribute(a.name, a.value));
+                        div.innerHTML = page.innerHTML;
+                        page.replaceWith(div);
+                        page = div;
+                    }
+                    page.querySelectorAll(':scope > header, :scope > main, :scope > nav, :scope > section:not(.page)').forEach(wrapper => {
+                        if (wrapper.classList.contains('page-footer')) return;
+                        while (wrapper.firstChild) wrapper.before(wrapper.firstChild);
+                        wrapper.remove();
+                    });
+                });
                 
                 bodyContent = tempDiv.innerHTML;
                 
@@ -814,7 +831,9 @@ const App: React.FC = () => {
                     bodyContent = `<div class="page">${bodyContent}</div>`;
                 }
 
-                const finalCss = (extractedCss.trim() ? extractedCss + '\n' : '') + DEFAULT_CSS;
+                // Strip any .page rules from imported CSS to protect pagination structure
+                const safeExtracted = extractedCss.replace(/\.page\s*\{[^}]*\}/g, '');
+                const finalCss = DEFAULT_CSS + '\n' + (safeExtracted.trim() ? safeExtracted : '');
 
                 const newState = {
                     htmlContent: bodyContent,
@@ -2799,8 +2818,8 @@ const App: React.FC = () => {
   };
 
   const updatePageCSS = (width: string, height: string, margins: { top: number, bottom: number, left: number, right: number }) => {
-    const markerStart = '/* SPYWRITER_LAYOUT_OVERRIDE_START */';
-    const markerEnd = '/* SPYWRITER_LAYOUT_OVERRIDE_END */';
+    const markerStart = '/* INSTANTWRITER_LAYOUT_OVERRIDE_START */';
+    const markerEnd = '/* INSTANTWRITER_LAYOUT_OVERRIDE_END */';
 
     const newCssBlock = `
 ${markerStart}
@@ -2818,7 +2837,7 @@ ${markerEnd}
 `;
 
     let updatedCss = docState.cssContent;
-    const regex = new RegExp(`\\/\\* SPYWRITER_LAYOUT_OVERRIDE_START \\*\\/[\\s\\S]*?\\/\\* SPYWRITER_LAYOUT_OVERRIDE_END \\*\\/`, 'g');
+    const regex = new RegExp(`\\/\\* INSTANTWRITER_LAYOUT_OVERRIDE_START \\*\\/[\\s\\S]*?\\/\\* INSTANTWRITER_LAYOUT_OVERRIDE_END \\*\\/`, 'g');
     if (regex.test(updatedCss)) {
         updatedCss = updatedCss.replace(regex, newCssBlock.trim());
     } else {

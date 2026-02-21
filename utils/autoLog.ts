@@ -24,7 +24,7 @@ type AutoLogOptions = {
   getContext?: () => AutoLogContext;
 };
 
-const LOG_KEY = 'spywriter_autolog_v1';
+const LOG_KEY = 'instantwriter_autolog_v1';
 
 const safeParse = (raw: string | null): AutoLogEntry[] => {
   if (!raw) return [];
@@ -202,7 +202,7 @@ export const clearAutoLog = () => {
   }
 };
 
-export const downloadAutoLog = (fileName = 'spywriter-autolog.json') => {
+export const downloadAutoLog = (fileName = 'instantwriter-autolog.json') => {
   const entries = readLogs();
   const blob = new Blob([JSON.stringify(entries, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
