@@ -1,5 +1,6 @@
 {
-  "name": "SpyWriter Pro",
-  "description": "A visual document editor capable of handling paginated HTML books with advanced formatting, forms, and AI assistance.",
-  "requestFramePermissions": []
+  "name": "Instant Writer Pro",
+  "version": "1.0.0",
+  "author": "Ari",
+  "description": "Professional document automation and layout tool for Amazon KDP publishing."
 }
