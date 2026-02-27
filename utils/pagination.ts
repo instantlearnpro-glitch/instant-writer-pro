@@ -170,11 +170,11 @@ export const isPageOverflowing = (page: HTMLElement): boolean => {
 const getContentHeight = (page: HTMLElement, scale: number = 1): number => {
     const children = Array.from(page.children).filter(child => isFlowElement(child as HTMLElement));
     if (children.length === 0) return 0;
-    
+
     const pageRect = page.getBoundingClientRect();
     const computed = window.getComputedStyle(page);
     const paddingTop = parseFloat(computed.paddingTop) || 0;
-    
+
     let maxBottom = 0;
     children.forEach(child => {
         const childBottom = getElementBottomWithMargin(child as HTMLElement, scale);
@@ -183,7 +183,7 @@ const getContentHeight = (page: HTMLElement, scale: number = 1): number => {
             maxBottom = relativeBottom;
         }
     });
-    
+
     return maxBottom;
 };
 
@@ -211,7 +211,7 @@ export const hasPageSpace = (page: HTMLElement, threshold: number = 20): boolean
     const computed = window.getComputedStyle(page);
     const paddingTop = parseFloat(computed.paddingTop) || 0;
     const paddingBottom = parseFloat(computed.paddingBottom) || 0;
-    
+
     // Calculate the actual content area height (excluding padding)
     let contentAreaHeight = pageRect.height - (paddingTop + paddingBottom) * scale;
     const footerLimit = getFooterLimit(page);
@@ -219,14 +219,14 @@ export const hasPageSpace = (page: HTMLElement, threshold: number = 20): boolean
         const effectiveHeight = footerLimit - pageRect.top - paddingTop * scale;
         contentAreaHeight = Math.min(contentAreaHeight, Math.max(0, effectiveHeight));
     }
-    
+
     // Get the actual content height within the page
     const contentHeight = getContentHeight(page, scale);
     // Adjust content height to be relative to content area (subtract padding top)
     const adjustedContentHeight = contentHeight - paddingTop * scale;
-    
+
     const availableSpace = contentAreaHeight - adjustedContentHeight;
-    
+
     return availableSpace > threshold * scale;
 };
 
@@ -254,7 +254,7 @@ export const ensureContentIsPaginated = (editor: HTMLElement) => {
 
     // Identify orphans
     const orphans: Node[] = [];
-    
+
     // We iterate to find nodes that are NOT .page and NOT tool/overlay elements
     children.forEach(node => {
         if (node.nodeType === Node.ELEMENT_NODE) {
@@ -266,25 +266,38 @@ export const ensureContentIsPaginated = (editor: HTMLElement) => {
                 orphans.push(node);
             }
         } else if (node.nodeType === Node.TEXT_NODE) {
-             if (node.textContent?.trim()) {
-                 orphans.push(node);
-             }
+            if (node.textContent?.trim()) {
+                orphans.push(node);
+            }
         }
     });
 
     if (orphans.length > 0) {
-        // Move orphans to the last known page (or the one we created)
-        // If we are iterating, we might want to put them in the page *before* them if possible,
-        // but simple logic: put them in the last active page found.
+        let madeChanges = false;
         if (currentPage) {
             orphans.forEach(orphan => {
                 // Check if the orphan is actually currently a child of editor (it might have been moved already)
+                if (orphan.parentNode !== editor) return;
+
+                // Safety: if this orphan contains nested .page elements (e.g., imported HTML wrapper),
+                // promote those pages to workspace level first to avoid HierarchyRequestError.
+                if (orphan instanceof HTMLElement && orphan.querySelector('.page')) {
+                    const nestedPages = Array.from(orphan.querySelectorAll('.page')) as HTMLElement[];
+                    nestedPages.forEach(nestedPage => {
+                        // Insert the nested page directly into the workspace before the orphan
+                        editor.insertBefore(nestedPage, orphan);
+                        currentPage = nestedPage; // Track the last promoted page
+                    });
+                }
+
+                // Now move the orphan (page-free) into the current page
                 if (orphan.parentNode === editor) {
-                     currentPage!.appendChild(orphan);
+                    currentPage!.appendChild(orphan);
+                    madeChanges = true;
                 }
             });
         }
-        return true; // We made changes
+        return madeChanges || createdAnyPage;
     }
 
     return createdAnyPage;
@@ -315,13 +328,13 @@ const splitElement = (element: HTMLElement, pageBottom: number): HTMLElement | n
     for (let i = 0; i < children.length; i++) {
         const node = children[i];
         let nodeBottom = 0;
-        
+
         if (node.nodeType === Node.ELEMENT_NODE) {
             nodeBottom = (node as HTMLElement).getBoundingClientRect().bottom;
         } else if (node.nodeType === Node.TEXT_NODE) {
-             const range = document.createRange();
-             range.selectNode(node);
-             nodeBottom = range.getBoundingClientRect().bottom;
+            const range = document.createRange();
+            range.selectNode(node);
+            nodeBottom = range.getBoundingClientRect().bottom;
         }
 
         if (nodeBottom > pageBottom) {
@@ -333,7 +346,7 @@ const splitElement = (element: HTMLElement, pageBottom: number): HTMLElement | n
     if (splitNodeIndex === -1) return null; // Should not happen if parent rect.bottom > pageBottom
 
     const targetNode = children[splitNodeIndex];
-    
+
     // 2. If it's a text node, binary search for the character
     if (targetNode.nodeType === Node.TEXT_NODE) {
         const text = targetNode.textContent || '';
@@ -341,7 +354,7 @@ const splitElement = (element: HTMLElement, pageBottom: number): HTMLElement | n
         let end = text.length;
         let mid = 0;
         let found = false;
-        
+
         const range = document.createRange();
 
         while (start < end) {
@@ -349,15 +362,15 @@ const splitElement = (element: HTMLElement, pageBottom: number): HTMLElement | n
             range.setStart(targetNode, 0);
             range.setEnd(targetNode, mid);
             const rect = range.getBoundingClientRect();
-            
+
             // If the *end* of this range is below the line? 
             // Actually getBoundingClientRect for a range wraps the whole text.
             // We want to know if the character at 'mid' is below the line.
-            
+
             // Better strategy: Check rects of range from 0 to mid.
             // If rect.bottom > pageBottom, then the split is BEFORE mid.
             // But this depends on line wrapping.
-            
+
             if (rect.bottom > pageBottom) {
                 // The text up to 'mid' is ALREADY overflowing. So split must be earlier.
                 end = mid;
@@ -375,7 +388,7 @@ const splitElement = (element: HTMLElement, pageBottom: number): HTMLElement | n
     // 3. Create the new element (clone)
     const newElement = element.cloneNode(false) as HTMLElement;
     newElement.id = ''; // Remove ID to avoid duplicates
-    
+
     // Move content
     // If we split a text node:
     if (splitOffset >= 0 && targetNode.nodeType === Node.TEXT_NODE) {
@@ -387,12 +400,12 @@ const splitElement = (element: HTMLElement, pageBottom: number): HTMLElement | n
         // If we didn't split INSIDE the node (e.g. it was an element), 
         // we just move this node and all subsequent ones.
         if (targetNode.nodeType === Node.ELEMENT_NODE && (targetNode as HTMLElement).getBoundingClientRect().top > pageBottom) {
-             // Whole node is below
-             newElement.appendChild(targetNode);
+            // Whole node is below
+            newElement.appendChild(targetNode);
         } else {
-             // Node straddles? Recursive split? 
-             // For simplicity in this version, if a child ELEMENT straddles, we move the whole child.
-             newElement.appendChild(targetNode);
+            // Node straddles? Recursive split? 
+            // For simplicity in this version, if a child ELEMENT straddles, we move the whole child.
+            newElement.appendChild(targetNode);
         }
     }
 
@@ -400,7 +413,7 @@ const splitElement = (element: HTMLElement, pageBottom: number): HTMLElement | n
     for (let i = splitNodeIndex + 1; i < children.length; i++) {
         newElement.appendChild(children[i]);
     }
-    
+
     // Cleanup empty text nodes in old element
     // (Optional but good for cleanliness)
 
@@ -428,6 +441,9 @@ const getFirstFlowChild = (page: HTMLElement): HTMLElement | null => {
 };
 
 const getPageBreakMarker = (page: HTMLElement): HTMLElement | null => {
+    // The page element itself may carry data-page-break (set by handlePageBreak),
+    // OR a child marker div may carry it (legacy / imported HTML).
+    if (page.getAttribute('data-page-break') === 'true') return page;
     return page.querySelector('[data-page-break="true"]') as HTMLElement | null;
 };
 
@@ -621,7 +637,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
     const timeBudgetMs = options?.timeBudgetMs ?? 30;
     const pullUp = options?.pullUp ?? true;
     let budgetExceeded = false;
-    
+
     for (let i = 0; i < pages.length && iterations < maxIterations; i++) {
         if (performance.now() - start > timeBudgetMs) {
             budgetExceeded = true;
@@ -647,7 +663,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 break;
             }
             iterations++;
-            
+
             const overflowEl = getLastOverflowingFlowChild(page, pageBottom, scale);
             if (!overflowEl) break;
             const lastEl = overflowEl;
@@ -707,7 +723,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             if (availableHeight > 0 && lastElRectHeight > availableHeight + 1 * scale && isOnlyFlow) {
                 break;
             }
-            
+
             // Get or create next page
             let nextPage = pages[i + 1];
             if (!nextPage) {
@@ -716,7 +732,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 editor.appendChild(nextPage);
                 pages.push(nextPage);
             }
-            
+
             // Move the WHOLE element to the beginning of next page
             const breakMarker = getPageBreakMarker(nextPage);
             if (breakMarker && breakMarker.parentElement === nextPage) {
@@ -726,7 +742,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             } else {
                 nextPage.appendChild(lastEl);
             }
-            
+
             changesMade = true;
         }
         if (budgetExceeded) break;
