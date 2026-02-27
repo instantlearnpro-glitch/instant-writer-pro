@@ -202,6 +202,47 @@ const placeCaretInBlock = (el: HTMLElement, atEnd: boolean) => {
     selection.addRange(range);
 };
 
+// Place caret at the very end of an element (deepest last text node if possible)
+const placeCaretAtEnd = (el: HTMLElement) => {
+    const selection = window.getSelection();
+    if (!selection) return;
+    // Try to find the deepest last editable text node
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    let lastText: Text | null = null;
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+        lastText = node as Text;
+    }
+    const range = document.createRange();
+    if (lastText) {
+        range.setStart(lastText, lastText.length);
+        range.collapse(true);
+    } else {
+        range.selectNodeContents(el);
+        range.collapse(false);
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+};
+
+// Place caret at the very start of an element (deepest first text node if possible)
+const placeCaretAtStart = (el: HTMLElement) => {
+    const selection = window.getSelection();
+    if (!selection) return;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    const firstText = walker.nextNode() as Text | null;
+    const range = document.createRange();
+    if (firstText) {
+        range.setStart(firstText, 0);
+        range.collapse(true);
+    } else {
+        range.selectNodeContents(el);
+        range.collapse(true);
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+};
+
 const preserveSelection = (root: HTMLElement) => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return () => { };
@@ -1109,6 +1150,17 @@ const Editor: React.FC<EditorProps> = ({
                                 scheduleReflow();
                                 return;
                             }
+
+                            // --- TWO-PHASE MERGE: if previous element is NOT a plain text block,
+                            //     prevent browser from merging content (which would change formatting).
+                            //     Phase 1: just move caret to end of previous element.
+                            //     Phase 2 (next Backspace): native browser deletion inside prev element.
+                            if (prevEl && !isTextBlock(prevEl)) {
+                                e.preventDefault();
+                                // Move caret to the focusable end of the previous element
+                                placeCaretAtEnd(prevEl);
+                                return;
+                            }
                         }
                     }
 
@@ -1122,6 +1174,14 @@ const Editor: React.FC<EditorProps> = ({
                                 nextEl.remove();
                                 placeCaretInBlock(textBlock, true);
                                 scheduleReflow();
+                                return;
+                            }
+
+                            // --- TWO-PHASE MERGE (Delete): if next element is NOT a plain text block,
+                            //     prevent browser merge and move caret to beginning of next element.
+                            if (nextEl && !isTextBlock(nextEl)) {
+                                e.preventDefault();
+                                placeCaretAtStart(nextEl);
                                 return;
                             }
                         }
