@@ -1200,7 +1200,7 @@ const Editor: React.FC<EditorProps> = ({
                 onHRSelect(null);
                 onFooterSelect(null);
                 if (contentRef.current) {
-                    reflowPages(contentRef.current);
+                    reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
                     onContentChange(contentRef.current.innerHTML);
                 }
                 return;
@@ -1547,7 +1547,7 @@ const Editor: React.FC<EditorProps> = ({
         const prev = activeBlock.previousElementSibling;
         activeBlock.parentNode?.insertBefore(activeBlock, prev);
         if (contentRef.current) {
-            reflowPages(contentRef.current);
+            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -1557,7 +1557,7 @@ const Editor: React.FC<EditorProps> = ({
         const next = activeBlock.nextElementSibling;
         activeBlock.parentNode?.insertBefore(next, activeBlock);
         if (contentRef.current) {
-            reflowPages(contentRef.current);
+            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -1783,7 +1783,7 @@ const Editor: React.FC<EditorProps> = ({
         activeBlock.remove();
         setActiveBlock(null);
         if (contentRef.current) {
-            reflowPages(contentRef.current);
+            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -1809,7 +1809,7 @@ const Editor: React.FC<EditorProps> = ({
     const handleCut = () => {
         document.execCommand('cut');
         if (contentRef.current) {
-            reflowPages(contentRef.current);
+            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -2744,7 +2744,7 @@ const Editor: React.FC<EditorProps> = ({
                     pageMargins={pageMargins}
                     onResize={() => {
                         if (contentRef.current) {
-                            reflowPages(contentRef.current);
+                            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
                             onContentChange(contentRef.current.innerHTML);
                         }
                     }}
@@ -2763,7 +2763,7 @@ const Editor: React.FC<EditorProps> = ({
                     pageMargins={pageMargins}
                     onResize={() => {
                         if (contentRef.current) {
-                            reflowPages(contentRef.current);
+                            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
                             onContentChange(contentRef.current.innerHTML);
                         }
                     }}
@@ -2818,7 +2818,7 @@ const Editor: React.FC<EditorProps> = ({
                     showSmartGuides={showSmartGuides}
                     onUpdate={() => {
                         if (contentRef.current) {
-                            reflowPages(contentRef.current);
+                            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
                             onContentChange(contentRef.current.innerHTML);
                         }
                         setActiveBlock(null);
