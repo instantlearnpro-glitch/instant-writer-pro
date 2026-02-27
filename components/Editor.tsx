@@ -944,6 +944,108 @@ const Editor: React.FC<EditorProps> = ({
         };
     }, [updateMarginOverflows, htmlContent, zoom, pageMargins]);
 
+    // True if caret is at position 0 inside block (ignoring empty text nodes)
+    const isAtBlockStart = (range: Range, block: HTMLElement): boolean => {
+        if (range.startOffset !== 0) return false;
+        let node: Node | null = range.startContainer;
+        while (node && node !== block) {
+            if (node.previousSibling) {
+                const prev = node.previousSibling;
+                // skip empty text nodes
+                if (prev.nodeType === Node.TEXT_NODE && !prev.textContent?.trim()) {
+                    node = prev;
+                    continue;
+                }
+                return false;
+            }
+            node = node.parentNode;
+        }
+        return true;
+    };
+
+    // True if caret is at the very end of block content (ignoring empty text nodes)
+    const isAtBlockEnd = (range: Range, block: HTMLElement): boolean => {
+        const container = range.endContainer;
+        const offset = range.endOffset;
+        if (container.nodeType === Node.TEXT_NODE) {
+            if (offset < (container as Text).length) return false;
+        } else if (container.nodeType === Node.ELEMENT_NODE) {
+            if (offset < (container as HTMLElement).childNodes.length) return false;
+        }
+        let node: Node | null = container;
+        while (node && node !== block) {
+            if (node.nextSibling) {
+                const next = node.nextSibling;
+                if (next.nodeType === Node.TEXT_NODE && !next.textContent?.trim()) {
+                    node = next;
+                    continue;
+                }
+                return false;
+            }
+            node = node.parentNode;
+        }
+        return true;
+    };
+
+    // True if an element is considered "empty" (empty paragraph or height-only spacer)
+    const isEmptyElement = (el: HTMLElement): boolean => {
+        if (isEmptyParagraph(el)) return true;
+        // spacer divs inserted by toolbar
+        if (el.classList.contains('spacer') && !el.textContent?.trim()) return true;
+        // generic element with only a <br> and no real content
+        if (!el.textContent?.trim()) {
+            const html = el.innerHTML.replace(/\u200B/g, '').trim().toLowerCase();
+            if (html === '' || html === '<br>' || html === '<br/>' || html === '<br />') return true;
+        }
+        return false;
+    };
+
+    // Find the closest preceding sibling (or last child of previous page) that has any content
+    const findAdjacentPrev = (block: HTMLElement): HTMLElement | null => {
+        let el = block.previousElementSibling as HTMLElement | null;
+        if (el) return el;
+        // cross-page
+        const page = block.closest('.page') as HTMLElement | null;
+        if (page) {
+            const prevPage = page.previousElementSibling as HTMLElement | null;
+            if (prevPage?.classList.contains('page')) {
+                const children = Array.from(prevPage.children) as HTMLElement[];
+                for (let i = children.length - 1; i >= 0; i--) {
+                    const c = children[i];
+                    if (!c.classList.contains('page-footer') && !c.classList.contains('image-overlay')) {
+                        return c;
+                    }
+                }
+            }
+        }
+        return null;
+    };
+
+    // Find the closest following sibling (or first child of next page) that has any content
+    const findAdjacentNext = (block: HTMLElement): HTMLElement | null => {
+        let el = block.nextElementSibling as HTMLElement | null;
+        // skip footer
+        while (el && (el.classList.contains('page-footer') || el.classList.contains('image-overlay'))) {
+            el = el.nextElementSibling as HTMLElement | null;
+        }
+        if (el) return el;
+        // cross-page
+        const page = block.closest('.page') as HTMLElement | null;
+        if (page) {
+            const nextPage = page.nextElementSibling as HTMLElement | null;
+            if (nextPage?.classList.contains('page')) {
+                const children = Array.from(nextPage.children) as HTMLElement[];
+                for (let i = 0; i < children.length; i++) {
+                    const c = children[i];
+                    if (!c.classList.contains('page-footer') && !c.classList.contains('image-overlay')) {
+                        return c;
+                    }
+                }
+            }
+        }
+        return null;
+    };
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Delete' || e.key === 'Backspace') {
             const selection = window.getSelection();
@@ -995,6 +1097,36 @@ const Editor: React.FC<EditorProps> = ({
                         scheduleReflow();
                         return;
                     }
+                    // --- SPACER REMOVAL: Backspace at start of non-empty block ---
+                    if (e.key === 'Backspace') {
+                        const rangeNow = selection.getRangeAt(0);
+                        if (isAtBlockStart(rangeNow, textBlock)) {
+                            const prevEl = findAdjacentPrev(textBlock);
+                            if (prevEl && isEmptyElement(prevEl)) {
+                                e.preventDefault();
+                                prevEl.remove();
+                                placeCaretInBlock(textBlock, false);
+                                scheduleReflow();
+                                return;
+                            }
+                        }
+                    }
+
+                    // --- SPACER REMOVAL: Delete at end of non-empty block ---
+                    if (e.key === 'Delete') {
+                        const rangeNow = selection.getRangeAt(0);
+                        if (isAtBlockEnd(rangeNow, textBlock)) {
+                            const nextEl = findAdjacentNext(textBlock);
+                            if (nextEl && isEmptyElement(nextEl)) {
+                                e.preventDefault();
+                                nextEl.remove();
+                                placeCaretInBlock(textBlock, true);
+                                scheduleReflow();
+                                return;
+                            }
+                        }
+                    }
+
                     return;
                 }
             }
@@ -1024,9 +1156,9 @@ const Editor: React.FC<EditorProps> = ({
                     ? range.startContainer as HTMLElement
                     : (range.startContainer as Text).parentElement;
                 const breakPage = startEl?.closest?.('.page') as HTMLElement | null;
-                if (breakPage && breakPage.getAttribute('data-page-break') === 'true') {
+                if (breakPage && breakPage.getAttribute('data-user-page-break') === 'true') {
                     e.preventDefault();
-                    breakPage.removeAttribute('data-page-break');
+                    breakPage.removeAttribute('data-user-page-break');
                     if (contentRef.current) {
                         reflowPages(contentRef.current, { pullUp: true });
                         onContentChange(contentRef.current.innerHTML);
@@ -2402,8 +2534,33 @@ const Editor: React.FC<EditorProps> = ({
 
                 }}
                 onKeyDown={handleKeyDown}
-                onDrop={handleDrop}
-                onDragOver={(e) => e.preventDefault()}
+                onDragStart={(e) => {
+                    // ALWAYS block native element drag inside the contenteditable.
+                    // This prevents ANY content from being dragged out of its .page.
+                    e.preventDefault();
+                    e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Recovery: move any orphaned elements back inside pages.
+                    if (contentRef.current) {
+                        scheduleReflow();
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                    // Allow image file drops only if target is inside a .page
+                    const dropTarget = e.target as HTMLElement;
+                    if (dropTarget.closest?.('.page')) {
+                        handleDrop(e);
+                    }
+                }}
+                onDragOver={(e) => {
+                    const overTarget = e.target as HTMLElement;
+                    if (!overTarget.closest?.('.page')) {
+                        return; // no preventDefault = drop forbidden cursor 🚫
+                    }
+                    e.preventDefault();
+                }}
                 onContextMenu={handleContextMenu}
             />
 

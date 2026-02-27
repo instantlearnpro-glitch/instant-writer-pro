@@ -2842,7 +2842,7 @@ const App: React.FC = () => {
 
         const newPage = document.createElement('div');
         newPage.className = 'page';
-        newPage.setAttribute('data-page-break', 'true');
+        newPage.setAttribute('data-user-page-break', 'true');
 
         const marker = document.createElement('span');
         marker.id = 'page-break-marker-' + Date.now();

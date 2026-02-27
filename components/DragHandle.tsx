@@ -21,7 +21,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
     observer.observe(element, { attributes: true, childList: true, subtree: true });
     window.addEventListener('scroll', updatePosition, true);
     window.addEventListener('resize', updatePosition);
-    
+
     return () => {
       observer.disconnect();
       window.removeEventListener('scroll', updatePosition, true);
@@ -33,7 +33,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
     if (!containerRef.current) return;
     const containerRect = containerRef.current.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
-    
+
     setPosition({
       top: elementRect.top - containerRect.top + containerRef.current.scrollTop,
       left: elementRect.left - containerRect.left + containerRef.current.scrollLeft,
@@ -55,38 +55,38 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       width: position.width,
       height: position.height
     };
-    
+
     // Add visual feedback to dragged element
     element.style.opacity = '0.5';
-    
+
     const onMove = (e: MouseEvent) => {
       if (!isDraggingRef.current) return;
-      
+
       // Find the element we're dragging over
       const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
       let targetBlock: Element | undefined;
-      
+
       for (const el of elementsAtPoint) {
         if (el === element) continue;
         if (el.classList.contains('drag-handle')) continue;
         if (el.closest('.drag-handle')) continue;
-        
+
         const match = el.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, hr, img, table');
         if (match && match !== element) {
           targetBlock = match;
           break;
         }
       }
-      
+
       // Remove old indicator
       document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
-      
+
       if (targetBlock) {
         const targetRect = targetBlock.getBoundingClientRect();
         const isAbove = e.clientY < targetRect.top + targetRect.height / 2;
-        
+
         dropTargetRef.current = { element: targetBlock as HTMLElement, isAbove };
-        
+
         // Visual indicator
         const indicator = document.createElement('div');
         indicator.className = 'drop-indicator';
@@ -96,7 +96,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
           margin: 4px 0;
           border-radius: 2px;
         `;
-        
+
         if (isAbove) {
           targetBlock.parentNode?.insertBefore(indicator, targetBlock);
         } else {
@@ -110,13 +110,13 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
     const onEnd = () => {
       isDraggingRef.current = false;
       element.style.opacity = '';
-      
+
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onEnd);
-      
+
       // Remove indicators
       document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
-      
+
       // Move element to drop target
       if (dropTargetRef.current) {
         const { element: target, isAbove } = dropTargetRef.current;
@@ -130,14 +130,15 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
           onUpdate();
         }
       }
-      
+
       dropTargetRef.current = null;
       updatePosition();
     };
-    
+
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onEnd);
   };
+
 
   const handleResizeStart = (e: React.MouseEvent, direction: string) => {
     e.preventDefault();
@@ -161,11 +162,11 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       width: element.offsetWidth,
       height: element.offsetHeight
     };
-    
+
     const handleResizeMove = (e: MouseEvent) => {
       const deltaX = e.clientX - startPos.current.x;
       const deltaY = e.clientY - startPos.current.y;
-      
+
       if (direction.includes('e')) {
         let nextWidth = Math.max(50, startPos.current.width + deltaX);
         if (maxWidth) nextWidth = Math.min(nextWidth, maxWidth);
@@ -182,17 +183,17 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       if (direction.includes('n')) {
         element.style.height = `${Math.max(20, startPos.current.height - deltaY)}px`;
       }
-      
+
       updatePosition();
     };
-    
+
     const handleResizeEnd = () => {
       document.removeEventListener('mousemove', handleResizeMove);
       document.removeEventListener('mouseup', handleResizeEnd);
       onAction?.('resize', element);
       onUpdate();
     };
-    
+
     document.addEventListener('mousemove', handleResizeMove);
     document.addEventListener('mouseup', handleResizeEnd);
   };
@@ -261,7 +262,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
           pointerEvents: 'auto'
         }}
       />
-      
+
       {/* Left */}
       <div
         onMouseDown={(e) => handleResizeStart(e, 'w')}
@@ -302,12 +303,12 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       <div
         onClick={() => {
           // SAFETY: Never delete structural elements
-          if (element.classList.contains('page') || 
-              element.classList.contains('editor-workspace') ||
-              element.tagName === 'BODY' ||
-              element.tagName === 'HTML') {
-              console.warn('Cannot delete structural element');
-              return;
+          if (element.classList.contains('page') ||
+            element.classList.contains('editor-workspace') ||
+            element.tagName === 'BODY' ||
+            element.tagName === 'HTML') {
+            console.warn('Cannot delete structural element');
+            return;
           }
           onAction?.('delete', element);
           element.remove();

@@ -441,10 +441,13 @@ const getFirstFlowChild = (page: HTMLElement): HTMLElement | null => {
 };
 
 const getPageBreakMarker = (page: HTMLElement): HTMLElement | null => {
-    // The page element itself may carry data-page-break (set by handlePageBreak),
-    // OR a child marker div may carry it (legacy / imported HTML).
-    if (page.getAttribute('data-page-break') === 'true') return page;
-    return page.querySelector('[data-page-break="true"]') as HTMLElement | null;
+    // Only treat a page as a user-inserted page break if it carries data-user-page-break.
+    // The legacy data-page-break attribute is also supported for backward compatibility,
+    // but ONLY when it appears on a child element (not on the page div itself).
+    // This distinction prevents automatic reflow pages (that may carry data-page-break
+    // from imported HTML) from blocking the pullUp behaviour.
+    if (page.getAttribute('data-user-page-break') === 'true') return page;
+    return page.querySelector('[data-user-page-break="true"]') as HTMLElement | null;
 };
 
 const isTextSplitTarget = (el: HTMLElement) => {
@@ -831,6 +834,26 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 overflowElement: overflowEl ? summarizeElement(overflowEl) : null,
                 footerCandidates: summarizeFooterCandidates(page)
             });
+        }
+    }
+
+    // Remove pages that became empty after reflow (only when pullUp is active).
+    // This handles the case where the user deleted spacers/empty paragraphs and the
+    // page they were on is now empty — content on subsequent pages should flow back.
+    if (pullUp) {
+        // Iterate backwards so that removing a page doesn't shift the index of earlier pages.
+        for (let i = pages.length - 1; i >= 1; i--) {
+            const emptyPage = pages[i];
+            // Never remove pages with an explicit page-break marker (user-inserted break).
+            if (getPageBreakMarker(emptyPage)) continue;
+            const flowKids = Array.from(emptyPage.children).filter(c =>
+                isFlowElement(c as HTMLElement)
+            );
+            if (flowKids.length === 0) {
+                emptyPage.remove();
+                pages.splice(i, 1);
+                changesMade = true;
+            }
         }
     }
 
