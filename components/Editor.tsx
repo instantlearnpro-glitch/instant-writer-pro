@@ -1269,7 +1269,9 @@ const Editor: React.FC<EditorProps> = ({
             reflowDebounceRef.current = null;
             if (!contentRef.current) return;
             const restoreSelection = preserveSelection(contentRef.current);
-            reflowPages(contentRef.current, { pullUp: true });
+            // Use a generous budget so the pull-up pass has enough time
+            // to pull elements back from all subsequent pages when content shrinks.
+            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
             restoreSelection();
             lastUserEditAtRef.current = Date.now();
             lastEmittedHtmlRef.current = contentRef.current.innerHTML;
@@ -2259,7 +2261,7 @@ const Editor: React.FC<EditorProps> = ({
                     if (contentRef.current) {
                         const restoreSelection = preserveSelection(contentRef.current);
                         if (!isFloatingText) {
-                            reflowPages(contentRef.current, { pullUp: true });
+                            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
                             updateTocTablePageNumbers(contentRef.current);
                         }
                         restoreSelection();

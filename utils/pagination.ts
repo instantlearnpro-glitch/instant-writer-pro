@@ -635,9 +635,9 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
     const pages = Array.from(editor.querySelectorAll('.page')) as HTMLElement[];
     let changesMade = false;
     let iterations = 0;
-    const maxIterations = options?.maxIterations ?? 800; // Safety limit
+    const maxIterations = options?.maxIterations ?? 1200; // Safety limit
     const start = performance.now();
-    const timeBudgetMs = options?.timeBudgetMs ?? 30;
+    const timeBudgetMs = options?.timeBudgetMs ?? 60;
     const pullUp = options?.pullUp ?? true;
     let budgetExceeded = false;
 
@@ -756,7 +756,8 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             if (nextPage && getPageBreakMarker(nextPage)) {
                 continue;
             }
-            while (nextPage && hasPageSpace(page, 12) && iterations < maxIterations) {
+            // Use 1px threshold so even minimal free space pulls content back
+            while (nextPage && hasPageSpace(page, 1) && iterations < maxIterations) {
                 if (performance.now() - start > timeBudgetMs) {
                     budgetExceeded = true;
                     break;
