@@ -764,7 +764,17 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 }
 
                 const firstEl = getFirstFlowChild(nextPage);
-                if (!firstEl) break;
+                if (!firstEl) {
+                    // nextPage is empty — skip to the next page in the sequence so we can
+                    // cascade content back through multiple empty intermediate pages.
+                    const nextIdx = pages.indexOf(nextPage);
+                    const candidate = nextIdx + 1 < pages.length ? pages[nextIdx + 1] : null;
+                    // Respect user-inserted page breaks — stop cascading at those.
+                    if (!candidate || getPageBreakMarker(candidate)) break;
+                    nextPage = candidate;
+                    iterations++;
+                    continue;
+                }
 
                 // Try moving element up
                 page.appendChild(firstEl);
