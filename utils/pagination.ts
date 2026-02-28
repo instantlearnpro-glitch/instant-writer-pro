@@ -81,31 +81,11 @@ const isFlowElement = (el: HTMLElement): boolean => {
     return pos !== 'absolute' && pos !== 'fixed';
 };
 
-const shouldAvoidBreak = (el: HTMLElement): boolean => {
-    const tag = el.tagName.toLowerCase();
-    if (tag === 'table' || tag === 'img' || tag === 'hr' || tag === 'textarea') return true;
-    const keepTogetherClasses = [
-        'worksheet',
-        'recipe-card',
-        'mission-box',
-        'shape-rectangle',
-        'shape-circle',
-        'shape-pill',
-        'shape-speech',
-        'shape-cloud',
-        'writing-lines',
-        'tracing-line',
-        'floating-text'
-    ];
-    if (keepTogetherClasses.some(cls => el.classList.contains(cls))) return true;
-    if (el.classList.contains('recipe') && el.classList.contains('card')) return true;
-    if (el.getAttribute('data-keep-together') === 'true') return true;
-    const style = window.getComputedStyle(el);
-    const breakInside = (style as any).breakInside || (style as any).webkitBreakInside || '';
-    const pageBreakInside = (style as any).pageBreakInside || '';
-    if (typeof breakInside === 'string' && breakInside.includes('avoid')) return true;
-    if (typeof pageBreakInside === 'string' && pageBreakInside.includes('avoid')) return true;
-    return false;
+const shouldAvoidBreak = (_el: HTMLElement): boolean => {
+    // ALL elements are kept together as a single block.
+    // If an element doesn't fit on the current page, it moves whole to the next page.
+    // This prevents text blocks, containers, etc. from being split across pages.
+    return true;
 };
 
 const isHardKeepTogether = (el: HTMLElement): boolean => {
