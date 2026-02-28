@@ -3635,8 +3635,11 @@ const App: React.FC = () => {
     };
 
     const updatePageCSS = (width: string, height: string, margins: { top: number, bottom: number, left: number, right: number }) => {
-        const updatedCss = applyLayoutOverride(docState.cssContent, width, height, margins);
-        updateDocState({ ...docState, cssContent: updatedCss }, true);
+        // Use functional update so rapid dragging always has the latest CSS content, avoiding stale closure bugs
+        setDocState(prev => {
+            const updatedCss = applyLayoutOverride(prev.cssContent, width, height, margins);
+            return { ...prev, cssContent: updatedCss };
+        });
 
         if (marginReflowTimeoutRef.current) {
             clearTimeout(marginReflowTimeoutRef.current);
@@ -3646,6 +3649,12 @@ const App: React.FC = () => {
             if (workspace) {
                 reflowPagesUntilStable(workspace as HTMLElement, { pullUp: true });
             }
+            // Save to history once drag is completed (or paused) rather than 60 times a second
+            setDocState(prev => {
+                if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+                pushHistoryState(prev);
+                return prev;
+            });
         }, 300);
     };
 
@@ -3673,14 +3682,18 @@ const App: React.FC = () => {
     };
 
     const handleMarginChange = (key: keyof typeof pageMargins, value: number) => {
-        const newMargins = { ...pageMargins, [key]: value };
-        setPageMargins(newMargins);
+        // Use functional update so subsequent calls in the same frame don't overwrite each other with stale margins
+        setPageMargins(prev => {
+            const newMargins = { ...prev, [key]: value };
 
-        const format = Object.values(PAGE_FORMATS).find(f => f.id === pageFormatId);
-        const width = pageFormatId === 'custom' ? customPageSize.width : (format?.width || '8.5in');
-        const height = pageFormatId === 'custom' ? customPageSize.height : (format?.height || '11in');
+            const format = Object.values(PAGE_FORMATS).find(f => f.id === pageFormatId);
+            const width = pageFormatId === 'custom' ? customPageSize.width : (format?.width || '8.5in');
+            const height = pageFormatId === 'custom' ? customPageSize.height : (format?.height || '11in');
 
-        updatePageCSS(width, height, newMargins);
+            updatePageCSS(width, height, newMargins);
+
+            return newMargins;
+        });
     };
 
     // --- HR (Horizontal Rule) Selection & Logic ---
