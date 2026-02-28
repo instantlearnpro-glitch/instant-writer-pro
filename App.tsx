@@ -515,6 +515,7 @@ const App: React.FC = () => {
     const historyRef = useRef(history);
     const historyIndexRef = useRef(historyIndex);
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const marginReflowTimeoutRef = useRef<number | null>(null);
     const structureScanTimeoutRef = useRef<number | null>(null);
 
     const [selectionState, setSelectionState] = useState<SelectionState>({
@@ -3636,6 +3637,16 @@ const App: React.FC = () => {
     const updatePageCSS = (width: string, height: string, margins: { top: number, bottom: number, left: number, right: number }) => {
         const updatedCss = applyLayoutOverride(docState.cssContent, width, height, margins);
         updateDocState({ ...docState, cssContent: updatedCss }, true);
+
+        if (marginReflowTimeoutRef.current) {
+            clearTimeout(marginReflowTimeoutRef.current);
+        }
+        marginReflowTimeoutRef.current = window.setTimeout(() => {
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                reflowPagesUntilStable(workspace as HTMLElement, { pullUp: true });
+            }
+        }, 300);
     };
 
     const handlePageSizeChange = (formatId: string) => {

@@ -28,7 +28,7 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
         const handleMouseMove = (e: MouseEvent) => {
             if (!containerRef.current) return;
             const rect = containerRef.current.getBoundingClientRect();
-            
+
             let newValue = 0;
             // Calculations relative to the page container
             if (dragging === 'top') {
@@ -84,7 +84,7 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
     return (
         <div ref={containerRef} className="absolute inset-0 pointer-events-none">
             {/* Top Line */}
-            <div 
+            <div
                 className={`${LineStyle} w-full h-px pointer-events-none hover:h-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
                 style={{ top: topPx }}
             />
@@ -100,7 +100,7 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
             )}
 
             {/* Left Line */}
-            <div 
+            <div
                 className={`${LineStyle} h-full w-px cursor-ew-resize pointer-events-auto hover:w-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
                 style={{ left: leftPx }}
                 onMouseDown={(e) => handleMouseDown(e, 'left')}
@@ -112,7 +112,7 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
             )}
 
             {/* Right Line */}
-            <div 
+            <div
                 className={`${LineStyle} h-full w-px cursor-ew-resize pointer-events-auto hover:w-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
                 style={{ left: rightPx }}
                 onMouseDown={(e) => handleMouseDown(e, 'right')}
@@ -124,7 +124,7 @@ const MarginGuides: React.FC<MarginGuidesProps> = ({ margins, onMarginChange, wi
             )}
 
             {/* Bottom Line */}
-            <div 
+            <div
                 className={`${LineStyle} w-full h-px pointer-events-none hover:h-1 hover:bg-brand-600 opacity-50 hover:opacity-100`}
                 style={{ top: bottomPx }}
             />
