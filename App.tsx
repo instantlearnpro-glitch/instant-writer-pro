@@ -14,7 +14,7 @@ import PatternModal from './components/PatternModal';
 import ExportModal from './components/ExportModal';
 import SettingsModal from './components/SettingsModal';
 import AutoLogModal from './components/AutoLogModal';
-import { ensureContentIsPaginated, reflowPages } from './utils/pagination';
+import { ensureContentIsPaginated, reflowPages, reflowPagesUntilStable } from './utils/pagination';
 import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
 
 declare global {
@@ -1042,15 +1042,24 @@ const App: React.FC = () => {
                         const changed = ensureContentIsPaginated(workspace);
                         const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
                         pages.forEach(page => {
+                            // CRITICAL: Clean up ALL stale page-break attributes from
+                            // previous saves or HTML imports. These block pullUp incorrectly.
+                            // Both data-user-page-break AND data-page-break must be removed.
+                            page.removeAttribute('data-user-page-break');
+                            page.removeAttribute('data-page-break');
+                            page.querySelectorAll('[data-user-page-break]').forEach(el => {
+                                el.remove(); // Remove hidden marker divs from previous saves
+                            });
                             unwrapSingleContainer(page);
                             fixClippedContainers(page);
                         });
-                        const reflowed = reflowPages(workspace, { pullUp: true, timeBudgetMs: 60, maxIterations: 2000 });
-                        if (changed || reflowed) {
-                            updateDocState({ ...newState, htmlContent: workspace.innerHTML }, true);
-                        } else {
-                            updateDocState(newState, true);
-                        }
+                        // Use reflowPagesUntilStable for full convergence, not single pass.
+                        // Use onDone callback because reflowPagesUntilStable is async (uses rAF).
+                        reflowPagesUntilStable(workspace, {
+                            onDone: () => {
+                                updateDocState({ ...newState, htmlContent: workspace!.innerHTML }, true);
+                            }
+                        });
                     };
 
                     const fontReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
@@ -2843,6 +2852,13 @@ const App: React.FC = () => {
         const newPage = document.createElement('div');
         newPage.className = 'page';
         newPage.setAttribute('data-user-page-break', 'true');
+        // Also insert a dedicated child marker so getPageBreakMarker() can find it
+        // via ':scope > [data-user-page-break="true"]'. This distinguishes user-inserted
+        // page breaks from the page div attribute set during HTML import.
+        const breakChildMarker = document.createElement('div');
+        breakChildMarker.setAttribute('data-user-page-break', 'true');
+        breakChildMarker.style.cssText = 'display:none;height:0;overflow:hidden;';
+        newPage.appendChild(breakChildMarker);
 
         const marker = document.createElement('span');
         marker.id = 'page-break-marker-' + Date.now();

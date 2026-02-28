@@ -15,7 +15,7 @@ export const debugReflow = () => {
     const startNumPages = pages.length;
 
     try {
-        const hasChanges = reflowPages(editor as HTMLElement, { timeBudgetMs: 50000, maxIterations: 10000 });
+        const reflowResult = reflowPages(editor as HTMLElement, { timeBudgetMs: 50000, maxIterations: 10000 });
 
         // After reflow, let's see page 4 height again
         const testPage4 = document.querySelectorAll('.page')[3];
@@ -23,7 +23,7 @@ export const debugReflow = () => {
 
         return JSON.stringify({
             initialHeight,
-            hasChanges,
+            hasChanges: reflowResult.changed,
             startNumPages,
             finalNumPages: document.querySelectorAll('.page').length,
             finalHeight

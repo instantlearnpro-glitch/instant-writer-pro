@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { SelectionState, ImageProperties, HRProperties, StructureEntry } from '../types';
 import ImageOverlay from './ImageOverlay';
-import { reflowPages } from '../utils/pagination';
+import { reflowPages, reflowPagesUntilStable } from '../utils/pagination';
 import { mergeAdjacentTables, mergeSplitTableParts } from '../utils/tableMerge';
 import MarginGuides from './MarginGuides';
 import PageRuler from './PageRuler';
@@ -985,47 +985,32 @@ const Editor: React.FC<EditorProps> = ({
         };
     }, [updateMarginOverflows, htmlContent, zoom, pageMargins]);
 
-    // True if caret is at position 0 inside block (ignoring empty text nodes)
+    // True if caret is at position 0 inside block (ignoring empty text nodes, <br>, zero-width spaces)
     const isAtBlockStart = (range: Range, block: HTMLElement): boolean => {
-        if (range.startOffset !== 0) return false;
-        let node: Node | null = range.startContainer;
-        while (node && node !== block) {
-            if (node.previousSibling) {
-                const prev = node.previousSibling;
-                // skip empty text nodes
-                if (prev.nodeType === Node.TEXT_NODE && !prev.textContent?.trim()) {
-                    node = prev;
-                    continue;
-                }
-                return false;
-            }
-            node = node.parentNode;
+        try {
+            const testRange = document.createRange();
+            testRange.setStart(block, 0);
+            testRange.setEnd(range.startContainer, range.startOffset);
+            // Strip zero-width spaces and all whitespace — if nothing left, we're at the start
+            const textBefore = testRange.toString().replace(/[\u200B\s]/g, '');
+            return textBefore.length === 0;
+        } catch {
+            return false;
         }
-        return true;
     };
 
-    // True if caret is at the very end of block content (ignoring empty text nodes)
+    // True if caret is at the very end of block content (ignoring empty text nodes, <br>, zero-width spaces)
     const isAtBlockEnd = (range: Range, block: HTMLElement): boolean => {
-        const container = range.endContainer;
-        const offset = range.endOffset;
-        if (container.nodeType === Node.TEXT_NODE) {
-            if (offset < (container as Text).length) return false;
-        } else if (container.nodeType === Node.ELEMENT_NODE) {
-            if (offset < (container as HTMLElement).childNodes.length) return false;
+        try {
+            const testRange = document.createRange();
+            testRange.selectNodeContents(block);
+            testRange.setStart(range.endContainer, range.endOffset);
+            // Strip zero-width spaces and all whitespace — if nothing left, we're at the end
+            const textAfter = testRange.toString().replace(/[\u200B\s]/g, '');
+            return textAfter.length === 0;
+        } catch {
+            return false;
         }
-        let node: Node | null = container;
-        while (node && node !== block) {
-            if (node.nextSibling) {
-                const next = node.nextSibling;
-                if (next.nodeType === Node.TEXT_NODE && !next.textContent?.trim()) {
-                    node = next;
-                    continue;
-                }
-                return false;
-            }
-            node = node.parentNode;
-        }
-        return true;
     };
 
     // True if an element is considered "empty" (empty paragraph or height-only spacer)
@@ -1200,7 +1185,7 @@ const Editor: React.FC<EditorProps> = ({
                 onHRSelect(null);
                 onFooterSelect(null);
                 if (contentRef.current) {
-                    reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
+                    reflowPagesUntilStable(contentRef.current);
                     onContentChange(contentRef.current.innerHTML);
                 }
                 return;
@@ -1219,8 +1204,11 @@ const Editor: React.FC<EditorProps> = ({
                 if (breakPage && breakPage.getAttribute('data-user-page-break') === 'true') {
                     e.preventDefault();
                     breakPage.removeAttribute('data-user-page-break');
+                    // Also remove the invisible child marker added by the page break insertion
+                    const childMarker = breakPage.querySelector(':scope > [data-user-page-break="true"]');
+                    if (childMarker) childMarker.remove();
                     if (contentRef.current) {
-                        reflowPages(contentRef.current, { pullUp: true });
+                        reflowPagesUntilStable(contentRef.current);
                         onContentChange(contentRef.current.innerHTML);
                     }
                     return;
@@ -1269,13 +1257,16 @@ const Editor: React.FC<EditorProps> = ({
             reflowDebounceRef.current = null;
             if (!contentRef.current) return;
             const restoreSelection = preserveSelection(contentRef.current);
-            // Use a generous budget so the pull-up pass has enough time
-            // to pull elements back from all subsequent pages when content shrinks.
-            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
-            restoreSelection();
-            lastUserEditAtRef.current = Date.now();
-            lastEmittedHtmlRef.current = contentRef.current.innerHTML;
-            onContentChange(contentRef.current.innerHTML);
+            reflowPagesUntilStable(contentRef.current, {
+                onDone: () => {
+                    restoreSelection();
+                    lastUserEditAtRef.current = Date.now();
+                    if (contentRef.current) {
+                        lastEmittedHtmlRef.current = contentRef.current.innerHTML;
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                }
+            });
         }, 120);
     }, [onContentChange]);
 
@@ -1547,7 +1538,7 @@ const Editor: React.FC<EditorProps> = ({
         const prev = activeBlock.previousElementSibling;
         activeBlock.parentNode?.insertBefore(activeBlock, prev);
         if (contentRef.current) {
-            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
+            reflowPagesUntilStable(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -1557,7 +1548,7 @@ const Editor: React.FC<EditorProps> = ({
         const next = activeBlock.nextElementSibling;
         activeBlock.parentNode?.insertBefore(next, activeBlock);
         if (contentRef.current) {
-            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
+            reflowPagesUntilStable(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -1637,7 +1628,7 @@ const Editor: React.FC<EditorProps> = ({
             }
         }
         if (merged) {
-            reflowPages(contentRef.current, { pullUp: true });
+            reflowPagesUntilStable(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -1679,7 +1670,7 @@ const Editor: React.FC<EditorProps> = ({
         const merged = mergeWorksheets(target, source);
         if (merged) {
             setActiveBlock(target);
-            reflowPages(contentRef.current, { pullUp: true });
+            reflowPagesUntilStable(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -1747,7 +1738,7 @@ const Editor: React.FC<EditorProps> = ({
             onClearMultiSelect();
             target.setAttribute('data-selected', 'true');
             setActiveBlock(target);
-            reflowPages(contentRef.current, { pullUp: true });
+            reflowPagesUntilStable(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -1783,7 +1774,7 @@ const Editor: React.FC<EditorProps> = ({
         activeBlock.remove();
         setActiveBlock(null);
         if (contentRef.current) {
-            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
+            reflowPagesUntilStable(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -1809,7 +1800,7 @@ const Editor: React.FC<EditorProps> = ({
     const handleCut = () => {
         document.execCommand('cut');
         if (contentRef.current) {
-            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
+            reflowPagesUntilStable(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
         }
     };
@@ -2261,13 +2252,22 @@ const Editor: React.FC<EditorProps> = ({
                     if (contentRef.current) {
                         const restoreSelection = preserveSelection(contentRef.current);
                         if (!isFloatingText) {
-                            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
-                            updateTocTablePageNumbers(contentRef.current);
+                            const _editor = contentRef.current;
+                            reflowPagesUntilStable(_editor, {
+                                onDone: () => {
+                                    restoreSelection();
+                                    updateTocTablePageNumbers(_editor);
+                                    lastUserEditAtRef.current = Date.now();
+                                    lastEmittedHtmlRef.current = _editor.innerHTML;
+                                    onContentChange(_editor.innerHTML);
+                                }
+                            });
+                        } else {
+                            restoreSelection();
+                            lastUserEditAtRef.current = Date.now();
+                            lastEmittedHtmlRef.current = contentRef.current.innerHTML;
+                            onContentChange(contentRef.current.innerHTML);
                         }
-                        restoreSelection();
-                        lastUserEditAtRef.current = Date.now();
-                        lastEmittedHtmlRef.current = contentRef.current.innerHTML;
-                        onContentChange(contentRef.current.innerHTML);
                     }
                 }, delay);
             }
@@ -2744,7 +2744,7 @@ const Editor: React.FC<EditorProps> = ({
                     pageMargins={pageMargins}
                     onResize={() => {
                         if (contentRef.current) {
-                            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
+                            reflowPagesUntilStable(contentRef.current);
                             onContentChange(contentRef.current.innerHTML);
                         }
                     }}
@@ -2763,7 +2763,7 @@ const Editor: React.FC<EditorProps> = ({
                     pageMargins={pageMargins}
                     onResize={() => {
                         if (contentRef.current) {
-                            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
+                            reflowPagesUntilStable(contentRef.current);
                             onContentChange(contentRef.current.innerHTML);
                         }
                     }}
@@ -2818,8 +2818,10 @@ const Editor: React.FC<EditorProps> = ({
                     showSmartGuides={showSmartGuides}
                     onUpdate={() => {
                         if (contentRef.current) {
-                            reflowPages(contentRef.current, { pullUp: true, timeBudgetMs: 80, maxIterations: 1500 });
-                            onContentChange(contentRef.current.innerHTML);
+                            const _editor = contentRef.current;
+                            reflowPagesUntilStable(_editor, {
+                                onDone: () => { onContentChange(_editor.innerHTML); }
+                            });
                         }
                         setActiveBlock(null);
                     }}

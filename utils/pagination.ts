@@ -76,6 +76,7 @@ const isFlowElement = (el: HTMLElement): boolean => {
     if (el.classList.contains('image-overlay')) return false;
     if (el.classList.contains('resize-handle')) return false;
     if (el.getAttribute('data-page-break') === 'true') return false;
+    if (el.getAttribute('data-user-page-break') === 'true') return false;
     const pos = window.getComputedStyle(el).position;
     return pos !== 'absolute' && pos !== 'fixed';
 };
@@ -117,11 +118,36 @@ const isHardKeepTogether = (el: HTMLElement): boolean => {
  * Checks if the content of a page is overflowing its fixed height.
  * Temporarily removes constraints to measure true content height.
  */
-const getElementBottomWithMargin = (el: HTMLElement, scale: number = 1) => {
-    const rect = el.getBoundingClientRect();
+/**
+ * Get the height of an element including its bottom margin (in CSS pixels, scale-corrected).
+ * Uses offsetHeight which is scroll-independent.
+ */
+const getElementHeightWithMargin = (el: HTMLElement, scale: number = 1): number => {
     const style = window.getComputedStyle(el);
     const marginBottom = parseFloat(style.marginBottom) || 0;
-    return rect.bottom + marginBottom * scale;
+    // offsetHeight is scroll-independent and accounts for borders/padding
+    // but NOT for CSS transforms. We need getBoundingClientRect().height for that.
+    const rect = el.getBoundingClientRect();
+    return rect.height / scale + marginBottom;
+};
+
+/**
+ * Get the top position of an element RELATIVE to its containing page.
+ * This is scroll-independent because both el and page move together when scrolled.
+ */
+const getElementTopRelPage = (el: HTMLElement, page: HTMLElement): number => {
+    const elRect = el.getBoundingClientRect();
+    const pageRect = page.getBoundingClientRect();
+    const scale = getScale(page);
+    return (elRect.top - pageRect.top) / scale;
+};
+
+/**
+ * Get the bottom position (+ margin) of an element RELATIVE to its containing page, in CSS pixels.
+ * Scroll-independent.
+ */
+const getElementBottomRelPage = (el: HTMLElement, page: HTMLElement, scale: number = 1): number => {
+    return getElementTopRelPage(el, page) + getElementHeightWithMargin(el, scale);
 };
 
 const getFooterLimit = (page: HTMLElement): number | null => {
@@ -149,51 +175,74 @@ const summarizeFooterCandidates = (page: HTMLElement) => {
 };
 
 export const isPageOverflowing = (page: HTMLElement): boolean => {
-    const pageRect = page.getBoundingClientRect();
     const scale = getScale(page);
     const computed = window.getComputedStyle(page);
     const paddingBottom = parseFloat(computed.paddingBottom) || 0;
-    let allowedBottom = pageRect.bottom - paddingBottom * scale;
+    const paddingTop = parseFloat(computed.paddingTop) || 0;
+    const pageRect = page.getBoundingClientRect();
+    const pageHeightCss = pageRect.height / scale;
+
+    // Available height in CSS pixels (excludes padding)
+    let allowedHeightCss = pageHeightCss - paddingTop - paddingBottom;
+
+    // Footer limit: in viewport coords, convert to page-relative CSS px
     const footerLimit = getFooterLimit(page);
     if (footerLimit !== null) {
-        allowedBottom = Math.min(allowedBottom, footerLimit);
+        const footerRelCss = (footerLimit - pageRect.top) / scale - paddingTop;
+        allowedHeightCss = Math.min(allowedHeightCss, footerRelCss);
     }
-    const contentHeight = getContentHeight(page, scale);
-    if (contentHeight <= 0) return false;
-    const contentBottom = pageRect.top + contentHeight;
-    return contentBottom > allowedBottom + 1 * scale;
+
+    const contentHeightCss = getContentHeight(page, scale);
+    if (contentHeightCss <= 0) return false;
+    return contentHeightCss > allowedHeightCss + 1;
 };
 
 /**
- * Gets the actual content height by measuring the last child's bottom position
+ * Gets content height in CSS pixels, relative to the page's padding-top.
+ * I.e., how much of the content area is used (0 means completely empty).
+ * Scroll-independent.
  */
 const getContentHeight = (page: HTMLElement, scale: number = 1): number => {
     const children = Array.from(page.children).filter(child => isFlowElement(child as HTMLElement));
     if (children.length === 0) return 0;
 
-    const pageRect = page.getBoundingClientRect();
     const computed = window.getComputedStyle(page);
     const paddingTop = parseFloat(computed.paddingTop) || 0;
 
-    let maxBottom = 0;
+    let maxBottomRelPage = 0;
     children.forEach(child => {
-        const childBottom = getElementBottomWithMargin(child as HTMLElement, scale);
-        const relativeBottom = childBottom - pageRect.top;
-        if (relativeBottom > maxBottom) {
-            maxBottom = relativeBottom;
+        const bottomRelPage = getElementBottomRelPage(child as HTMLElement, page, scale);
+        if (bottomRelPage > maxBottomRelPage) {
+            maxBottomRelPage = bottomRelPage;
         }
     });
 
-    return maxBottom;
+    // Return content height relative to the CONTENT AREA start (after paddingTop)
+    return Math.max(0, maxBottomRelPage - paddingTop);
 };
 
-const getLastOverflowingFlowChild = (page: HTMLElement, pageBottom: number, scale: number): HTMLElement | null => {
+const getLastOverflowingFlowChild = (page: HTMLElement, _pageBottom: number, scale: number): HTMLElement | null => {
+    const computed = window.getComputedStyle(page);
+    const paddingTop = parseFloat(computed.paddingTop) || 0;
+    const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+    const pageRect = page.getBoundingClientRect();
+    const pageHeightCss = pageRect.height / scale;
+    let allowedHeightCss = pageHeightCss - paddingTop - paddingBottom;
+
+    const footerLimit = getFooterLimit(page);
+    if (footerLimit !== null) {
+        const footerRelCss = (footerLimit - pageRect.top) / scale - paddingTop;
+        allowedHeightCss = Math.min(allowedHeightCss, footerRelCss);
+    }
+
     const els = Array.from(page.children).filter(child => isFlowElement(child as HTMLElement)) as HTMLElement[];
     if (els.length === 0) return null;
     let overflowEl: HTMLElement | null = null;
     els.forEach(el => {
-        const bottom = getElementBottomWithMargin(el, scale);
-        if (bottom > pageBottom + 1 * scale) {
+        // bottomRelPage is relative to page top (not content area), in CSS px
+        const bottomRelPage = getElementBottomRelPage(el, page, scale);
+        // allowedHeightCss is from page top (not content area) = paddingTop + contentArea
+        if (bottomRelPage > paddingTop + allowedHeightCss + 1) {
             overflowEl = el;
         }
     });
@@ -203,31 +252,54 @@ const getLastOverflowingFlowChild = (page: HTMLElement, pageBottom: number, scal
 /**
  * Checks if a page has significant empty space at the bottom.
  * Returns true if we can likely fit content from the next page.
- * Accounts for padding (margins) when calculating available space.
+ * Scroll-independent: uses CSS pixel heights relative to the page.
  */
 export const hasPageSpace = (page: HTMLElement, threshold: number = 20): boolean => {
-    const pageRect = page.getBoundingClientRect();
-    const scale = getScale(page);
     const computed = window.getComputedStyle(page);
     const paddingTop = parseFloat(computed.paddingTop) || 0;
     const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+    const pageH = page.offsetHeight; // always correct, scroll-independent
 
-    // Calculate the actual content area height (excluding padding)
-    let contentAreaHeight = pageRect.height - (paddingTop + paddingBottom) * scale;
-    const footerLimit = getFooterLimit(page);
-    if (footerLimit !== null) {
-        const effectiveHeight = footerLimit - pageRect.top - paddingTop * scale;
-        contentAreaHeight = Math.min(contentAreaHeight, Math.max(0, effectiveHeight));
-    }
+    // Content area in CSS px (no scale needed for offsetHeight — it's already CSS px)
+    let contentAreaH = pageH - paddingTop - paddingBottom;
 
-    // Get the actual content height within the page
-    const contentHeight = getContentHeight(page, scale);
-    // Adjust content height to be relative to content area (subtract padding top)
-    const adjustedContentHeight = contentHeight - paddingTop * scale;
+    // Footer limit using offsetTop (scroll-independent)
+    const footerCandidates = Array.from(page.querySelectorAll('.page-footer, .page-number, [data-page-footer="true"], [data-page-number="true"], footer')) as HTMLElement[];
+    footerCandidates.forEach(el => {
+        if (!el.isConnected) return;
+        if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return;
+        const style = window.getComputedStyle(el);
+        const isAbsolute = style.position === 'absolute' || style.position === 'fixed';
+        const isNamed = isFooterElement(el);
+        if (!isNamed && !isAbsolute) return;
+        // el.offsetTop is relative to the page (offsetParent = page)
+        const footerRelH = el.offsetTop - paddingTop;
+        contentAreaH = Math.min(contentAreaH, Math.max(0, footerRelH));
+    });
 
-    const availableSpace = contentAreaHeight - adjustedContentHeight;
+    // Content used: find the lowest flow child bottom using offset properties
+    const used = getContentHeightOffset(page);
+    const availableSpace = contentAreaH - used;
+    return availableSpace > threshold;
+};
 
-    return availableSpace > threshold * scale;
+/**
+ * Get content height using offsetTop/offsetHeight (scroll-independent).
+ * Returns how much of the content area is used in CSS px.
+ */
+const getContentHeightOffset = (page: HTMLElement): number => {
+    const computed = window.getComputedStyle(page);
+    const paddingTop = parseFloat(computed.paddingTop) || 0;
+    const children = Array.from(page.children).filter(child => isFlowElement(child as HTMLElement)) as HTMLElement[];
+    if (children.length === 0) return 0;
+    let maxBottom = 0;
+    children.forEach(child => {
+        // offsetTop is relative to offsetParent (the page div with position: relative)
+        const mb = parseFloat(window.getComputedStyle(child).marginBottom) || 0;
+        const bottom = child.offsetTop + child.offsetHeight + mb;
+        if (bottom > maxBottom) maxBottom = bottom;
+    });
+    return Math.max(0, maxBottom - paddingTop);
 };
 
 /**
@@ -441,13 +513,13 @@ const getFirstFlowChild = (page: HTMLElement): HTMLElement | null => {
 };
 
 const getPageBreakMarker = (page: HTMLElement): HTMLElement | null => {
-    // Only treat a page as a user-inserted page break if it carries data-user-page-break.
-    // The legacy data-page-break attribute is also supported for backward compatibility,
-    // but ONLY when it appears on a child element (not on the page div itself).
-    // This distinction prevents automatic reflow pages (that may carry data-page-break
-    // from imported HTML) from blocking the pullUp behaviour.
-    if (page.getAttribute('data-user-page-break') === 'true') return page;
-    return page.querySelector('[data-user-page-break="true"]') as HTMLElement | null;
+    // A user page break is ONLY when a child element explicitly carries data-user-page-break='true'.
+    // This is an element inserted by the user via the editor's "Insert Page Break" action.
+    //
+    // IMPORTANT: We do NOT check if the page div ITSELF has data-user-page-break='true',
+    // because this attribute is set on the page div during HTML import (from CSS page-break rules).
+    // That should NOT block the pullUp from filling the page's empty space.
+    return page.querySelector(':scope > [data-user-page-break="true"]') as HTMLElement | null;
 };
 
 const isTextSplitTarget = (el: HTMLElement) => {
@@ -628,20 +700,23 @@ const splitContainerByRange = (container: HTMLElement, pageBottom: number): HTML
  * Never splits elements, never pulls content up, never removes pages.
  * This preserves the original document structure and spacing.
  */
-export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number }) => {
+export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number }): { changed: boolean; budgetExceeded: boolean } => {
     // 1. Sanitize first
     ensureContentIsPaginated(editor);
 
     const pages = Array.from(editor.querySelectorAll('.page')) as HTMLElement[];
     let changesMade = false;
     let iterations = 0;
-    const maxIterations = options?.maxIterations ?? 1200; // Safety limit
+    const maxIterations = options?.maxIterations ?? 2000; // Safety limit
     const start = performance.now();
-    const timeBudgetMs = options?.timeBudgetMs ?? 60;
+    const timeBudgetMs = options?.timeBudgetMs ?? 500; // Per-while-loop budget, not per-page
     const pullUp = options?.pullUp ?? true;
     let budgetExceeded = false;
 
     for (let i = 0; i < pages.length && iterations < maxIterations; i++) {
+        // Time budget check on the outer loop to keep the UI responsive.
+        // If we exceed the budget, stop and let reflowPagesUntilStable
+        // schedule the remaining work in the next animation frame.
         if (performance.now() - start > timeBudgetMs) {
             budgetExceeded = true;
             break;
@@ -651,13 +726,19 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
         const scale = getScale(page);
         const paddingTop = parseFloat(computed.paddingTop) || 0;
         const paddingBottom = parseFloat(computed.paddingBottom) || 0;
-        let pageBottom = page.getBoundingClientRect().bottom - paddingBottom * scale;
+        const pageRect = page.getBoundingClientRect();
+        const pageHeightCss = pageRect.height / scale;
+        let contentAreaHeightCss = pageHeightCss - paddingTop - paddingBottom;
         const footerLimit = getFooterLimit(page);
+        // pageBottom is still used by split functions that rely on viewport coords.
+        // We keep it for backward compat with splitContainerByChildren/splitTextBlockByRange.
+        let pageBottom = pageRect.bottom - paddingBottom * scale;
         if (footerLimit !== null) {
             pageBottom = Math.min(pageBottom, footerLimit);
+            const footerRelCss = (footerLimit - pageRect.top) / scale - paddingTop;
+            contentAreaHeightCss = Math.min(contentAreaHeightCss, footerRelCss);
         }
-        const pageTop = page.getBoundingClientRect().top;
-        const availableHeight = Math.max(0, pageBottom - pageTop - paddingTop * scale);
+        const availableHeight = Math.max(0, contentAreaHeightCss);  // CSS px
 
         // Only handle overflow - push elements to next page
         while (isPageOverflowing(page) && iterations < maxIterations) {
@@ -673,8 +754,9 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
 
             let avoidBreak = shouldAvoidBreak(lastEl);
             const hardKeep = isHardKeepTogether(lastEl);
-            const lastElRectHeight = lastEl.getBoundingClientRect().height;
-            if (avoidBreak && !hardKeep && availableHeight > 0 && lastElRectHeight > availableHeight + 1 * scale) {
+            // Use scroll-independent height for element height check
+            const lastElHeightCss = lastEl.getBoundingClientRect().height / scale;
+            if (avoidBreak && !hardKeep && availableHeight > 0 && lastElHeightCss > availableHeight + 1) {
                 avoidBreak = false;
             }
 
@@ -723,7 +805,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             // If the element itself is taller than the page, don't keep moving it forever
             const firstFlow = getFirstFlowChild(page);
             const isOnlyFlow = firstFlow && firstFlow === lastEl;
-            if (availableHeight > 0 && lastElRectHeight > availableHeight + 1 * scale && isOnlyFlow) {
+            if (availableHeight > 0 && lastElHeightCss > availableHeight + 1 && isOnlyFlow) {
                 break;
             }
 
@@ -748,84 +830,57 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
 
             changesMade = true;
         }
-        if (budgetExceeded) break;
+        // IMPORTANT: Do NOT break the for loop here even if budgetExceeded during pushDown.
+        // We must still run pullUp for this page and continue to all subsequent pages.
+        // budgetExceeded only affects whether we schedule additional rAF passes.
 
-        // Pull content UP if there is space on this page
+
+        // Pull content UP if there is space on this page.
+        // PERFORMANCE: We calculate free space ONCE and track it mathematically.
+        // NO layout flush per element — this prevents browser freezing on large documents.
         if (pullUp) {
             let nextPage = pages[i + 1];
             if (nextPage && getPageBreakMarker(nextPage)) {
                 continue;
             }
-            // Use 1px threshold so even minimal free space pulls content back
-            while (nextPage && hasPageSpace(page, 1) && iterations < maxIterations) {
-                if (performance.now() - start > timeBudgetMs) {
-                    budgetExceeded = true;
-                    break;
-                }
 
+            // Calculate free space ONCE using offset-based measurements (scroll-independent)
+            const pgComp = window.getComputedStyle(page);
+            const pgPtop = parseFloat(pgComp.paddingTop) || 0;
+            const pgPbot = parseFloat(pgComp.paddingBottom) || 0;
+            const pgContentArea = page.offsetHeight - pgPtop - pgPbot;
+            const pgUsed = getContentHeightOffset(page);
+            let pgFree = pgContentArea - pgUsed;
+
+            while (nextPage && pgFree > 1 && iterations < maxIterations) {
                 const firstEl = getFirstFlowChild(nextPage);
                 if (!firstEl) {
-                    // nextPage is empty — skip to the next page in the sequence so we can
-                    // cascade content back through multiple empty intermediate pages.
+                    // nextPage is empty — skip to the next page
                     const nextIdx = pages.indexOf(nextPage);
                     const candidate = nextIdx + 1 < pages.length ? pages[nextIdx + 1] : null;
-                    // Respect user-inserted page breaks — stop cascading at those.
                     if (!candidate || getPageBreakMarker(candidate)) break;
                     nextPage = candidate;
                     iterations++;
                     continue;
                 }
 
-                // Try moving element up
-                page.appendChild(firstEl);
-                if (!isPageOverflowing(page)) {
+                // Measure element height (scroll-independent via offsetHeight)
+                const elH = firstEl.offsetHeight;
+                const elS = window.getComputedStyle(firstEl);
+                const elMt = parseFloat(elS.marginTop) || 0;
+                const elMb = parseFloat(elS.marginBottom) || 0;
+                const elTotal = elH + elMt + elMb;
+
+                if (elTotal <= pgFree + 1) {
+                    // Element fits — move it up
+                    page.appendChild(firstEl);
+                    pgFree -= elTotal; // Track mathematically, no layout flush needed
                     changesMade = true;
+                    iterations++;
                     continue;
                 }
 
-                let avoidBreak = shouldAvoidBreak(firstEl);
-                const hardKeep = isHardKeepTogether(firstEl);
-                const firstElRectHeight = firstEl.getBoundingClientRect().height;
-                if (avoidBreak && !hardKeep && availableHeight > 0 && firstElRectHeight > availableHeight + 1 * scale) {
-                    avoidBreak = false;
-                }
-
-                if (!avoidBreak && isSplitContainer(firstEl)) {
-                    const split = splitContainerByChildren(firstEl, pageBottom) || splitContainerByRange(firstEl, pageBottom);
-                    if (split) {
-                        if (nextPage.firstChild) {
-                            nextPage.insertBefore(split, nextPage.firstChild);
-                        } else {
-                            nextPage.appendChild(split);
-                        }
-                        changesMade = true;
-                        if (!isPageOverflowing(page)) {
-                            continue;
-                        }
-                    }
-                }
-
-                if (!avoidBreak && isTextSplitTarget(firstEl)) {
-                    const split = splitTextBlockByRange(firstEl, pageBottom);
-                    if (split) {
-                        if (nextPage.firstChild) {
-                            nextPage.insertBefore(split, nextPage.firstChild);
-                        } else {
-                            nextPage.appendChild(split);
-                        }
-                        changesMade = true;
-                        if (!isPageOverflowing(page)) {
-                            continue;
-                        }
-                    }
-                }
-
-                // Still doesn't fit: move back and stop pulling
-                if (nextPage.firstChild) {
-                    nextPage.insertBefore(firstEl, nextPage.firstChild);
-                } else {
-                    nextPage.appendChild(firstEl);
-                }
+                // Element doesn't fit whole: stop pulling into this page.
                 break;
             }
         }
@@ -868,18 +923,10 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
         }
     }
 
-    if (budgetExceeded) {
-        const scheduled = editor.getAttribute('data-reflow-scheduled');
-        if (!scheduled) {
-            editor.setAttribute('data-reflow-scheduled', 'true');
-            requestAnimationFrame(() => {
-                editor.removeAttribute('data-reflow-scheduled');
-                reflowPages(editor, options);
-            });
-        }
-    }
-
-    return changesMade;
+    // Return both whether changes were made and whether the budget was exceeded.
+    // The caller (reflowPagesUntilStable) uses budgetExceeded to decide whether to
+    // schedule another pass even when changesMade is false (so we don't miss work).
+    return { changed: changesMade, budgetExceeded };
 };
 
 /**
@@ -890,7 +937,57 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
 export const reflowPagesAggressive = (editor: HTMLElement, options?: { maxIterations?: number }) => {
     return reflowPages(editor, {
         pullUp: true,
-        timeBudgetMs: 80,
+        timeBudgetMs: 200,
         maxIterations: options?.maxIterations ?? 5000
     });
 };
+
+/**
+ * Runs reflowPages in a non-blocking cascade until the document is stable.
+ *
+ * - Pass 1: synchronous, 80ms budget (immediate visual feedback)
+ * - Pass 2+: asynchronous via requestAnimationFrame (non-blocking)
+ * - Stops automatically when no more changes are detected (stable)
+ *
+ * This achieves full bidirectional cascading (100→1 like 1→100) without
+ * freezing the UI.
+ */
+export const reflowPagesUntilStable = (
+    editor: HTMLElement,
+    options?: { pullUp?: boolean; maxPasses?: number; onDone?: () => void }
+) => {
+    // 50 passes maximum: each pass can cascade one level of pages.
+    // For a document where content needs to rise 40 pages, we need 40 passes.
+    const maxPasses = options?.maxPasses ?? 50;
+    const pullUp = options?.pullUp ?? true;
+    const onDone = options?.onDone;
+
+    // Pass 1: synchronous — process pages with a tight budget for UI responsiveness.
+    // 80ms = roughly 1 frame at 60fps. This processes ~20 pages per pass.
+    // For the full 170-page document, reflowPagesUntilStable uses rAF passes.
+    const result1 = reflowPages(editor, { pullUp, timeBudgetMs: 80, maxIterations: 3000 });
+
+    if (!result1.changed && !result1.budgetExceeded) {
+        onDone?.();
+        return;
+    }
+
+    // Pass 2+: schedule via rAF so the browser can render between passes
+    let pass = 1;
+    const scheduleNextPass = () => {
+        if (pass >= maxPasses) { onDone?.(); return; }
+        requestAnimationFrame(() => {
+            const result = reflowPages(editor, { pullUp, timeBudgetMs: 150, maxIterations: 3000 });
+            pass++;
+            if (result.changed || result.budgetExceeded) {
+                scheduleNextPass(); // More work to do
+            } else {
+                onDone?.(); // Stable
+            }
+        });
+    };
+
+    scheduleNextPass();
+};
+
+
