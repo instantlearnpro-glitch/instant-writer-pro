@@ -34,6 +34,7 @@ Per ogni elemento compilare:
 - Output/eventi: passa callback a Editor/Toolbar/Sidebar; aggiorna docState e structureEntries.
 - Comportamento normale:
   - Import HTML mantiene markup originale; aggiunge CSS base e applica override layout pagina.
+  - Applicazione Stili: il dropdown nella Toolbar salva e applica gli stili (Heading 1, 2, Quote, ecc.). Quando si applica uno stile, il blocco target cambia tag (es. da P a H1) e riceve il formato esatto. Il processo usa un robusto fallback DOM se `execCommand` perde il target.
   - Update H1/H2/H3 applica lo stile del testo selezionato a tutti gli heading.
   - Structure: manuale per default; Auto Fill solo su click; Auto: On/Off separato.
   - Pattern Structure: dopo 2+ heading manuali con stile simile apre lista per applicare lo stesso livello agli elementi simili.
@@ -89,15 +90,16 @@ Per ogni elemento compilare:
 - Checklist rapida: Done/Cancel, Auto Fill, Auto On/Off, Clear.
 
 ### Toolbar (components/Toolbar.tsx)
-- Scopo: TODO
-- Input/props: TODO
-- Output/eventi: TODO
-- Comportamento normale: TODO
-- Edge case e limiti: TODO
-- Persistenza/stato: TODO
-- Dipendenze: TODO
-- Cose da non rompere: TODO
-- Checklist rapida: TODO
+- Scopo: UI per applicare formattazione testo, stili di blocco, font e colori.
+- Input/props: metodi di callback `onFormat`, `onUpdateStyle`, ecc. da App.
+- Output/eventi: gestisce l'interazione per mandare format commands e toggle dei menu.
+- Comportamento normale:
+  - I menu a tendina (es. Stili) bloccano il default (`e.preventDefault()`) sul `mousedown` per non rubare il focus all'Editor, conservando la selezione del testo per l'applicazione dei formati.
+- Edge case e limiti: menu chiusi tramite global event listener.
+- Persistenza/stato: locale per apertura menu.
+- Dipendenze: App.tsx.
+- Cose da non rompere: il focus testuale dell'Editor deve resistere ai click sulla toolbar.
+- Checklist rapida: applicazione stile, toggle grassetto, cambio colore.
 
 ### LinkToolbar (components/LinkToolbar.tsx)
 - Scopo: TODO
