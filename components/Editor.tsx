@@ -2132,6 +2132,15 @@ const Editor: React.FC<EditorProps> = ({
                     if (!block.id) {
                         block.id = `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
                         dirty = true;
+                    } else {
+                        // Check for duplicate IDs (e.g., from copy-paste).
+                        // getElementById returns the FIRST element with this ID in the DOM.
+                        // If that's not THIS element, we have a duplicate and need a new ID.
+                        const firstMatch = document.getElementById(block.id);
+                        if (firstMatch && firstMatch !== block) {
+                            block.id = `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                            dirty = true;
+                        }
                     }
 
                     onBlockSelection(block.id);

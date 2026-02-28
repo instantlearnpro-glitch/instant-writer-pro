@@ -350,6 +350,14 @@ const App: React.FC = () => {
         h3: 0
     });
     const [manualHeadingSignatures, setManualHeadingSignatures] = useState<{ h1?: string; h2?: string; h3?: string }>({});
+    const [savedHeadingStyles, setSavedHeadingStyles] = useState<{
+        h1?: Record<string, string>;
+        h2?: Record<string, string>;
+        h3?: Record<string, string>;
+        p?: Record<string, string>;
+        blockquote?: Record<string, string>;
+        pre?: Record<string, string>;
+    }>({});
 
     // Load available system fonts on mount and when web fonts are ready
     useEffect(() => {
@@ -1042,14 +1050,14 @@ const App: React.FC = () => {
                         const changed = ensureContentIsPaginated(workspace);
                         const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
                         pages.forEach(page => {
-                            // CRITICAL: Clean up ALL stale page-break attributes from
-                            // previous saves or HTML imports. These block pullUp incorrectly.
-                            // Both data-user-page-break AND data-page-break must be removed.
-                            page.removeAttribute('data-user-page-break');
+                            // Remove legacy data-page-break attribute from page divs
+                            // (these come from old HTML imports with CSS page-break rules).
                             page.removeAttribute('data-page-break');
-                            page.querySelectorAll('[data-user-page-break]').forEach(el => {
-                                el.remove(); // Remove hidden marker divs from previous saves
-                            });
+                            // Remove data-user-page-break from the PAGE DIV itself
+                            // (the pullUp logic only checks child elements via getPageBreakMarker).
+                            // But DO NOT remove the hidden child marker divs — those represent
+                            // user-intentional page breaks that must be preserved across save/reopen.
+                            page.removeAttribute('data-user-page-break');
                             unwrapSingleContainer(page);
                             fixClippedContainers(page);
                         });
@@ -1057,6 +1065,35 @@ const App: React.FC = () => {
                         // Use onDone callback because reflowPagesUntilStable is async (uses rAF).
                         reflowPagesUntilStable(workspace, {
                             onDone: () => {
+                                // Rebuild structure entries from saved data-structure-status attributes
+                                const rebuiltEntries: StructureEntry[] = [];
+                                const allPages = Array.from(workspace!.querySelectorAll('.page'));
+                                workspace!.querySelectorAll('[data-structure-status="approved"]').forEach(el => {
+                                    const htmlEl = el as HTMLElement;
+                                    const tag = htmlEl.tagName.toLowerCase();
+                                    if (!['h1', 'h2', 'h3'].includes(tag)) return;
+
+                                    const elId = htmlEl.id || `struct-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                                    if (!htmlEl.id) htmlEl.id = elId;
+
+                                    const page = htmlEl.closest('.page');
+                                    let pageNum = 1;
+                                    allPages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+
+                                    rebuiltEntries.push({
+                                        id: elId,
+                                        elementId: elId,
+                                        text: htmlEl.innerText.substring(0, 50),
+                                        page: pageNum,
+                                        type: tag,
+                                        status: 'approved'
+                                    });
+                                });
+
+                                if (rebuiltEntries.length > 0) {
+                                    setStructureEntries(rebuiltEntries);
+                                }
+
                                 updateDocState({ ...newState, htmlContent: workspace!.innerHTML }, true);
                             }
                         });
@@ -1125,6 +1162,64 @@ const App: React.FC = () => {
         return { inlineEl, blockEl };
     };
 
+    const captureHeadingStyles = (element: HTMLElement): Record<string, string> => {
+        const computed = window.getComputedStyle(element);
+        return {
+            'font-family': computed.fontFamily,
+            'font-size': computed.fontSize,
+            'font-weight': computed.fontWeight,
+            'font-style': computed.fontStyle,
+            'color': computed.color,
+            'text-transform': computed.textTransform,
+            'text-align': computed.textAlign,
+            'line-height': computed.lineHeight,
+            'letter-spacing': computed.letterSpacing,
+            'text-decoration': computed.textDecorationLine || computed.textDecoration,
+            'margin-top': computed.marginTop,
+            'margin-bottom': computed.marginBottom
+        };
+    };
+
+    const applyInlineHeadingStyles = (element: HTMLElement, styles: Record<string, string>) => {
+        // FIRST: Strip ALL heading-related inline styles from the element
+        // so that pre-existing !important styles don't override our new ones.
+        const headingProps = [
+            'font-family', 'font-size', 'font-weight', 'font-style',
+            'color', 'text-transform', 'text-align', 'line-height',
+            'letter-spacing', 'text-decoration', 'margin-top', 'margin-bottom'
+        ];
+        headingProps.forEach(prop => element.style.removeProperty(prop));
+
+        // Also strip from any child spans/elements that might carry inline styles
+        element.querySelectorAll('span, b, i, strong, em, font').forEach(child => {
+            const childEl = child as HTMLElement;
+            headingProps.forEach(prop => childEl.style.removeProperty(prop));
+        });
+
+        // THEN: Apply the new heading styles
+        Object.entries(styles).forEach(([key, val]) => {
+            if (val && val !== 'none' && val !== 'normal' && val !== '0px') {
+                element.style.setProperty(key, val, 'important');
+            } else if (key === 'color' && val) {
+                element.style.setProperty(key, val, 'important');
+            }
+        });
+        // Always ensure color is set - fallback to black if missing
+        if (!element.style.color) {
+            element.style.setProperty('color', '#000', 'important');
+        }
+    };
+
+    const findExistingHeadingStyles = (level: 'h1' | 'h2' | 'h3'): Record<string, string> | null => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return null;
+        const existing = workspace.querySelector(level) as HTMLElement | null;
+        if (existing) {
+            return captureHeadingStyles(existing);
+        }
+        return null;
+    };
+
     const getHeadingStyleSignature = (element: HTMLElement) => {
         const normalizeFontFamily = (value: string) => {
             const primary = value.split(',')[0] || value;
@@ -1174,7 +1269,7 @@ const App: React.FC = () => {
         return element.id;
     };
 
-    const applyHeadingStructureToElement = (element: HTMLElement, level: 'h1' | 'h2' | 'h3') => {
+    const applyHeadingStructureToElement = (element: HTMLElement, level: 'h1' | 'h2' | 'h3', stylesToApply?: Record<string, string>) => {
         let target = element;
         if (target.tagName.toLowerCase() !== level) {
             const newElement = document.createElement(level);
@@ -1184,6 +1279,16 @@ const App: React.FC = () => {
             newElement.innerHTML = target.innerHTML;
             target.parentNode?.replaceChild(newElement, target);
             target = newElement;
+        }
+
+        // Apply saved heading styles so the new heading matches existing ones
+        const styles = stylesToApply || savedHeadingStyles[level] || findExistingHeadingStyles(level);
+        if (styles) {
+            applyInlineHeadingStyles(target, styles);
+            // Save for future use if not already saved
+            if (!savedHeadingStyles[level]) {
+                setSavedHeadingStyles(prev => ({ ...prev, [level]: styles }));
+            }
         }
 
         ensureElementId(target);
@@ -2166,24 +2271,29 @@ const App: React.FC = () => {
         }
 
         // 1. Handle formatBlock for divs with special classes
+        // Only enter this path when the activeBlock *itself* is a div with a class,
+        // NOT when it's a standard block (p, h1, etc.) that happens to be inside a classed div.
         if (command === 'formatBlock' && activeBlock) {
-            const targetDiv = activeBlock.closest('div[class]:not(.page):not(.editor-workspace)') as HTMLElement;
-            if (targetDiv) {
-                const divClass = targetDiv.className.split(' ')[0];
-                const workspace = document.querySelector('.editor-workspace');
-                if (workspace && divClass) {
-                    const newTag = value?.replace(/[<>]/g, '') || 'p';
-                    const divsToConvert = workspace.querySelectorAll(`div.${divClass}`);
-                    divsToConvert.forEach(div => {
-                        const newEl = document.createElement(newTag);
-                        newEl.innerHTML = div.innerHTML;
-                        newEl.className = div.className;
-                        const oldStyle = (div as HTMLElement).getAttribute('style');
-                        if (oldStyle) newEl.setAttribute('style', oldStyle);
-                        div.replaceWith(newEl);
-                    });
-                    updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
-                    return;
+            const standardBlockTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE']);
+            if (!standardBlockTags.has(activeBlock.tagName)) {
+                const targetDiv = activeBlock.closest('div[class]:not(.page):not(.editor-workspace)') as HTMLElement;
+                if (targetDiv) {
+                    const divClass = targetDiv.className.split(' ')[0];
+                    const workspace = document.querySelector('.editor-workspace');
+                    if (workspace && divClass) {
+                        const newTag = value?.replace(/[<>]/g, '') || 'p';
+                        const divsToConvert = workspace.querySelectorAll(`div.${divClass}`);
+                        divsToConvert.forEach(div => {
+                            const newEl = document.createElement(newTag);
+                            newEl.innerHTML = div.innerHTML;
+                            newEl.className = div.className;
+                            const oldStyle = (div as HTMLElement).getAttribute('style');
+                            if (oldStyle) newEl.setAttribute('style', oldStyle);
+                            div.replaceWith(newEl);
+                        });
+                        updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+                        return;
+                    }
                 }
             }
         }
@@ -2385,7 +2495,11 @@ const App: React.FC = () => {
             }
         }
 
-        // 3. Standard Text Command (if not inside a shape)
+        // Restore selection first — clicking toolbar items can cause focus loss,
+        // leaving execCommand with no valid selection target.
+        if (command === 'formatBlock') {
+            restoreSelection();
+        }
         document.execCommand(command, false, value);
 
         // For font size, ensure we force focus back if dropdown was used
@@ -2394,23 +2508,116 @@ const App: React.FC = () => {
 
         // NOTE: execCommand triggers the Editor's mutation observer or input listener, 
         // which calls handleContentChange. So history will be saved via debounce.
-        if (formatBlockTag) {
+
+        // For formatBlock: verify it worked, and if not, use DOM manipulation fallback
+        if (command === 'formatBlock' && value) {
+            const appliedTagStr = value.replace(/[<>]/g, '').toLowerCase();
+
+            // Check if execCommand actually changed the block
+            let targetBlock: HTMLElement | null = null;
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                const node = sel.getRangeAt(0).commonAncestorContainer;
+                const el = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+                targetBlock = el?.closest(appliedTagStr) as HTMLElement | null;
+            }
+
+            // If execCommand didn't work (selection was lost), use DOM manipulation fallback
+            if (!targetBlock && activeBlock) {
+                const blockToConvert = activeBlock.closest('p, h1, h2, h3, h4, h5, h6, blockquote, pre, div:not(.page):not(.editor-workspace)') as HTMLElement | null;
+                if (blockToConvert && blockToConvert.nodeName.toLowerCase() !== appliedTagStr) {
+                    const newEl = document.createElement(appliedTagStr);
+                    // Copy all children
+                    while (blockToConvert.firstChild) {
+                        newEl.appendChild(blockToConvert.firstChild);
+                    }
+                    // Copy attributes (class, style, id, data-*)
+                    for (const attr of Array.from(blockToConvert.attributes)) {
+                        newEl.setAttribute(attr.name, attr.value);
+                    }
+                    // Replace in DOM
+                    blockToConvert.parentNode?.replaceChild(newEl, blockToConvert);
+                    targetBlock = newEl;
+                    console.log(`[Style] formatBlock fallback: converted ${blockToConvert.nodeName} → ${appliedTagStr}`);
+                }
+            }
+
+            // Add to structure if heading
+            if (appliedTagStr === 'h1' || appliedTagStr === 'h2' || appliedTagStr === 'h3') {
+                addHeadingToStructure(appliedTagStr as 'h1' | 'h2' | 'h3', formatBlockSignature || undefined);
+            }
+
+            // Apply saved styles (Word-like behavior)
+            const stylesToApply = savedHeadingStyles[appliedTagStr as keyof typeof savedHeadingStyles];
+            if (stylesToApply && targetBlock) {
+                applyInlineHeadingStyles(targetBlock, stylesToApply);
+            }
+
+            // Save state
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                updateDocStatePreserveScroll(workspace.innerHTML);
+            }
+        } else if (formatBlockTag) {
             addHeadingToStructure(formatBlockTag, formatBlockSignature || undefined);
         }
     };
 
     const handleUpdateStyle = (targetTagName?: string) => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
-        let styledElement = activeBlock?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)') || null;
-        if (!styledElement) {
-            const selection = window.getSelection();
-            if (selection && selection.rangeCount > 0) {
-                const node = selection.getRangeAt(0).commonAncestorContainer;
-                const element = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
-                styledElement = element?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)') || null;
+
+        // When targetTagName is provided (from clicking ↻ in dropdown), focus has already
+        // moved to the toolbar, so activeBlock and window.getSelection() are unreliable.
+        // Instead, find the first existing element of that tag type in the workspace
+        // and capture ITS styles — this is the correct Word-like behavior.
+        let styledElement: Element | null = null;
+
+        if (targetTagName && workspace) {
+            // First try activeBlock if it matches the target tag
+            if (activeBlock && activeBlock.nodeName.toLowerCase() === targetTagName.toLowerCase()) {
+                styledElement = activeBlock;
+            }
+            // Then try the current selection
+            if (!styledElement) {
+                const selection = window.getSelection();
+                if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+                    const node = selection.getRangeAt(0).commonAncestorContainer;
+                    const element = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+                    const closest = element?.closest(targetTagName);
+                    if (closest && workspace.contains(closest)) {
+                        styledElement = closest;
+                    }
+                }
+            }
+            // Finally, find the first element of that tag type in the document
+            if (!styledElement) {
+                styledElement = workspace.querySelector(targetTagName);
+            }
+        } else {
+            // No targetTagName — use activeBlock or selection (original behavior)
+            styledElement = activeBlock?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)') || null;
+            if (!styledElement) {
+                const selection = window.getSelection();
+                if (selection && selection.rangeCount > 0) {
+                    const node = selection.getRangeAt(0).commonAncestorContainer;
+                    const element = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+                    styledElement = element?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)') || null;
+                }
             }
         }
-        const { inlineEl } = getTextStyleSource();
+        // Derive inlineEl from styledElement directly, since getTextStyleSource() relies on
+        // window.getSelection() which is lost when focus moved to the toolbar.
+        // Look for the first styled inline child inside the block element.
+        let inlineEl: Element | null = null;
+        if (styledElement) {
+            // Check for an inline child that carries text styling (span, b, i, em, strong, etc.)
+            const firstInline = styledElement.querySelector('span, b, i, em, strong, a, font') as HTMLElement | null;
+            inlineEl = firstInline || styledElement;
+        } else {
+            // Fallback to getTextStyleSource if no styledElement found
+            const source = getTextStyleSource();
+            inlineEl = source.inlineEl;
+        }
         const headingTags = ['h1', 'h2', 'h3'];
 
         const inferHeadingFromHR = () => {
@@ -2520,7 +2727,7 @@ const App: React.FC = () => {
             if (htmlModified && workspace) {
                 updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
             }
-            alert(`Updated style for ${selector}. All matching elements will now use this style.`);
+            console.log(`[Style] Updated style for ${selector} (shape/HR only)`);
             return;
         }
 
@@ -2548,7 +2755,29 @@ const App: React.FC = () => {
   }
   `;
 
-        const nextHtml = htmlModified && workspace ? workspace.innerHTML : docState.htmlContent;
+        // Always capture the current live DOM HTML so that inline styles are preserved.
+        // Previously used docState.htmlContent when htmlModified was false, which lost
+        // any inline styles that existed in the live DOM but hadn't been saved yet.
+        const nextHtml = workspace ? workspace.innerHTML : docState.htmlContent;
+
+        // Save captured styles for inline application on future elements of this type
+        // Works for ALL style types: p, h1, h2, h3, blockquote, pre (Word-like behavior)
+        const validStyleTags = ['h1', 'h2', 'h3', 'p', 'blockquote', 'pre'];
+        if (selector && validStyleTags.includes(selector)) {
+            const capturedStylesForSave: Record<string, string> = {
+                'font-family': fontFamily,
+                'font-size': computedText.fontSize,
+                'font-weight': fontWeight,
+                'font-style': fontStyle,
+                'color': color,
+                'text-align': computedBlock.textAlign,
+                'text-decoration': textDecoration,
+                'margin-top': computedBlock.marginTop,
+                'margin-bottom': computedBlock.marginBottom,
+                'line-height': computedBlock.lineHeight
+            };
+            setSavedHeadingStyles(prev => ({ ...prev, [selector]: capturedStylesForSave }));
+        }
 
         updateDocState({
             ...docState,
@@ -2556,7 +2785,7 @@ const App: React.FC = () => {
             cssContent: docState.cssContent + '\n' + newRule
         }, true);
 
-        alert(`Updated style for ${selector}. All matching elements will now use this style.`);
+        console.log(`[Style] Updated style for ${selector}`);
     };
 
     // --- Feature: Real-time Block Styling (Frames & Pudding & Shapes) ---
@@ -3723,9 +3952,7 @@ const App: React.FC = () => {
         clone.querySelectorAll('[data-selected]').forEach(el => {
             el.removeAttribute('data-selected');
         });
-        clone.querySelectorAll('[data-structure-status]').forEach(el => {
-            el.removeAttribute('data-structure-status');
-        });
+        // Keep data-structure-status for round-trip fidelity (structure is preserved on reimport)
 
         return clone;
     };
@@ -3737,7 +3964,7 @@ const App: React.FC = () => {
 
         // Clean up selection attributes
         tempDiv.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
-        tempDiv.querySelectorAll('[data-structure-status]').forEach(el => el.removeAttribute('data-structure-status'));
+        // Keep data-structure-status for round-trip fidelity
 
         const workspace = tempDiv;
 
@@ -3781,7 +4008,7 @@ ${workspace.innerHTML}
 
         tempDiv.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
         tempDiv.querySelectorAll('[data-multi-selected]').forEach(el => el.removeAttribute('data-multi-selected'));
-        tempDiv.querySelectorAll('[data-structure-status]').forEach(el => el.removeAttribute('data-structure-status'));
+        // Keep data-structure-status for round-trip fidelity
 
         tempDiv
             .querySelectorAll('.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides')
@@ -4280,13 +4507,45 @@ ${contentHtml}
 
         const targetTag = selectionMode.level; // e.g., 'h1'
         let signature: string | null = null;
+
+        // Resolve heading styles with correct priority:
+        // 1. Already-saved heading styles (from previous H1 tagging or handleUpdateStyle)
+        // 2. Styles from existing headings of the same level in the document
+        // 3. Only as a LAST RESORT: capture from the selected element (if it's already that heading type)
+        let resolvedStyles: Record<string, string> | undefined = undefined;
         if (targetTag === 'h1' || targetTag === 'h2' || targetTag === 'h3') {
             const firstId = selectionMode.selectedIds[0];
             if (firstId) {
                 const el = document.getElementById(firstId) as HTMLElement | null;
-                if (el) signature = getHeadingStyleSignature(el);
+                if (el) {
+                    signature = getHeadingStyleSignature(el);
+                }
+            }
+
+            // Priority 1: Already-saved styles for this heading level
+            if (savedHeadingStyles[targetTag]) {
+                resolvedStyles = savedHeadingStyles[targetTag];
+            }
+            // Priority 2: Capture from an EXISTING heading of the same level in the document
+            if (!resolvedStyles) {
+                const existingStyles = findExistingHeadingStyles(targetTag);
+                if (existingStyles) {
+                    resolvedStyles = existingStyles;
+                    setSavedHeadingStyles(prev => ({ ...prev, [targetTag]: existingStyles }));
+                }
+            }
+            // Priority 3 (last resort): If the selected element is ALREADY a heading of this type,
+            // capture its styles. Otherwise, DON'T capture from a plain paragraph.
+            if (!resolvedStyles && firstId) {
+                const el = document.getElementById(firstId) as HTMLElement | null;
+                if (el && el.tagName.toLowerCase() === targetTag) {
+                    const capturedStyles = captureHeadingStyles(el);
+                    resolvedStyles = capturedStyles;
+                    setSavedHeadingStyles(prev => ({ ...prev, [targetTag]: capturedStyles }));
+                }
             }
         }
+
         const newEntries: StructureEntry[] = [];
         let domModified = false;
 
@@ -4307,20 +4566,25 @@ ${contentHtml}
                 const updatedElement = document.getElementById(id);
                 if (updatedElement) {
                     updatedElement.setAttribute('data-structure-status', 'approved');
+                    // Apply saved heading styles to ensure visual consistency
+                    if (resolvedStyles) {
+                        applyInlineHeadingStyles(updatedElement as HTMLElement, resolvedStyles);
+                    }
                 }
 
                 // 2. Add to Structure List (avoid duplicates)
                 if (!structureEntries.some(e => e.id === id)) {
-                    // Find page number (approximate)
-                    const page = element.closest('.page');
+                    // Use the updated element (old one may be detached from DOM after replaceChild)
+                    const liveEl = document.getElementById(id) as HTMLElement | null;
+                    const page = liveEl?.closest('.page');
                     const pages = document.querySelectorAll('.page');
                     let pageNum = 1;
                     pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
 
                     newEntries.push({
                         id: id,
-                        elementId: id, // ID persists even if tag changes if we copied attrs
-                        text: element.innerText.substring(0, 50),
+                        elementId: id,
+                        text: (liveEl || element).innerText.substring(0, 50),
                         page: pageNum,
                         type: targetTag,
                         status: 'approved'
