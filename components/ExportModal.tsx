@@ -4,7 +4,7 @@ interface ExportModalProps {
   isOpen: boolean;
   currentFileName: string;
   onClose: () => void;
-  onExportPDF: (fileName: string) => void;
+  onExportPDF: (fileName: string, onProgress?: (percent: number) => void) => void;
   onExportHTML: (fileName: string) => void;
   onExportDOCX: (fileName: string) => void;
 }
@@ -21,17 +21,19 @@ const ExportModal: React.FC<ExportModalProps> = ({
   const [fileName, setFileName] = useState(baseName);
   const [format, setFormat] = useState<'pdf' | 'html' | 'docx'>('pdf');
   const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
 
   if (!isOpen) return null;
 
   const handleExport = async () => {
     setIsExporting(true);
+    setExportProgress(0);
     const finalName = fileName || 'documento';
-    
+
     try {
       switch (format) {
         case 'pdf':
-          await onExportPDF(finalName);
+          await onExportPDF(finalName, (percent) => setExportProgress(percent));
           break;
         case 'html':
           onExportHTML(finalName);
@@ -46,6 +48,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
       alert('Export failed. Please try again.');
     } finally {
       setIsExporting(false);
+      setExportProgress(0);
     }
   };
 
@@ -69,6 +72,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               onChange={(e) => setFileName(e.target.value)}
               placeholder="Document name"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              disabled={isExporting}
             />
           </div>
 
@@ -80,37 +84,37 @@ const ExportModal: React.FC<ExportModalProps> = ({
             <div className="grid grid-cols-3 gap-3">
               <button
                 onClick={() => setFormat('pdf')}
-                className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                  format === 'pdf'
+                disabled={isExporting}
+                className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${format === 'pdf'
                     ? 'border-violet-500 bg-violet-50 text-violet-700'
                     : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/30'
-                }`}
+                  }`}
               >
                 <div className="text-3xl">📄</div>
                 <div className="text-sm font-semibold">PDF</div>
                 <div className="text-xs text-gray-500">Print</div>
               </button>
-              
+
               <button
                 onClick={() => setFormat('html')}
-                className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                  format === 'html'
+                disabled={isExporting}
+                className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${format === 'html'
                     ? 'border-violet-500 bg-violet-50 text-violet-700'
                     : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/30'
-                }`}
+                  }`}
               >
                 <div className="text-3xl">🌐</div>
                 <div className="text-sm font-semibold">HTML</div>
                 <div className="text-xs text-gray-500">Web</div>
               </button>
-              
+
               <button
                 onClick={() => setFormat('docx')}
-                className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                  format === 'docx'
+                disabled={isExporting}
+                className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${format === 'docx'
                     ? 'border-violet-500 bg-violet-50 text-violet-700'
                     : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/30'
-                }`}
+                  }`}
               >
                 <div className="text-3xl">📝</div>
                 <div className="text-sm font-semibold">DOCX</div>
@@ -119,16 +123,37 @@ const ExportModal: React.FC<ExportModalProps> = ({
             </div>
           </div>
 
-          {/* Info */}
+          {/* Info / Progress */}
           <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
-            {format === 'pdf' && (
-              <>📄 The PDF keeps layout, images, and formatting exactly as shown.</>
-            )}
-            {format === 'html' && (
-              <>🌐 HTML preserves all content and can be reopened in Instant Writer Pro.</>
-            )}
-            {format === 'docx' && (
-              <>📝 DOCX can be opened in Microsoft Word, Google Docs, and other editors.</>
+            {isExporting && format === 'pdf' ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-violet-700">
+                    Rendering PDF...
+                  </span>
+                  <span className="font-bold text-violet-700">
+                    {Math.round(exportProgress)}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-full bg-violet-500 rounded-full transition-all duration-200"
+                    style={{ width: `${exportProgress}%` }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                {format === 'pdf' && (
+                  <>📄 The PDF keeps layout, images, and formatting exactly as shown.</>
+                )}
+                {format === 'html' && (
+                  <>🌐 HTML preserves all content and can be reopened in Instant Writer Pro.</>
+                )}
+                {format === 'docx' && (
+                  <>📝 DOCX can be opened in Microsoft Word, Google Docs, and other editors.</>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -137,7 +162,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
           <button
             onClick={onClose}
             disabled={isExporting}
-            className="px-8 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+            className="px-8 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors font-medium disabled:opacity-50"
           >
             Cancel
           </button>

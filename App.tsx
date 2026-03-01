@@ -3987,135 +3987,190 @@ ${workspace.innerHTML}
         clearAutoLog();
     };
 
-    const handleExportPDF = async (fileName: string) => {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = docState.htmlContent;
+    const handleExportPDF = async (fileName: string, onProgress?: (percent: number) => void) => {
+        // --- Direct html2canvas + jsPDF approach ---
+        // Renders the already-visible .page elements in the workspace directly.
+        // This bypasses html2pdf.js which produced blank PDFs.
 
-        tempDiv.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
-        tempDiv.querySelectorAll('[data-multi-selected]').forEach(el => el.removeAttribute('data-multi-selected'));
-        // Keep data-structure-status for round-trip fidelity
-
-        tempDiv
-            .querySelectorAll('.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides')
-            .forEach(el => el.remove());
-
-        const fontLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
-            .map(link => link.getAttribute('href'))
-            .filter((href): href is string => Boolean(href) && href.includes('fonts.googleapis.com'));
-        const fontLinksHtml = fontLinks.map(href => `<link rel="stylesheet" href="${href}">`).join('\n');
-
-        let customFontCss = '';
-        try {
-            const storedFonts = localStorage.getItem('custom_fonts');
-            if (storedFonts) {
-                const list = JSON.parse(storedFonts) as Array<{ name: string; dataUrl: string }>;
-                customFontCss = list
-                    .map(font => {
-                        const safeName = font.name.replace(/'/g, "\\'");
-                        return `@font-face { font-family: '${safeName}'; src: url("${font.dataUrl}"); font-display: swap; }`;
-                    })
-                    .join('\n');
-            }
-        } catch {
-            customFontCss = '';
-        }
-
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.right = '0';
-        iframe.style.bottom = '0';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = '0';
-        iframe.style.opacity = '0';
-        iframe.style.pointerEvents = 'none';
-        document.body.appendChild(iframe);
-
-        const doc = iframe.contentWindow?.document;
-        if (!doc || !iframe.contentWindow) {
-            iframe.remove();
-            alert('Unable to prepare PDF print frame.');
+        if (!window.html2canvas) {
+            alert('html2canvas library is not loaded. Please refresh the page and try again.');
             return;
         }
 
-        const printOverrides = `
-@media print {
-  @page { margin: 0; }
-  html, body { margin: 0; padding: 0; background: white; }
-  .page {
-    margin: 0 auto !important;
-    box-shadow: none !important;
-    page-break-after: always;
-    page-break-inside: avoid;
-    break-after: page;
-  }
-  .page:last-child { page-break-after: auto; break-after: auto; }
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-}
-    `;
+        const JsPDF = (window as any).jspdf?.jsPDF;
+        if (!JsPDF) {
+            alert('jsPDF library is not loaded. Please refresh the page and try again.');
+            return;
+        }
 
-        const baseHref = document.baseURI || window.location.href;
+        console.log('[PDF Export] Starting export for:', fileName);
+        onProgress?.(0);
 
-        doc.open();
-        doc.write(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <base href="${baseHref}">
-  <title>${fileName}</title>
-  ${fontLinksHtml}
-  <style>
-${customFontCss}
-${docState.cssContent}
-${printOverrides}
-  </style>
-</head>
-<body>
-${tempDiv.innerHTML}
-</body>
-</html>
-    `);
-        doc.close();
+        // --- 1. Determine page dimensions ---
+        const toInches = (val: string): number => {
+            const num = parseFloat(val);
+            if (isNaN(num)) return 8.5;
+            if (val.includes('mm')) return num / 25.4;
+            if (val.includes('cm')) return num / 2.54;
+            if (val.includes('pt')) return num / 72;
+            if (val.includes('px')) return num / 96;
+            return num;
+        };
 
-        const waitForImages = () => {
-            const images = Array.from(doc.images);
-            if (images.length === 0) return Promise.resolve();
-            return Promise.all(images.map(img => {
-                if (img.complete) return Promise.resolve();
-                return new Promise<void>(resolve => {
-                    const done = () => {
-                        img.removeEventListener('load', done);
-                        img.removeEventListener('error', done);
-                        resolve();
-                    };
-                    img.addEventListener('load', done);
-                    img.addEventListener('error', done);
+        let pageWidthIn = 8.5;
+        let pageHeightIn = 11;
+
+        const activeFormat = Object.values(PAGE_FORMATS).find(f => f.id === pageFormatId);
+        if (pageFormatId === 'custom') {
+            pageWidthIn = toInches(customPageSize.width);
+            pageHeightIn = toInches(customPageSize.height);
+        } else if (activeFormat) {
+            pageWidthIn = toInches(activeFormat.width);
+            pageHeightIn = toInches(activeFormat.height);
+        }
+
+        const cssSize = detectPageSizeFromCss(docState.cssContent);
+        if (cssSize) {
+            pageWidthIn = toInches(cssSize.width);
+            pageHeightIn = toInches(cssSize.height);
+        }
+
+        const pageWidthPx = Math.round(pageWidthIn * 96);
+        const pageHeightPx = Math.round(pageHeightIn * 96);
+        const orientation = pageWidthIn > pageHeightIn ? 'landscape' : 'portrait';
+
+        console.log('[PDF Export] Page size:', pageWidthIn, 'x', pageHeightIn, 'in');
+
+        // --- 2. Find the .page elements in the workspace ---
+        const workspace = document.querySelector('.editor-workspace');
+        if (!workspace) {
+            alert('Workspace not found.');
+            return;
+        }
+
+        const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
+        if (pages.length === 0) {
+            alert('No pages found to export.');
+            return;
+        }
+
+        console.log('[PDF Export] Found', pages.length, 'pages');
+
+        // --- 3. Temporarily clean up editor UI elements ---
+        const removedElements: { parent: Node; element: Node; nextSibling: Node | null }[] = [];
+        const editorSelectors = '.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides';
+
+        workspace.querySelectorAll(editorSelectors).forEach(el => {
+            if (el.parentNode) {
+                removedElements.push({
+                    parent: el.parentNode,
+                    element: el,
+                    nextSibling: el.nextSibling
                 });
-            }));
-        };
-
-        const frameReady = new Promise<void>(resolve => {
-            if (doc.readyState === 'complete') resolve();
-            else iframe.onload = () => resolve();
-        });
-
-        const fontReady = (doc.fonts && doc.fonts.ready) ? doc.fonts.ready : Promise.resolve();
-        await Promise.all([frameReady, fontReady, waitForImages()]);
-
-        const triggerPrint = () => {
-            try {
-                iframe.contentWindow?.focus();
-                iframe.contentWindow?.print();
-            } finally {
-                window.setTimeout(() => iframe.remove(), 1000);
+                el.parentNode.removeChild(el);
             }
-        };
-
-        requestAnimationFrame(() => {
-            window.setTimeout(triggerPrint, 100);
         });
+
+        // Remove data-selected attributes temporarily
+        const selectedEls = workspace.querySelectorAll('[data-selected]');
+        selectedEls.forEach(el => el.removeAttribute('data-selected'));
+        const multiSelectedEls = workspace.querySelectorAll('[data-multi-selected]');
+        multiSelectedEls.forEach(el => el.removeAttribute('data-multi-selected'));
+
+        // Save and override overflow styles to prevent text clipping in PDF
+        // This fixes TOC entries and other elements that use overflow:hidden + text-overflow:ellipsis
+        const overflowFixedElements: { el: HTMLElement; originalOverflow: string }[] = [];
+        pages.forEach(page => {
+            // Fix the page itself
+            overflowFixedElements.push({ el: page, originalOverflow: page.style.overflow });
+            page.style.overflow = 'visible';
+            page.style.boxShadow = 'none';
+
+            // Fix ALL descendant elements that have overflow:hidden
+            page.querySelectorAll('*').forEach(child => {
+                const el = child as HTMLElement;
+                const computed = window.getComputedStyle(el);
+                if (computed.overflow === 'hidden' || computed.overflowX === 'hidden' || computed.overflowY === 'hidden') {
+                    overflowFixedElements.push({ el, originalOverflow: el.style.overflow });
+                    el.style.overflow = 'visible';
+                }
+            });
+        });
+
+        try {
+            // --- 4. Render each page with html2canvas ---
+            const pdf = new JsPDF({
+                unit: 'in',
+                format: [pageWidthIn, pageHeightIn],
+                orientation: orientation
+            });
+
+            for (let i = 0; i < pages.length; i++) {
+                const pct = Math.round(((i) / pages.length) * 90);
+                onProgress?.(pct);
+                console.log(`[PDF Export] Rendering page ${i + 1}/${pages.length}... (${pct}%)`);
+
+                // Small yield to let React update the progress bar
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                const canvas = await window.html2canvas(pages[i], {
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: true,
+                    logging: false,
+                    width: pageWidthPx,
+                    height: pageHeightPx,
+                    backgroundColor: '#ffffff'
+                });
+
+                if (i > 0) {
+                    pdf.addPage([pageWidthIn, pageHeightIn], orientation);
+                }
+
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthIn, pageHeightIn, undefined, 'FAST');
+            }
+
+            onProgress?.(95);
+            console.log('[PDF Export] All pages rendered, generating PDF blob...');
+
+            // --- 5. Trigger download ---
+            const pdfBlob = pdf.output('blob');
+            console.log('[PDF Export] PDF blob size:', pdfBlob.size, 'bytes');
+
+            const blobUrl = URL.createObjectURL(pdfBlob);
+            const downloadLink = document.createElement('a');
+            downloadLink.href = blobUrl;
+            downloadLink.download = `${fileName}.pdf`;
+            downloadLink.style.display = 'none';
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+
+            setTimeout(() => {
+                document.body.removeChild(downloadLink);
+                URL.revokeObjectURL(blobUrl);
+            }, 1000);
+
+            onProgress?.(100);
+            console.log('[PDF Export] Download triggered successfully');
+
+        } catch (err) {
+            console.error('[PDF Export] Error:', err);
+            alert('An error occurred during PDF export. Please try again.');
+        } finally {
+            // --- 6. Restore removed editor UI elements & styles ---
+            overflowFixedElements.forEach(({ el, originalOverflow }) => {
+                el.style.overflow = originalOverflow;
+            });
+            removedElements.forEach(({ parent, element, nextSibling }) => {
+                if (nextSibling) {
+                    parent.insertBefore(element, nextSibling);
+                } else {
+                    parent.appendChild(element);
+                }
+            });
+            console.log('[PDF Export] Cleanup complete');
+        }
     };
 
     // Helper function to inline computed styles for export
