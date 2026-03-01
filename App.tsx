@@ -4006,14 +4006,31 @@ const App: React.FC = () => {
 
     // Pattern modal handlers
     const handlePatternConfirmApp = (selectedIds: string[]) => {
-        const { applyStyle } = patternModal;
+        const { applyStyle, actionType } = patternModal;
 
-        selectedIds.forEach(id => {
-            const element = document.getElementById(id);
-            if (element && applyStyle) {
-                applyStyle(element);
-            }
-        });
+        if (actionType === 'remove-structure') {
+            // 1. Persist the rejection to DOM for all selected similar elements
+            selectedIds.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.setAttribute('data-structure-status', 'rejected');
+                }
+            });
+
+            // 2. Update React state immediately to remove them from the UI Sidebar
+            setStructureEntries(prev => prev.map(e =>
+                selectedIds.includes(e.id) ? { ...e, status: 'rejected' } : e
+            ));
+
+        } else {
+            // Handle regular stylistic patterns
+            selectedIds.forEach(id => {
+                const element = document.getElementById(id);
+                if (element && applyStyle) {
+                    applyStyle(element);
+                }
+            });
+        }
 
         const workspace = document.querySelector('.editor-workspace') as HTMLElement;
         if (workspace) {
@@ -4026,6 +4043,14 @@ const App: React.FC = () => {
     };
 
     const handlePatternCancelApp = () => {
+        // If they cancelled a bulk structural delete, we must still save the original manually deleted item to the DOM history
+        if (patternModal.actionType === 'remove-structure') {
+            const workspace = document.querySelector('.editor-workspace') as HTMLElement;
+            if (workspace) {
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            }
+        }
+
         patternTrackerRef.current.clear();
         setPatternModal({ isOpen: false, actionType: '', matches: [] });
     };
@@ -4763,16 +4788,17 @@ ${contentHtml}
         // 1. Update local list state for immediate UI feedback
         setStructureEntries(prev => prev.map(e => e.id === id ? { ...e, status } : e));
 
+        const entry = structureEntries.find(e => e.id === id);
+        if (!entry) return;
+
         // 2. Persist to DOM/HTML
-        const element = document.getElementById(id);
+        const element = document.getElementById(entry.elementId);
         if (element) {
             element.setAttribute('data-structure-status', status);
 
             // --- Feature: Auto-convert detected tags on approval ---
             if (status === 'approved') {
-                // Retrieve the entry to check type
-                const entry = structureEntries.find(e => e.id === id);
-                if (entry && entry.type.startsWith('detected-')) {
+                if (entry.type.startsWith('detected-')) {
                     const targetTag = entry.type.replace('detected-', ''); // e.g. 'h1'
 
                     // Only convert if it's not already that tag
@@ -4789,12 +4815,43 @@ ${contentHtml}
                         element.parentNode?.replaceChild(newElement, element);
                     }
                 }
+            } else if (status === 'rejected') {
+                // Feature: Auto-remove similar structure elements when one is deleted
+                const workspace = document.querySelector('.editor-workspace');
+                if (workspace) {
+                    const sig = getElementSignature(element, true);
+
+                    // Find similar items that are currently in the TOC or auto-detected
+                    const rawMatches = findSimilarElements(sig, null, workspace as HTMLElement, true);
+
+                    const filteredMatches = rawMatches.filter(match => {
+                        const el = match.element;
+                        // Exclude the one we just manually deleted
+                        if (el.id === entry.elementId) return false;
+
+                        // Check if it's currently an active entry in the sidebar
+                        const isPendingEntry = structureEntries.some(e => e.elementId === el.id && e.status !== 'rejected');
+                        const hasAttr = el.hasAttribute('data-structure-status');
+                        const isHTag = /^H[1-6]$/.test(el.tagName);
+
+                        return isPendingEntry || hasAttr || isHTag;
+                    });
+
+                    if (filteredMatches.length > 0) {
+                        setPatternModal({
+                            isOpen: true,
+                            actionType: 'remove-structure',
+                            matches: filteredMatches
+                        });
+                        return; // Defer `updateDocState` to the PatternModal's OK/Cancel buttons
+                    }
+                }
             }
 
-            // Trigger a save so this persistence is kept in history
-            const workspace = document.querySelector('.editor-workspace');
-            if (workspace) {
-                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            // Fallback: If no patterns found or it's an approval, trigger standard save
+            const workspaceToSave = document.querySelector('.editor-workspace');
+            if (workspaceToSave) {
+                updateDocState({ ...docState, htmlContent: workspaceToSave.innerHTML }, true);
             }
         }
     };

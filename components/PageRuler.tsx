@@ -12,7 +12,7 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
     // Determine tick interval based on unit
     // Inches: Major (1), Medium (0.5), Minor (0.125)
     // Cm: Major (1), Medium (0.5), Minor (0.1)
-    
+
     // We'll render SVG for crispness
     const rulerSize = 20; // Thickness of the ruler bar
     const tickColor = "#c4a7ff";
@@ -22,7 +22,7 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
     const renderTicks = (length: number, orientation: 'horizontal' | 'vertical') => {
         const ticks = [];
         const totalUnits = length / ppi;
-        
+
         // Safety limit to prevent infinite loops if sizing is wrong
         if (totalUnits > 50) return null;
 
@@ -53,7 +53,7 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
             for (let j = 1; j < subdivisions; j++) {
                 const subPos = pos + (j * step);
                 if (subPos > length) break;
-                
+
                 let tickLen = rulerSize * 0.25; // Minor
                 if (j === 4) tickLen = rulerSize * 0.5; // Half inch (Medium)
                 if (j % 2 === 0 && j !== 4) tickLen = rulerSize * 0.35; // Quarter inch
@@ -71,7 +71,7 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
     return (
         <div className="absolute inset-0 pointer-events-none overflow-visible">
             {/* Top Ruler */}
-            <div className="absolute top-[-20px] left-0 right-0 h-[20px] bg-brand-50 border-b border-brand-200">
+            <div className="absolute -top-[20px] left-0 right-0 h-[20px] bg-brand-50 border-b border-brand-200">
                 <svg width={width} height={20} className="overflow-visible">
                     {/* Margin Backgrounds */}
                     {margins && (
@@ -85,7 +85,7 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
             </div>
 
             {/* Left Ruler */}
-            <div className="absolute top-0 bottom-0 left-[-20px] w-[20px] bg-brand-50 border-r border-brand-200">
+            <div className="absolute top-0 bottom-0 -left-[20px] w-[20px] bg-brand-50 border-r border-brand-200">
                 <svg width={20} height={height} className="overflow-visible">
                     {/* Margin Backgrounds */}
                     {margins && (
@@ -97,9 +97,9 @@ const PageRuler: React.FC<PageRulerProps> = ({ width, height, unit = 'in', ppi =
                     {renderTicks(height, 'vertical')}
                 </svg>
             </div>
-            
+
             {/* Corner box */}
-            <div className="absolute top-[-20px] left-[-20px] w-[20px] h-[20px] bg-brand-100 border-r border-b border-brand-200 z-10" />
+            <div className="absolute -top-[20px] -left-[20px] w-[20px] h-[20px] bg-brand-100 border-r border-b border-brand-200 z-10" />
         </div>
     );
 };

@@ -20,9 +20,13 @@ const PatternModal: React.FC<PatternModalProps> = ({
   onConfirm,
   onCancel
 }) => {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    new Set(matches.map(m => m.element.id || ''))
-  );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setSelectedIds(new Set(matches.map(m => m.element.id || '')));
+    }
+  }, [isOpen, matches]);
 
   if (!isOpen) return null;
 
@@ -64,7 +68,7 @@ const PatternModal: React.FC<PatternModalProps> = ({
             Pattern riconosciuto! 🎯
           </h2>
           <p className="text-sm text-gray-600 mt-1">
-            You performed "{actionType}" on similar items. 
+            You performed "{actionType}" on similar items.
             Found <strong>{matches.length}</strong> matching items.
           </p>
         </div>
@@ -89,15 +93,14 @@ const PatternModal: React.FC<PatternModalProps> = ({
             {matches.map((match, index) => {
               const id = match.element.id || `temp-${index}`;
               const isSelected = selectedIds.has(id);
-              
+
               return (
                 <div
                   key={id}
-                  className={`flex items-center gap-3 p-2 rounded border cursor-pointer transition-colors ${
-                    isSelected 
-                      ? 'bg-brand-50 border-brand-300' 
+                  className={`flex items-center gap-3 p-2 rounded border cursor-pointer transition-colors ${isSelected
+                      ? 'bg-brand-50 border-brand-300'
                       : 'bg-gray-50 border-gray-200 hover:bg-brand-50'
-                  }`}
+                    }`}
                   onClick={() => toggleSelection(id)}
                 >
                   <input
