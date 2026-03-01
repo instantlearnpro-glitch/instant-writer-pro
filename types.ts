@@ -47,9 +47,6 @@ export interface HRProperties {
   style: 'solid' | 'dashed' | 'dotted' | 'tapered'; // tapered = linear gradient
 }
 
-export interface GeminiResponse {
-  text: string;
-}
 
 export interface ImageProperties {
   brightness: number;
