@@ -1424,7 +1424,10 @@ const Editor: React.FC<EditorProps> = ({
             block = target.closest('hr') as HTMLElement | null;
         }
         if (!block) {
-            block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, img, table, tr, td, th, span:not(.editor-workspace), a') as HTMLElement | null;
+            block = target.closest('img') as HTMLElement | null;
+        }
+        if (!block) {
+            block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, table, tr, td, th, span:not(.editor-workspace), a') as HTMLElement | null;
         }
 
         if (block && (block.tagName === 'TD' || block.tagName === 'TH' || block.tagName === 'TR')) {
