@@ -37,8 +37,18 @@ const rgbToHex = (rgb: string) => {
     return `#${r}${g}${b}`;
 };
 
-const mapFontSizeToCommandValue = (fontSizePx: number) => {
-    return String(Math.max(1, Math.round(fontSizePx)));
+// Helper: standard conversion (96 DPI)
+const pxToPt = (px: string): string => {
+    const num = parseFloat(px);
+    return isNaN(num) ? px : `${Math.round(num * 0.75)}pt`;
+};
+
+const mapFontSizeToCommandValue = (fontSizeStr: string) => {
+    // execCommand fontSize expects 1-7, but we are moving away from it.
+    // However, if it's called, we just return the raw string or rounded number.
+    const num = parseFloat(fontSizeStr);
+    if (isNaN(num)) return fontSizeStr;
+    return String(Math.max(1, Math.round(num)));
 };
 
 type StyleClipboard =
@@ -67,9 +77,11 @@ ${LAYOUT_MARKER_START}
     size: ${width} ${height};
     margin: 0; /* Use padding on .page instead for better control */
 }
-.page {
+.editor-workspace .page {
     width: ${width} !important;
     height: ${height} !important;
+    min-height: ${height} !important;
+    max-height: ${height} !important;
     padding: calc(${margins.top}in + var(--header-reserve, 0in)) ${margins.right}in calc(${margins.bottom}in + var(--footer-reserve, 0in)) ${margins.left}in !important;
     overflow: hidden !important;
 }
@@ -202,13 +214,23 @@ const scopeImportedCss = (css: string, scopeSelector = '.editor-workspace') => {
         const open = block.indexOf('{');
         if (open === -1) return block;
         const selectors = block.slice(0, open).trim();
-        const body = block.slice(open + 1, -1).trim();
+        let body = block.slice(open + 1, -1).trim();
         const scopedSelectors = selectors
             .split(',')
             .map(prefixSelector)
             .filter(Boolean)
             .join(', ');
         if (!scopedSelectors) return '';
+
+        // If the imported CSS targets the page container, strip out fixed dimensions
+        // because we want our `applyLayoutOverride` to control the physical page size.
+        if (scopedSelectors.includes('.page')) {
+            body = body.replace(/width\s*:\s*[^;]+;?/gi, '')
+                .replace(/height\s*:\s*[^;]+;?/gi, '')
+                .replace(/min-height\s*:\s*[^;]+;?/gi, '')
+                .replace(/max-height\s*:\s*[^;]+;?/gi, '');
+        }
+
         return `${scopedSelectors} { ${body} }`;
     });
 
@@ -308,7 +330,7 @@ const buildSelectionStateFromElement = (element: HTMLElement): SelectionState =>
         alignRight: textAlign === 'right' || textAlign === 'end',
         alignJustify: textAlign === 'justify',
         fontName: computedText.fontFamily || 'sans-serif',
-        fontSize: mapFontSizeToCommandValue(fontSizePx),
+        fontSize: mapFontSizeToCommandValue(String(fontSizePx)),
         lineHeight: computedBlock.lineHeight || 'normal',
         letterSpacing: computedText.letterSpacing || 'normal',
         foreColor: rgbToHex(computedText.color),
@@ -996,6 +1018,30 @@ const App: React.FC = () => {
                                 img.src = imageMap.get(decodedFilename)!;
                                 linkedCount++;
                             }
+                        }
+                    });
+
+                    // E. Sanitize fixed widths that cause margin overflow
+                    doc.body.querySelectorAll('*').forEach(el => {
+                        const htmlEl = el as HTMLElement;
+                        // Avoid stripping widths from small structural elements if they are reasonable,
+                        // but generally we want imported text/div boxes to reflow.
+                        if (htmlEl.style.width && htmlEl.style.width.includes('px')) {
+                            const w = parseFloat(htmlEl.style.width);
+                            if (w > 500) { // If it's a huge hardcoded width, it'll break our pages
+                                htmlEl.style.maxWidth = '100%';
+                                htmlEl.style.width = 'auto'; // Let it reflow
+                            }
+                        }
+
+                        // Sanitize non-breaking whitespaces that force text overflow
+                        if (htmlEl.style.whiteSpace === 'nowrap' || htmlEl.style.whiteSpace === 'pre') {
+                            htmlEl.style.whiteSpace = 'normal';
+                        }
+
+                        // Remove hardcoded min-widths on text spans which prevent wrapping
+                        if (htmlEl.style.minWidth && (htmlEl.tagName === 'SPAN' || htmlEl.tagName === 'P' || htmlEl.tagName === 'DIV')) {
+                            htmlEl.style.minWidth = '';
                         }
                     });
 
@@ -2148,20 +2194,23 @@ const App: React.FC = () => {
                 if (applyStyleToMultiSelection({ 'font-family': value })) return;
             }
             if (command === 'fontSize') {
-                const sizeValue = value || '16';
-                const sizePx = sizeValue.includes('px') ? sizeValue : `${sizeValue}px`;
+                const sizeValue = value || '16pt';
+                let sizeFinal = sizeValue;
+                if (!sizeValue.includes('pt') && !sizeValue.includes('px') && !sizeValue.includes('em')) {
+                    sizeFinal = `${sizeValue}pt`;
+                }
                 const textTargets = multiSelectedElements
                     .map(id => document.getElementById(id))
                     .filter(Boolean)
                     .map(el => (el as HTMLElement).closest('.floating-text, .writing-lines, textarea.writing-lines, p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)') as HTMLElement | null)
                     .filter(Boolean) as HTMLElement[];
                 if (textTargets.length > 0) {
-                    textTargets.forEach(el => el.style.setProperty('font-size', sizePx, 'important'));
+                    textTargets.forEach(el => el.style.setProperty('font-size', sizeFinal, 'important'));
                     const workspace = document.querySelector('.editor-workspace');
                     if (workspace) {
                         updateDocStatePreserveScroll(workspace.innerHTML);
                     }
-                    setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
+                    setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('pt', '').replace('px', '') }));
                     return;
                 }
             }
@@ -2233,8 +2282,8 @@ const App: React.FC = () => {
             footers.forEach((footerEl) => {
                 const footer = footerEl as HTMLElement;
                 if (command === 'fontSize') {
-                    const size = value || '12';
-                    footer.style.fontSize = size.includes('px') ? size : `${size}px`;
+                    const size = value || '12pt';
+                    footer.style.fontSize = (!size.includes('px') && !size.includes('pt')) ? `${size}pt` : size;
                 } else if (command === 'fontName') {
                     footer.style.fontFamily = value || 'inherit';
                 } else if (command === 'bold') {
@@ -2361,8 +2410,11 @@ const App: React.FC = () => {
         }
 
         if (command === 'fontSize') {
-            const sizeValue = value || '16';
-            const sizePx = sizeValue.includes('px') ? sizeValue : `${sizeValue}px`;
+            const sizeValue = value || '16pt';
+            let sizeFinal = sizeValue;
+            if (!sizeValue.includes('pt') && !sizeValue.includes('px') && !sizeValue.includes('em')) {
+                sizeFinal = `${sizeValue}pt`;
+            }
             const selection = window.getSelection();
             let range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
             if ((!range || range.collapsed) && selectionState.range) {
@@ -2382,21 +2434,32 @@ const App: React.FC = () => {
                 || selectedTextLayer
                 || (activeBlock && activeBlock.tagName !== 'IMG' ? activeBlock : null);
 
-            if (range && !range.collapsed) {
-                const span = document.createElement('span');
-                span.style.fontSize = sizePx;
-                span.appendChild(range.extractContents());
-                range.insertNode(span);
+            // Apply size to elements and selection
+            if (range && (!range.collapsed || selectedTextLayer)) {
+                const spansWholeBlock = targetBlock && range.toString() === targetBlock.innerText;
 
-                selection?.removeAllRanges();
-                const newRange = document.createRange();
-                newRange.selectNodeContents(span);
-                selection?.addRange(newRange);
+                if (spansWholeBlock || selectedTextLayer) {
+                    if (targetBlock) targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                } else {
+                    const span = document.createElement('span');
+                    span.style.fontSize = sizeFinal;
+                    try {
+                        span.appendChild(range.extractContents());
+                        range.insertNode(span);
+                        selection?.removeAllRanges();
+                        const newRange = document.createRange();
+                        newRange.selectNodeContents(span);
+                        selection?.addRange(newRange);
+                    } catch (e) {
+                        console.error("DOM split failed for fontSize:", e);
+                        if (targetBlock) targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                    }
+                }
             } else if (targetBlock) {
-                targetBlock.style.fontSize = sizePx;
+                targetBlock.style.setProperty('font-size', sizeFinal, 'important');
             }
 
-            setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('px', '') }));
+            setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('pt', '').replace('px', '') }));
             if (workspace) {
                 updateDocStatePreserveScroll(workspace.innerHTML);
             }
@@ -3677,7 +3740,10 @@ const App: React.FC = () => {
     const handleCustomPageSizeChange = (width: string, height: string) => {
         setCustomPageSize({ width, height });
         if (pageFormatId === 'custom') {
-            updatePageCSS(width, height, pageMargins);
+            // Append 'in' if the user types a raw number so CSS doesn't break
+            const validWidth = /^\d+(\.\d+)?$/.test(width) ? `${width}in` : width;
+            const validHeight = /^\d+(\.\d+)?$/.test(height) ? `${height}in` : height;
+            updatePageCSS(validWidth || '8.5in', validHeight || '11in', pageMargins);
         }
     };
 

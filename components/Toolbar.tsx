@@ -179,21 +179,26 @@ const Toolbar: React.FC<ToolbarProps> = ({
     }, [selectionState.letterSpacing]);
 
     useEffect(() => {
-        const fontSizePx = parseFloat(selectionState.fontSize || '16');
+        // Assume fontSize is either explicitly pt, or just a number which we interpret as pt. 
+        // We'll strip any non-numeric characters for the math.
+        const fontSizeVal = parseFloat(String(selectionState.fontSize).replace(/[^\d.]/g, '') || '16');
         const raw = selectionState.lineHeight || 'normal';
         let ratio = 1;
 
         if (raw === 'normal') {
             ratio = 1;
         } else if (raw.includes('calc')) {
-            const match = raw.match(/calc\(\s*1em\s*\+\s*([\-\d.]+)px\s*\)/);
-            if (match && !isNaN(fontSizePx)) {
-                ratio = 1 + parseFloat(match[1]) / fontSizePx;
+            const match = raw.match(/calc\(\s*1em\s*\+\s*([\-\d.]+)(px|pt)\s*\)/);
+            if (match && !isNaN(fontSizeVal)) {
+                // If it's px, we'd theoretically divide by (fontSizeVal * 1.333),
+                // but let's keep it simple: line-height should ideally just use the ratio
+                const offset = parseFloat(match[1]);
+                ratio = 1 + offset / fontSizeVal;
             }
         } else {
             const numeric = parseFloat(raw);
             if (!isNaN(numeric)) {
-                ratio = raw.includes('px') && !isNaN(fontSizePx) ? numeric / fontSizePx : numeric;
+                ratio = (raw.includes('px') || raw.includes('pt')) && !isNaN(fontSizeVal) ? numeric / fontSizeVal : numeric;
             }
         }
 
@@ -664,7 +669,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 onChange={(e) => {
                                     const val = e.target.value;
                                     if (val === '') return;
-                                    onFormat('fontSize', val);
+                                    // Pass pt format to onFormat
+                                    onFormat('fontSize', `${val}pt`);
                                 }}
                                 className="h-8 border border-gray-200 rounded text-xs text-gray-800 focus:outline-none w-14 px-1 bg-white"
                                 title="Font Size"
@@ -1136,7 +1142,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                         onChange={(e) => {
                                             const val = e.target.value;
                                             if (val === '') return;
-                                            onFormat('fontSize', val);
+                                            // Pass pt format to onFormat
+                                            onFormat('fontSize', `${val}pt`);
                                         }}
                                         title="Font Size"
                                     />
