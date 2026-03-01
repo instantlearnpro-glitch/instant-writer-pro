@@ -1743,6 +1743,30 @@ const Editor: React.FC<EditorProps> = ({
         }
     };
 
+    const handleSendBackward = () => {
+        if (!contextMenu?.block) return;
+        const currentZ = parseInt(window.getComputedStyle(contextMenu.block).zIndex) || 0;
+        contextMenu.block.style.zIndex = `${currentZ - 1}`;
+        contextMenu.block.style.position = contextMenu.block.style.position || 'relative'; // Ensure z-index works
+
+        if (contentRef.current) {
+            onContentChange(contentRef.current.innerHTML);
+        }
+        setContextMenu(null);
+    };
+
+    const handleBringForward = () => {
+        if (!contextMenu?.block) return;
+        const currentZ = parseInt(window.getComputedStyle(contextMenu.block).zIndex) || 0;
+        contextMenu.block.style.zIndex = `${currentZ + 1}`;
+        contextMenu.block.style.position = contextMenu.block.style.position || 'relative';
+
+        if (contentRef.current) {
+            onContentChange(contentRef.current.innerHTML);
+        }
+        setContextMenu(null);
+    };
+
     const handleDeleteBlock = () => {
         if (!activeBlock) return;
 
@@ -2810,6 +2834,8 @@ const Editor: React.FC<EditorProps> = ({
                     onAlignTop={multiSelectedElements.length > 1 ? () => safeAlign('top') : undefined}
                     onAlignMiddle={multiSelectedElements.length > 1 ? () => safeAlign('middle') : undefined}
                     onAlignBottom={multiSelectedElements.length > 1 ? () => safeAlign('bottom') : undefined}
+                    onBringForward={contextMenu.block?.tagName === 'IMG' ? handleBringForward : undefined}
+                    onSendBackward={contextMenu.block?.tagName === 'IMG' ? handleSendBackward : undefined}
                     onToggleMarginOverride={contextMenu.block && !contextMenu.block.classList.contains('page-footer') ? () => handleToggleMarginOverride(contextMenu.block) : undefined}
                     isMarginOverride={contextMenu.block?.getAttribute('data-ignore-margins') === 'true'}
                     onMoveUp={handleMoveUp}
