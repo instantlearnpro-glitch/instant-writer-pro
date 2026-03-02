@@ -6,7 +6,7 @@ interface ExportModalProps {
   onClose: () => void;
   onExportPDF: (fileName: string, onProgress?: (percent: number) => void) => void;
   onExportHTML: (fileName: string) => void;
-  onExportDOCX: (fileName: string) => void;
+  onExportDOCX: (fileName: string, onProgress?: (percent: number) => void) => void;
 }
 
 const ExportModal: React.FC<ExportModalProps> = ({
@@ -39,7 +39,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
           onExportHTML(finalName);
           break;
         case 'docx':
-          await onExportDOCX(finalName);
+          await onExportDOCX(finalName, (percent) => setExportProgress(percent));
           break;
       }
       onClose();
@@ -86,8 +86,8 @@ const ExportModal: React.FC<ExportModalProps> = ({
                 onClick={() => setFormat('pdf')}
                 disabled={isExporting}
                 className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${format === 'pdf'
-                    ? 'border-violet-500 bg-violet-50 text-violet-700'
-                    : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/30'
+                  ? 'border-violet-500 bg-violet-50 text-violet-700'
+                  : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/30'
                   }`}
               >
                 <div className="text-3xl">📄</div>
@@ -99,8 +99,8 @@ const ExportModal: React.FC<ExportModalProps> = ({
                 onClick={() => setFormat('html')}
                 disabled={isExporting}
                 className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${format === 'html'
-                    ? 'border-violet-500 bg-violet-50 text-violet-700'
-                    : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/30'
+                  ? 'border-violet-500 bg-violet-50 text-violet-700'
+                  : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/30'
                   }`}
               >
                 <div className="text-3xl">🌐</div>
@@ -112,8 +112,8 @@ const ExportModal: React.FC<ExportModalProps> = ({
                 onClick={() => setFormat('docx')}
                 disabled={isExporting}
                 className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${format === 'docx'
-                    ? 'border-violet-500 bg-violet-50 text-violet-700'
-                    : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/30'
+                  ? 'border-violet-500 bg-violet-50 text-violet-700'
+                  : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/30'
                   }`}
               >
                 <div className="text-3xl">📝</div>
@@ -125,11 +125,11 @@ const ExportModal: React.FC<ExportModalProps> = ({
 
           {/* Info / Progress */}
           <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
-            {isExporting && format === 'pdf' ? (
+            {isExporting && (format === 'pdf' || format === 'docx') ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-violet-700">
-                    Rendering PDF...
+                    {format === 'pdf' ? 'Rendering PDF...' : 'Generating DOCX...'}
                   </span>
                   <span className="font-bold text-violet-700">
                     {Math.round(exportProgress)}%
