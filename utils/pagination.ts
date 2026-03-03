@@ -579,7 +579,20 @@ const isSplitContainer = (el: HTMLElement) => {
     if (el.classList.contains('page')) return false;
     if (el.classList.contains('editor-workspace')) return false;
     if (el.classList.contains('page-footer')) return false;
-    return ['div', 'section', 'article', 'main', 'ul', 'ol'].includes(tag);
+    if (!['div', 'section', 'article', 'main', 'ul', 'ol'].includes(tag)) return false;
+
+    // Don't split styled containers — these are intentional visual boxes
+    if (el.classList.contains('mission-box') || el.classList.contains('shape-rectangle')
+        || el.classList.contains('shape-circle') || el.classList.contains('shape-pill')
+        || el.classList.contains('shape-speech') || el.classList.contains('shape-cloud')
+        || el.classList.contains('toc-container')) return false;
+
+    const cs = window.getComputedStyle(el);
+    const hasBorder = parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0;
+    const hasBg = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
+    if (hasBorder || hasBg) return false;
+
+    return true;
 };
 
 const splitContainerByChildren = (container: HTMLElement, pageBottom: number): HTMLElement | null => {

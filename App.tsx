@@ -246,6 +246,20 @@ const unwrapSingleContainer = (page: HTMLElement) => {
     if (child.classList.contains('page')) return;
     if (child.children.length === 0) return;
 
+    // Don't unwrap if the wrapper carries meaningful styles (font, border, bg, padding, etc.)
+    const cs = window.getComputedStyle(child);
+    const hasBg = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
+    const hasBorder = parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderBottomWidth) > 0
+        || parseFloat(cs.borderLeftWidth) > 0 || parseFloat(cs.borderRightWidth) > 0;
+    const hasPadding = parseFloat(cs.paddingTop) > 4 || parseFloat(cs.paddingBottom) > 4
+        || parseFloat(cs.paddingLeft) > 4 || parseFloat(cs.paddingRight) > 4;
+    const hasFont = child.style.fontFamily && child.style.fontFamily.trim() !== '';
+    const hasClass = child.className && child.className.trim() !== '';
+
+    if (hasBg || hasBorder || hasPadding || hasFont || hasClass) {
+        return; // Preserve styled wrapper
+    }
+
     while (child.firstChild) {
         page.insertBefore(child.firstChild, child);
     }
@@ -261,7 +275,14 @@ const fixClippedContainers = (page: HTMLElement) => {
         if (el.classList.contains('page')) return;
         if (el.classList.contains('page-footer')) return;
 
+        // Skip styled containers — they likely have intentional overflow control
         const computed = window.getComputedStyle(el);
+        const hasBg = computed.backgroundColor !== 'rgba(0, 0, 0, 0)' && computed.backgroundColor !== 'transparent';
+        const hasBorder = parseFloat(computed.borderTopWidth) > 0 || parseFloat(computed.borderLeftWidth) > 0;
+        if (hasBg || hasBorder) return;
+        if (el.classList.contains('mission-box') || el.classList.contains('shape-rectangle')
+            || el.classList.contains('toc-container')) return;
+
         const overflowY = computed.overflowY || computed.overflow;
         const overflowX = computed.overflowX || computed.overflow;
         const isClipping = ['hidden', 'clip', 'scroll', 'auto'].includes(overflowY)
@@ -1012,25 +1033,33 @@ const App: React.FC = () => {
                     });
 
                     // E. Sanitize fixed widths that cause margin overflow
+                    // Only target plain layout containers — skip styled boxes with borders/backgrounds
                     doc.body.querySelectorAll('*').forEach(el => {
                         const htmlEl = el as HTMLElement;
-                        // Avoid stripping widths from small structural elements if they are reasonable,
-                        // but generally we want imported text/div boxes to reflow.
-                        if (htmlEl.style.width && htmlEl.style.width.includes('px')) {
+
+                        // Skip elements that look like intentionally styled boxes
+                        const isStyledBox = htmlEl.style.border || htmlEl.style.borderWidth
+                            || htmlEl.style.backgroundColor || htmlEl.style.background
+                            || htmlEl.classList.contains('mission-box')
+                            || htmlEl.classList.contains('shape-rectangle')
+                            || htmlEl.classList.contains('toc-container');
+
+                        if (!isStyledBox && htmlEl.style.width && htmlEl.style.width.includes('px')) {
                             const w = parseFloat(htmlEl.style.width);
-                            if (w > 500) { // If it's a huge hardcoded width, it'll break our pages
+                            if (w > 700) { // Only strip very large widths that would overflow the page
                                 htmlEl.style.maxWidth = '100%';
-                                htmlEl.style.width = 'auto'; // Let it reflow
+                                htmlEl.style.width = 'auto';
                             }
                         }
 
-                        // Sanitize non-breaking whitespaces that force text overflow
-                        if (htmlEl.style.whiteSpace === 'nowrap' || htmlEl.style.whiteSpace === 'pre') {
+                        // Sanitize whiteSpace only on plain text containers, not preformatted blocks
+                        if (htmlEl.style.whiteSpace === 'nowrap') {
                             htmlEl.style.whiteSpace = 'normal';
                         }
+                        // Keep 'pre' whiteSpace — it's intentional for code blocks / preformatted text
 
                         // Remove hardcoded min-widths on text spans which prevent wrapping
-                        if (htmlEl.style.minWidth && (htmlEl.tagName === 'SPAN' || htmlEl.tagName === 'P' || htmlEl.tagName === 'DIV')) {
+                        if (htmlEl.style.minWidth && (htmlEl.tagName === 'SPAN')) {
                             htmlEl.style.minWidth = '';
                         }
                     });
