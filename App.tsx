@@ -2742,11 +2742,25 @@ const App: React.FC = () => {
                 'line-height': computedBlock.lineHeight
             };
             setSavedHeadingStyles(prev => ({ ...prev, [selector]: capturedStylesForSave }));
+
+            // CRITICAL FIX: Since new headings get these styles applied INLINE with !important
+            // (via applyInlineHeadingStyles), a pure CSS rule update won't affect them.
+            // We MUST find all existing headings of this type and update their inline styles too.
+            if (workspace) {
+                const existingHeadings = workspace.querySelectorAll(selector);
+                existingHeadings.forEach(el => {
+                    const htmlEl = el as HTMLElement;
+                    // Skip elements inside shapes/boxes as they might have container-specific overrides
+                    if (!htmlEl.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle')) {
+                        applyInlineHeadingStyles(htmlEl, capturedStylesForSave);
+                    }
+                });
+            }
         }
 
         updateDocState({
             ...docState,
-            htmlContent: nextHtml,
+            htmlContent: workspace ? workspace.innerHTML : nextHtml,
             cssContent: docState.cssContent + '\n' + newRule
         }, true);
 
