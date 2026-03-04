@@ -1094,12 +1094,46 @@ const App: React.FC = () => {
 
                     const scopedImportedCss = scopeImportedCss(rawImportedCss, '.editor-workspace');
                     let finalCss = `${DEFAULT_CSS}\n${scopedImportedCss}`.trim();
-                    finalCss = applyLayoutOverride(finalCss, targetSize.width, targetSize.height, pageMargins);
 
+                    // Determine the correct format and margins to use for the layout
+                    let importMargins = pageMargins;
                     if (detectedSize) {
-                        setPageFormatId('custom');
-                        setCustomPageSize({ width: targetSize.width, height: targetSize.height });
+                        // Match detected size against known formats before falling back to 'custom'
+                        const sizeToInches = (val: string): number => {
+                            const num = parseFloat(val);
+                            if (isNaN(num)) return 0;
+                            if (val.includes('mm')) return num / 25.4;
+                            if (val.includes('cm')) return num / 2.54;
+                            if (val.includes('pt')) return num / 72;
+                            if (val.includes('px')) return num / 96;
+                            return num; // assumes 'in' or unitless
+                        };
+                        const detectedW = sizeToInches(targetSize.width);
+                        const detectedH = sizeToInches(targetSize.height);
+                        const tolerance = 0.1; // Allow small rounding differences
+
+                        // Find the first matching known format (skip 'custom')
+                        const matchedFormat = Object.values(PAGE_FORMATS).find(f => {
+                            if (f.id === 'custom') return false;
+                            const fw = sizeToInches(f.width);
+                            const fh = sizeToInches(f.height);
+                            return Math.abs(fw - detectedW) < tolerance && Math.abs(fh - detectedH) < tolerance;
+                        });
+
+                        if (matchedFormat) {
+                            setPageFormatId(matchedFormat.id);
+                            setPageMargins(matchedFormat.margins);
+                            importMargins = matchedFormat.margins;
+                            console.log(`[Import] Matched page size to format: ${matchedFormat.id} (${matchedFormat.width} x ${matchedFormat.height})`);
+                        } else {
+                            setPageFormatId('custom');
+                            setCustomPageSize({ width: targetSize.width, height: targetSize.height });
+                            console.log(`[Import] Custom page size: ${targetSize.width} x ${targetSize.height}`);
+                        }
                     }
+
+                    // Apply layout override with the correct dimensions and margins
+                    finalCss = applyLayoutOverride(finalCss, targetSize.width, targetSize.height, importMargins);
 
                     const newState = {
                         htmlContent: bodyContent,
