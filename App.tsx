@@ -588,6 +588,7 @@ const App: React.FC = () => {
     });
 
     const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
+    const activeBlockRef = useRef<HTMLElement | null>(null);
 
     const [selectedImage, setSelectedImage] = useState<HTMLImageElement | null>(null);
     const [selectedTextLayer, setSelectedTextLayer] = useState<HTMLElement | null>(null);
@@ -2538,10 +2539,11 @@ const App: React.FC = () => {
         let styledElement: Element | null = null;
 
         if (targetTagName && workspace) {
-            // First try activeBlock — this is the element the user last clicked on.
-            // We capture from it regardless of tag (it could be a <p>, <h2>, anything).
-            if (activeBlock && workspace.contains(activeBlock)) {
-                styledElement = activeBlock;
+            // First try activeBlockRef (ref is always fresh, unlike state which can be stale in closures)
+            const currentActiveBlock = activeBlockRef.current;
+            if (currentActiveBlock && workspace.contains(currentActiveBlock)) {
+                styledElement = currentActiveBlock;
+                console.log('[UpdateStyle] Captured from activeBlockRef:', currentActiveBlock.tagName, currentActiveBlock.textContent?.substring(0, 40));
             }
             // Then try the current selection
             if (!styledElement) {
@@ -2945,6 +2947,7 @@ const App: React.FC = () => {
                 if (recovered) {
                     currentBlock = recovered as HTMLElement;
                     setActiveBlock(currentBlock); // Sync state
+                    activeBlockRef.current = currentBlock;
                 }
             }
         }
@@ -4685,6 +4688,7 @@ ${workspace.innerHTML}
         // Only update if not null, to avoid clearing selection when clicking toolbar
         if (block) {
             setActiveBlock(block);
+            activeBlockRef.current = block;
 
             // Automatically show frame tools if it's a shape
             const isShape = block.matches('.mission-box, .tracing-line, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle');
@@ -5069,6 +5073,7 @@ ${workspace.innerHTML}
                         onSelectionChange={onSelectionChange}
                         onBlockClick={(block) => {
                             setActiveBlock(block);
+                            activeBlockRef.current = block;
                         }}
                         onImageSelect={handleImageSelect}
                         onTextLayerSelect={handleTextLayerSelect}
