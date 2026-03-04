@@ -2253,8 +2253,8 @@ const App: React.FC = () => {
         }
 
         if (command === 'lineHeight') {
-            // 1. Recover activeBlock if detached
-            let targetBlock = activeBlock;
+            // 1. Recover activeBlock if detached (use ref for fresh value)
+            let targetBlock = activeBlockRef.current;
             if (targetBlock && !targetBlock.isConnected) {
                 const selection = window.getSelection();
                 if (selection && selection.rangeCount > 0) {
