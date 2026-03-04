@@ -819,17 +819,20 @@ const App: React.FC = () => {
                 return;
             }
         }
-        const newState = { ...docState, htmlContent: html };
-        setDocState(newState); // Immediate update for UI
-
-        // Debounce history save
-        if (debounceTimeoutRef.current) {
-            clearTimeout(debounceTimeoutRef.current);
-        }
-
-        debounceTimeoutRef.current = setTimeout(() => {
-            pushHistoryState(newState, { skipIfSameHtml: html });
-        }, 1000); // Wait 1s after typing stops
+        // Use functional update to preserve the LATEST cssContent.
+        // Without this, the stale docState closure overwrites cssContent
+        // (e.g. reverts 8.5x11 back to 6x9 after a format change).
+        setDocState(prev => {
+            const newState = { ...prev, htmlContent: html };
+            // Debounce history save
+            if (debounceTimeoutRef.current) {
+                clearTimeout(debounceTimeoutRef.current);
+            }
+            debounceTimeoutRef.current = setTimeout(() => {
+                pushHistoryState(newState, { skipIfSameHtml: html });
+            }, 1000);
+            return newState;
+        });
     };
 
     const updateDocStatePreserveScroll = (html: string) => {
