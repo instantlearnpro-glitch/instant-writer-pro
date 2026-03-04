@@ -690,6 +690,56 @@ const splitContainerByRange = (container: HTMLElement, pageBottom: number): HTML
 };
 
 /**
+ * Recursively pulls up children from a split container into a partial clone.
+ * Handles nested containers (e.g., div > ol > li).
+ * Returns the partial container (caller appends it) and updated free space.
+ */
+const pullUpSplitContainer = (
+    container: HTMLElement,
+    pgFree: number
+): { partial: HTMLElement | null; movedAny: boolean; pgFree: number } => {
+    const children = Array.from(container.children) as HTMLElement[];
+    if (children.length < 1) return { partial: null, movedAny: false, pgFree };
+
+    const partialContainer = container.cloneNode(false) as HTMLElement;
+    partialContainer.removeAttribute('id');
+    let movedAny = false;
+
+    for (const child of [...children]) {
+        const childH = child.offsetHeight;
+        const childS = window.getComputedStyle(child);
+        const childMt = parseFloat(childS.marginTop) || 0;
+        const childMb = parseFloat(childS.marginBottom) || 0;
+        const childTotal = childH + childMt + childMb;
+
+        if (childTotal <= pgFree + 1) {
+            // Child fits whole — move it
+            partialContainer.appendChild(child);
+            pgFree -= childTotal;
+            movedAny = true;
+        } else if (isSplitContainer(child)) {
+            // Child doesn't fit but is itself a split container — recurse
+            const nested = pullUpSplitContainer(child, pgFree);
+            if (nested.movedAny && nested.partial) {
+                // Nest the partial child inside our partial container
+                partialContainer.appendChild(nested.partial);
+                pgFree = nested.pgFree;
+                movedAny = true;
+                // If the original child is now empty, remove it from source
+                if (child.children.length === 0) {
+                    child.remove();
+                }
+            }
+            break; // Stop after first non-fitting child (even if partially split)
+        } else {
+            break; // Stop at the first non-fitting, non-splittable child
+        }
+    }
+
+    return { partial: movedAny ? partialContainer : null, movedAny, pgFree };
+};
+
+/**
  * The core reflow logic.
  * CONSERVATIVE: Only moves WHOLE elements to next page when they overflow.
  * Never splits elements, never pulls content up, never removes pages.
@@ -878,39 +928,16 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 // Element doesn't fit whole — but if it's a split container (ul/ol/div),
                 // try to split it and pull up the children that fit.
                 if (isSplitContainer(firstEl)) {
-                    const children = Array.from(firstEl.children) as HTMLElement[];
-                    if (children.length >= 2) {
-                        // Clone the container for the current page
-                        const partialContainer = firstEl.cloneNode(false) as HTMLElement;
-                        partialContainer.removeAttribute('id');
-                        let movedAny = false;
-
-                        for (const child of children) {
-                            const childH = child.offsetHeight;
-                            const childS = window.getComputedStyle(child);
-                            const childMt = parseFloat(childS.marginTop) || 0;
-                            const childMb = parseFloat(childS.marginBottom) || 0;
-                            const childTotal = childH + childMt + childMb;
-
-                            if (childTotal <= pgFree + 1) {
-                                partialContainer.appendChild(child);
-                                pgFree -= childTotal;
-                                movedAny = true;
-                            } else {
-                                break; // Stop at the first child that doesn't fit
-                            }
+                    const pulled = pullUpSplitContainer(firstEl, pgFree);
+                    if (pulled.movedAny && pulled.partial) {
+                        page.appendChild(pulled.partial);
+                        pgFree = pulled.pgFree;
+                        changesMade = true;
+                        iterations++;
+                        if (firstEl.children.length === 0) {
+                            firstEl.remove();
                         }
-
-                        if (movedAny) {
-                            page.appendChild(partialContainer);
-                            changesMade = true;
-                            iterations++;
-                            // If the original container is now empty, remove it
-                            if (firstEl.children.length === 0) {
-                                firstEl.remove();
-                            }
-                            continue;
-                        }
+                        continue;
                     }
                 }
 
