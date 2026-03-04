@@ -875,7 +875,46 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     continue;
                 }
 
-                // Element doesn't fit whole: stop pulling into this page.
+                // Element doesn't fit whole — but if it's a split container (ul/ol/div),
+                // try to split it and pull up the children that fit.
+                if (isSplitContainer(firstEl)) {
+                    const children = Array.from(firstEl.children) as HTMLElement[];
+                    if (children.length >= 2) {
+                        // Clone the container for the current page
+                        const partialContainer = firstEl.cloneNode(false) as HTMLElement;
+                        partialContainer.removeAttribute('id');
+                        let movedAny = false;
+
+                        for (const child of children) {
+                            const childH = child.offsetHeight;
+                            const childS = window.getComputedStyle(child);
+                            const childMt = parseFloat(childS.marginTop) || 0;
+                            const childMb = parseFloat(childS.marginBottom) || 0;
+                            const childTotal = childH + childMt + childMb;
+
+                            if (childTotal <= pgFree + 1) {
+                                partialContainer.appendChild(child);
+                                pgFree -= childTotal;
+                                movedAny = true;
+                            } else {
+                                break; // Stop at the first child that doesn't fit
+                            }
+                        }
+
+                        if (movedAny) {
+                            page.appendChild(partialContainer);
+                            changesMade = true;
+                            iterations++;
+                            // If the original container is now empty, remove it
+                            if (firstEl.children.length === 0) {
+                                firstEl.remove();
+                            }
+                            continue;
+                        }
+                    }
+                }
+
+                // Element doesn't fit and can't be split: stop pulling into this page.
                 break;
             }
         }
