@@ -403,6 +403,7 @@ const App: React.FC = () => {
         blockquote?: Record<string, string>;
         pre?: Record<string, string>;
     }>({});
+    const savedHeadingStylesRef = useRef(savedHeadingStyles);
 
     // Load available system fonts on mount and when web fonts are ready
     useEffect(() => {
@@ -1344,7 +1345,7 @@ const App: React.FC = () => {
         // via the "Update style" button (Word-like behavior).
         // Do NOT auto-capture styles from existing headings in the document —
         // imported files should not dictate the style for new headings.
-        const styles = stylesToApply || savedHeadingStyles[level] || null;
+        const styles = stylesToApply || savedHeadingStylesRef.current[level] || null;
         if (styles) {
             applyInlineHeadingStyles(target, styles);
         }
@@ -2515,7 +2516,8 @@ const App: React.FC = () => {
             }
 
             // Apply saved styles (Word-like behavior)
-            const stylesToApply = savedHeadingStyles[appliedTagStr as keyof typeof savedHeadingStyles];
+            const stylesToApply = savedHeadingStylesRef.current[appliedTagStr as keyof typeof savedHeadingStyles];
+            console.log('[FormatBlock] targetBlock:', targetBlock?.tagName, 'stylesToApply:', stylesToApply ? Object.keys(stylesToApply).length + ' props' : 'none');
             if (stylesToApply && targetBlock) {
                 applyInlineHeadingStyles(targetBlock, stylesToApply);
             }
@@ -2774,7 +2776,11 @@ const App: React.FC = () => {
         // Only elements the user explicitly assigns as H1 in the future will get this style.
         const validStyleTags = ['h1', 'h2', 'h3', 'p', 'blockquote', 'pre'];
         if (selector && validStyleTags.includes(selector)) {
-            setSavedHeadingStyles(prev => ({ ...prev, [selector]: capturedStylesForSave }));
+            setSavedHeadingStyles(prev => {
+                const next = { ...prev, [selector]: capturedStylesForSave };
+                savedHeadingStylesRef.current = next;
+                return next;
+            });
         }
 
         // Do NOT add a global CSS rule like `h1 { ... !important }` — that would override
@@ -4723,8 +4729,8 @@ ${workspace.innerHTML}
 
             // Priority 1: Already-saved styles for this heading level
             // ONLY use styles the user has explicitly set via "Update style" button.
-            if (savedHeadingStyles[targetTag]) {
-                resolvedStyles = savedHeadingStyles[targetTag];
+            if (savedHeadingStylesRef.current[targetTag]) {
+                resolvedStyles = savedHeadingStylesRef.current[targetTag];
             }
             // Do NOT auto-capture styles from existing headings in the document.
             // The user must explicitly define their H1/H2/H3 style via "Update style".
