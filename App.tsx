@@ -2705,6 +2705,8 @@ const App: React.FC = () => {
         const fontWeight = computedText.fontWeight;
         const fontStyle = computedText.fontStyle;
         const textDecoration = computedText.textDecorationLine || computedText.textDecoration;
+        const textTransform = computedText.textTransform;
+        const letterSpacing = computedText.letterSpacing;
 
         // Capture styles BEFORE any tag conversion
         const capturedStylesForSave: Record<string, string> = {
@@ -2715,6 +2717,8 @@ const App: React.FC = () => {
             'color': color,
             'text-align': computedBlock.textAlign,
             'text-decoration': textDecoration,
+            'text-transform': textTransform,
+            'letter-spacing': letterSpacing,
             'margin-top': computedBlock.marginTop,
             'margin-bottom': computedBlock.marginBottom,
             'line-height': computedBlock.lineHeight
@@ -2763,42 +2767,21 @@ const App: React.FC = () => {
             });
         }
 
-        const newRule = `
-  ${selector} {
-    font-family: ${fontFamily} !important;
-    font-size: ${computedText.fontSize} !important;
-    color: ${color} !important;
-    font-weight: ${fontWeight} !important;
-    text-align: ${computedBlock.textAlign} !important;
-    font-style: ${fontStyle} !important;
-    text-decoration: ${textDecoration} !important;
-    margin-top: ${computedBlock.marginTop} !important;
-    margin-bottom: ${computedBlock.marginBottom} !important;
-    line-height: ${computedBlock.lineHeight} !important;
-  }
-  `;
-
-        // Save captured styles for inline application on future elements of this type
+        // Save captured styles for inline application on FUTURE elements only.
+        // Do NOT update existing headings — imported file elements stay as-is.
+        // Only elements the user explicitly assigns as H1 in the future will get this style.
         const validStyleTags = ['h1', 'h2', 'h3', 'p', 'blockquote', 'pre'];
         if (selector && validStyleTags.includes(selector)) {
             setSavedHeadingStyles(prev => ({ ...prev, [selector]: capturedStylesForSave }));
-
-            // Update ALL existing headings of this type to use the new style
-            if (workspace) {
-                const existingHeadings = workspace.querySelectorAll(selector);
-                existingHeadings.forEach(el => {
-                    const htmlEl = el as HTMLElement;
-                    if (!htmlEl.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle')) {
-                        applyInlineHeadingStyles(htmlEl, capturedStylesForSave);
-                    }
-                });
-            }
         }
 
+        // Do NOT add a global CSS rule like `h1 { ... !important }` — that would override
+        // ALL existing H1 elements in the document, including imported ones.
+        // Instead, rely purely on inline styles applied via applyInlineHeadingStyles
+        // when the user explicitly assigns headings in the future.
         updateDocState({
             ...docState,
-            htmlContent: workspace ? workspace.innerHTML : docState.htmlContent,
-            cssContent: docState.cssContent + '\n' + newRule
+            htmlContent: workspace ? workspace.innerHTML : docState.htmlContent
         }, true);
 
         console.log(`[Style] Updated style for ${selector}`);
