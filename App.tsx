@@ -1196,7 +1196,25 @@ const App: React.FC = () => {
                                     setStructureEntries(rebuiltEntries);
                                 }
 
-                                updateDocState({ ...newState, htmlContent: workspace!.innerHTML }, true);
+                                // Use functional update to get the LATEST docState, not the stale
+                                // closure value. Between import and finalize, handleContentChange
+                                // may have overwritten cssContent with stale old CSS.
+                                setDocState(prev => {
+                                    // Re-apply layout override to ensure the correct page size
+                                    const correctedCss = applyLayoutOverride(
+                                        newState.cssContent, // Use the import's CSS as base
+                                        targetSize.width,
+                                        targetSize.height,
+                                        importMargins
+                                    );
+                                    const finalState = {
+                                        ...newState,
+                                        htmlContent: workspace!.innerHTML,
+                                        cssContent: correctedCss
+                                    };
+                                    pushHistoryState(finalState);
+                                    return finalState;
+                                });
                             }
                         });
                     };
