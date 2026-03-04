@@ -2704,6 +2704,63 @@ const App: React.FC = () => {
         const fontStyle = computedText.fontStyle;
         const textDecoration = computedText.textDecorationLine || computedText.textDecoration;
 
+        // Capture styles BEFORE any tag conversion
+        const capturedStylesForSave: Record<string, string> = {
+            'font-family': fontFamily,
+            'font-size': computedText.fontSize,
+            'font-weight': fontWeight,
+            'font-style': fontStyle,
+            'color': color,
+            'text-align': computedBlock.textAlign,
+            'text-decoration': textDecoration,
+            'margin-top': computedBlock.marginTop,
+            'margin-bottom': computedBlock.marginBottom,
+            'line-height': computedBlock.lineHeight
+        };
+
+        // CONVERT the element to the target tag if different (e.g., <p> → <h1>)
+        // This makes clicking ↻ next to H1 both capture the style AND set the element as H1
+        if (targetTagName && styledElement instanceof HTMLElement
+            && styledElement.tagName.toLowerCase() !== targetTagName.toLowerCase()
+            && !styledElement.classList.contains('page')
+            && !styledElement.classList.contains('editor-workspace')) {
+            const newElement = document.createElement(targetTagName);
+            Array.from(styledElement.attributes).forEach(attr => {
+                newElement.setAttribute(attr.name, attr.value);
+            });
+            newElement.innerHTML = styledElement.innerHTML;
+            styledElement.parentNode?.replaceChild(newElement, styledElement);
+            styledElement = newElement;
+            // Re-apply the ORIGINAL styles so the element looks identical after tag conversion
+            applyInlineHeadingStyles(newElement, capturedStylesForSave);
+            ensureElementId(newElement);
+            newElement.setAttribute('data-structure-status', 'approved');
+            htmlModified = true;
+
+            // Add to structure entries
+            const page = newElement.closest('.page');
+            const pages = workspace?.querySelectorAll('.page') || [];
+            let pageNum = 1;
+            pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+            setStructureEntries(prev => {
+                const exists = prev.find(e => e.elementId === newElement.id);
+                if (exists) {
+                    return prev.map(e => e.elementId === newElement.id
+                        ? { ...e, status: 'approved', type: targetTagName, page: pageNum, text: newElement.innerText.substring(0, 50) }
+                        : e
+                    );
+                }
+                return [...prev, {
+                    id: newElement.id,
+                    elementId: newElement.id,
+                    text: newElement.innerText.substring(0, 50),
+                    page: pageNum,
+                    type: targetTagName,
+                    status: 'approved'
+                }];
+            });
+        }
+
         const newRule = `
   ${selector} {
     font-family: ${fontFamily} !important;
@@ -2719,37 +2776,16 @@ const App: React.FC = () => {
   }
   `;
 
-        // Always capture the current live DOM HTML so that inline styles are preserved.
-        // Previously used docState.htmlContent when htmlModified was false, which lost
-        // any inline styles that existed in the live DOM but hadn't been saved yet.
-        const nextHtml = workspace ? workspace.innerHTML : docState.htmlContent;
-
         // Save captured styles for inline application on future elements of this type
-        // Works for ALL style types: p, h1, h2, h3, blockquote, pre (Word-like behavior)
         const validStyleTags = ['h1', 'h2', 'h3', 'p', 'blockquote', 'pre'];
         if (selector && validStyleTags.includes(selector)) {
-            const capturedStylesForSave: Record<string, string> = {
-                'font-family': fontFamily,
-                'font-size': computedText.fontSize,
-                'font-weight': fontWeight,
-                'font-style': fontStyle,
-                'color': color,
-                'text-align': computedBlock.textAlign,
-                'text-decoration': textDecoration,
-                'margin-top': computedBlock.marginTop,
-                'margin-bottom': computedBlock.marginBottom,
-                'line-height': computedBlock.lineHeight
-            };
             setSavedHeadingStyles(prev => ({ ...prev, [selector]: capturedStylesForSave }));
 
-            // CRITICAL FIX: Since new headings get these styles applied INLINE with !important
-            // (via applyInlineHeadingStyles), a pure CSS rule update won't affect them.
-            // We MUST find all existing headings of this type and update their inline styles too.
+            // Update ALL existing headings of this type to use the new style
             if (workspace) {
                 const existingHeadings = workspace.querySelectorAll(selector);
                 existingHeadings.forEach(el => {
                     const htmlEl = el as HTMLElement;
-                    // Skip elements inside shapes/boxes as they might have container-specific overrides
                     if (!htmlEl.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle')) {
                         applyInlineHeadingStyles(htmlEl, capturedStylesForSave);
                     }
@@ -2759,7 +2795,7 @@ const App: React.FC = () => {
 
         updateDocState({
             ...docState,
-            htmlContent: workspace ? workspace.innerHTML : nextHtml,
+            htmlContent: workspace ? workspace.innerHTML : docState.htmlContent,
             cssContent: docState.cssContent + '\n' + newRule
         }, true);
 
