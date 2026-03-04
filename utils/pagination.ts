@@ -615,6 +615,12 @@ const splitContainerByChildren = (container: HTMLElement, pageBottom: number): H
     const newContainer = container.cloneNode(false) as HTMLElement;
     newContainer.removeAttribute('id');
 
+    // Preserve numbered list continuation
+    if (container.tagName.toLowerCase() === 'ol') {
+        const existingStart = parseInt(container.getAttribute('start') || '1', 10);
+        newContainer.setAttribute('start', String(existingStart + splitIndex));
+    }
+
     for (let i = splitIndex; i < children.length; i++) {
         newContainer.appendChild(children[i]);
     }
@@ -717,6 +723,13 @@ const pullUpSplitContainer = (
             partialContainer.appendChild(child);
             pgFree -= childTotal;
             movedAny = true;
+
+            // Update start attribute on the remaining original <ol>
+            if (container.tagName.toLowerCase() === 'ol') {
+                const existingStart = parseInt(container.getAttribute('start') || '1', 10);
+                const movedCount = partialContainer.children.length;
+                container.setAttribute('start', String(existingStart + movedCount));
+            }
         } else if (isSplitContainer(child)) {
             // Child doesn't fit but is itself a split container — recurse
             const nested = pullUpSplitContainer(child, pgFree);
