@@ -940,15 +940,9 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     continue;
                 }
 
-                // Element doesn't fit whole — try to split it and pull up children that fit.
-                // First try plain split containers (no border/bg), then styled ones as fallback.
-                const tag = firstEl.tagName.toLowerCase();
-                const isContainerTag = ['div', 'section', 'article', 'main', 'ul', 'ol'].includes(tag);
-                const hasChildren = firstEl.children.length >= 2;
-
-                if (isContainerTag && hasChildren && !firstEl.classList.contains('page')
-                    && !firstEl.classList.contains('editor-workspace')
-                    && !firstEl.classList.contains('page-footer')) {
+                // Element doesn't fit whole — if it's an unstyled split container
+                // (ul/ol/div without border/bg), try to split and pull up children.
+                if (isSplitContainer(firstEl)) {
                     const pulled = pullUpSplitContainer(firstEl, pgFree);
                     if (pulled.movedAny && pulled.partial) {
                         page.appendChild(pulled.partial);
