@@ -710,6 +710,8 @@ const pullUpSplitContainer = (
     const partialContainer = container.cloneNode(false) as HTMLElement;
     partialContainer.removeAttribute('id');
     let movedAny = false;
+    const isOl = container.tagName.toLowerCase() === 'ol';
+    const originalStart = isOl ? parseInt(container.getAttribute('start') || '1', 10) : 1;
 
     for (const child of [...children]) {
         const childH = child.offsetHeight;
@@ -723,13 +725,6 @@ const pullUpSplitContainer = (
             partialContainer.appendChild(child);
             pgFree -= childTotal;
             movedAny = true;
-
-            // Update start attribute on the remaining original <ol>
-            if (container.tagName.toLowerCase() === 'ol') {
-                const existingStart = parseInt(container.getAttribute('start') || '1', 10);
-                const movedCount = partialContainer.children.length;
-                container.setAttribute('start', String(existingStart + movedCount));
-            }
         } else if (isSplitContainer(child)) {
             // Child doesn't fit but is itself a split container — recurse
             const nested = pullUpSplitContainer(child, pgFree);
@@ -749,6 +744,12 @@ const pullUpSplitContainer = (
         }
     }
 
+    // Update start on the remaining original <ol> ONCE after the loop
+    if (isOl && movedAny) {
+        const movedCount = partialContainer.querySelectorAll(':scope > li').length
+            || partialContainer.children.length;
+        container.setAttribute('start', String(originalStart + movedCount));
+    }
     return { partial: movedAny ? partialContainer : null, movedAny, pgFree };
 };
 
