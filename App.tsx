@@ -138,9 +138,12 @@ const parsePageSize = (rawValue: string) => {
 };
 
 const detectPageSizeFromCss = (css: string) => {
-    const pageMatch = css.match(/@page\s*{[^}]*size\s*:\s*([^;]+);/i);
-    if (pageMatch && pageMatch[1]) {
-        const parsed = parsePageSize(pageMatch[1]);
+    // Use the LAST @page rule with a size property — the layout override comes after
+    // the base DEFAULT_CSS, so the last one is the user's actual page size.
+    const pageMatches = [...css.matchAll(/@page\s*{[^}]*size\s*:\s*([^;]+);/gi)];
+    if (pageMatches.length > 0) {
+        const lastMatch = pageMatches[pageMatches.length - 1];
+        const parsed = parsePageSize(lastMatch[1]);
         if (parsed) return parsed;
     }
 
