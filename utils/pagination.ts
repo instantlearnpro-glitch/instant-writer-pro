@@ -82,11 +82,12 @@ const isFlowElement = (el: HTMLElement): boolean => {
 };
 
 const shouldAvoidBreak = (el: HTMLElement): boolean => {
-    // Lists and generic containers CAN be split at child boundaries.
+    // Only LISTS (ul/ol) can be split at child boundaries during overflow.
     // This allows e.g. item 1 on page 1 and items 2-5 on page 2.
-    if (isSplitContainer(el)) return false;
+    // Generic divs/sections stay together to keep images+text paired.
+    const tag = el.tagName.toLowerCase();
+    if ((tag === 'ul' || tag === 'ol') && isSplitContainer(el)) return false;
     // ALL other elements are kept together as a single block.
-    // If an element doesn't fit on the current page, it moves whole to the next page.
     return true;
 };
 
