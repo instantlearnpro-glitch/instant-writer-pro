@@ -1253,11 +1253,13 @@ const App: React.FC = () => {
             headingProps.forEach(prop => childEl.style.removeProperty(prop));
         });
 
-        // THEN: Apply the new heading styles
+        // THEN: Apply the new heading styles.
+        // CRITICAL: Apply ALL values including 'none', 'normal', '0px' — these are needed
+        // to explicitly override CSS rules from imported files. For example, if the imported
+        // CSS has `h1 { text-transform: uppercase }`, we MUST set `text-transform: none`
+        // on the element to prevent the imported style from taking effect.
         Object.entries(styles).forEach(([key, val]) => {
-            if (val && val !== 'none' && val !== 'normal' && val !== '0px') {
-                element.style.setProperty(key, val, 'important');
-            } else if (key === 'color' && val) {
+            if (val) {
                 element.style.setProperty(key, val, 'important');
             }
         });
