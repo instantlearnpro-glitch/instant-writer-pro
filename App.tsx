@@ -2828,9 +2828,7 @@ const App: React.FC = () => {
             });
         }
 
-        // Save captured styles for inline application on FUTURE elements only.
-        // Do NOT update existing headings — imported file elements stay as-is.
-        // Only elements the user explicitly assigns as H1 in the future will get this style.
+        // Save captured styles for inline application on future elements.
         const validStyleTags = ['h1', 'h2', 'h3', 'p', 'blockquote', 'pre'];
         if (selector && validStyleTags.includes(selector)) {
             setSavedHeadingStyles(prev => {
@@ -2838,12 +2836,27 @@ const App: React.FC = () => {
                 savedHeadingStylesRef.current = next;
                 return next;
             });
+
+            // For NORMAL TEXT (p, blockquote, pre): update ALL existing elements of this type.
+            // Body text should be consistent — when user updates "Normal" style, ALL paragraphs change.
+            // For HEADINGS (h1, h2, h3): do NOT update existing elements.
+            // Heading elements keep their imported appearance; only future assignments use the saved style.
+            const isBodyText = ['p', 'blockquote', 'pre'].includes(selector);
+            if (isBodyText && workspace) {
+                const existingElements = workspace.querySelectorAll(selector);
+                existingElements.forEach(el => {
+                    const htmlEl = el as HTMLElement;
+                    // Skip elements inside special containers
+                    if (!htmlEl.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle, .page-footer')) {
+                        // Skip elements that are already tagged as headings in the structure
+                        if (htmlEl.getAttribute('data-structure-status') === 'approved') return;
+                        applyInlineHeadingStyles(htmlEl, capturedStylesForSave);
+                    }
+                });
+                htmlModified = true;
+            }
         }
 
-        // Do NOT add a global CSS rule like `h1 { ... !important }` — that would override
-        // ALL existing H1 elements in the document, including imported ones.
-        // Instead, rely purely on inline styles applied via applyInlineHeadingStyles
-        // when the user explicitly assigns headings in the future.
         updateDocState({
             ...docState,
             htmlContent: workspace ? workspace.innerHTML : docState.htmlContent
