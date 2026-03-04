@@ -1337,14 +1337,13 @@ const App: React.FC = () => {
             target = newElement;
         }
 
-        // Apply saved heading styles so the new heading matches existing ones
-        const styles = stylesToApply || savedHeadingStyles[level] || findExistingHeadingStyles(level);
+        // Apply saved heading styles ONLY if the user has explicitly defined them
+        // via the "Update style" button (Word-like behavior).
+        // Do NOT auto-capture styles from existing headings in the document —
+        // imported files should not dictate the style for new headings.
+        const styles = stylesToApply || savedHeadingStyles[level] || null;
         if (styles) {
             applyInlineHeadingStyles(target, styles);
-            // Save for future use if not already saved
-            if (!savedHeadingStyles[level]) {
-                setSavedHeadingStyles(prev => ({ ...prev, [level]: styles }));
-            }
         }
 
         ensureElementId(target);
@@ -4698,27 +4697,14 @@ ${workspace.innerHTML}
             }
 
             // Priority 1: Already-saved styles for this heading level
+            // ONLY use styles the user has explicitly set via "Update style" button.
             if (savedHeadingStyles[targetTag]) {
                 resolvedStyles = savedHeadingStyles[targetTag];
             }
-            // Priority 2: Capture from an EXISTING heading of the same level in the document
-            if (!resolvedStyles) {
-                const existingStyles = findExistingHeadingStyles(targetTag);
-                if (existingStyles) {
-                    resolvedStyles = existingStyles;
-                    setSavedHeadingStyles(prev => ({ ...prev, [targetTag]: existingStyles }));
-                }
-            }
-            // Priority 3 (last resort): If the selected element is ALREADY a heading of this type,
-            // capture its styles. Otherwise, DON'T capture from a plain paragraph.
-            if (!resolvedStyles && firstId) {
-                const el = document.getElementById(firstId) as HTMLElement | null;
-                if (el && el.tagName.toLowerCase() === targetTag) {
-                    const capturedStyles = captureHeadingStyles(el);
-                    resolvedStyles = capturedStyles;
-                    setSavedHeadingStyles(prev => ({ ...prev, [targetTag]: capturedStyles }));
-                }
-            }
+            // Do NOT auto-capture styles from existing headings in the document.
+            // The user must explicitly define their H1/H2/H3 style via "Update style".
+            // This ensures Word-like behavior where imported file styles don't dictate
+            // future heading appearances.
         }
 
         const newEntries: StructureEntry[] = [];
