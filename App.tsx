@@ -2530,33 +2530,33 @@ const App: React.FC = () => {
     const handleUpdateStyle = (targetTagName?: string) => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
 
-        // When targetTagName is provided (from clicking ↻ in dropdown), focus has already
-        // moved to the toolbar, so activeBlock and window.getSelection() are unreliable.
-        // Instead, find the first existing element of that tag type in the workspace
-        // and capture ITS styles — this is the correct Word-like behavior.
+        // When targetTagName is provided (from clicking ↻ in dropdown), we want to capture
+        // styles from whatever the user is CURRENTLY looking at (activeBlock or selection),
+        // regardless of its tag. This enables the Word-like workflow:
+        //   1. User styles a paragraph how they want H1 to look
+        //   2. User clicks ↻ next to "H1" → that look becomes the H1 definition
         let styledElement: Element | null = null;
 
         if (targetTagName && workspace) {
-            // First try activeBlock if it matches the target tag
-            if (activeBlock && activeBlock.nodeName.toLowerCase() === targetTagName.toLowerCase()) {
+            // First try activeBlock — this is the element the user last clicked on.
+            // We capture from it regardless of tag (it could be a <p>, <h2>, anything).
+            if (activeBlock && workspace.contains(activeBlock)) {
                 styledElement = activeBlock;
             }
             // Then try the current selection
             if (!styledElement) {
                 const selection = window.getSelection();
-                if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+                if (selection && selection.rangeCount > 0) {
                     const node = selection.getRangeAt(0).commonAncestorContainer;
                     const element = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
-                    const closest = element?.closest(targetTagName);
-                    if (closest && workspace.contains(closest)) {
-                        styledElement = closest;
+                    const block = element?.closest('p, h1, h2, h3, h4, h5, h6, blockquote, div:not(.page):not(.editor-workspace)');
+                    if (block && workspace.contains(block)) {
+                        styledElement = block;
                     }
                 }
             }
-            // Finally, find the first element of that tag type in the document
-            if (!styledElement) {
-                styledElement = workspace.querySelector(targetTagName);
-            }
+            // DO NOT fall back to workspace.querySelector(targetTagName).
+            // We should only capture from what the user is actively looking at.
         } else {
             // No targetTagName — use activeBlock or selection (original behavior)
             styledElement = activeBlock?.closest('h1, h2, h3, h4, h5, h6, p, blockquote, div[class]:not(.page):not(.editor-workspace)') || null;
