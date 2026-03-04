@@ -2432,9 +2432,32 @@ const App: React.FC = () => {
                 const node = range.commonAncestorContainer;
                 const el = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
                 const targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, .writing-lines, textarea.writing-lines, div:not(.page):not(.editor-workspace)') as HTMLElement | null;
+                const workspace = document.querySelector('.editor-workspace');
+
                 if (targetBlock) {
-                    targetBlock.style.textTransform = value || 'none';
-                    const workspace = document.querySelector('.editor-workspace');
+                    // If selection spans the whole block (or is collapsed), apply to block
+                    const spansWholeBlock = range.collapsed || range.toString() === targetBlock.innerText;
+
+                    if (spansWholeBlock) {
+                        targetBlock.style.textTransform = value || 'none';
+                    } else {
+                        // Wrap only the selected text in a span
+                        const span = document.createElement('span');
+                        span.style.textTransform = value || 'none';
+                        try {
+                            span.appendChild(range.extractContents());
+                            range.insertNode(span);
+                            selection.removeAllRanges();
+                            const newRange = document.createRange();
+                            newRange.selectNodeContents(span);
+                            selection.addRange(newRange);
+                        } catch (e) {
+                            console.error("DOM split failed for textTransform:", e);
+                            // Fallback to block level
+                            targetBlock.style.textTransform = value || 'none';
+                        }
+                    }
+
                     if (workspace) {
                         updateDocStatePreserveScroll(workspace.innerHTML);
                     }
