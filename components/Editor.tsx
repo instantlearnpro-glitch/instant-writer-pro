@@ -372,6 +372,113 @@ const Editor: React.FC<EditorProps> = ({
         anchors: { id: string; label: string; page: number }[];
     }>({ isOpen: false, tableId: '', rows: [], anchors: [] });
 
+    // State for the "Extend Writing Lines" page picker modal
+    const [extendLinesModal, setExtendLinesModal] = useState<{
+        isOpen: boolean;
+        pages: { index: number; label: string; hasLines: boolean; selected: boolean }[];
+    }>({ isOpen: false, pages: [] });
+
+    /** Find paragraphs that contain 5+ consecutive underscores inside a page element */
+    const getUnderscoreParas = (page: HTMLElement): HTMLElement[] => {
+        const paras = Array.from(page.querySelectorAll('p')) as HTMLElement[];
+        return paras.filter(p => {
+            const text = p.textContent || '';
+            return /_{5,}/.test(text);
+        });
+    };
+
+    /** Extend underscore paragraphs on a single page to full-width border-bottom lines */
+    const extendWritingLinesOnPage = (page: HTMLElement) => {
+        const candidates = getUnderscoreParas(page);
+        candidates.forEach(p => {
+            const text = p.textContent || '';
+            // Detect if the text/underscores are bold to match line thickness
+            const computed = window.getComputedStyle(p);
+            const isBold = parseInt(computed.fontWeight) >= 700 || computed.fontWeight === 'bold';
+            const borderWidth = isBold ? '2px' : '1px';
+            const color = computed.color || '#000';
+
+            // Extract the label prefix before the underscores (e.g. "Application: ")
+            const match = text.match(/^(.*?)_{5,}\s*$/);
+            const prefix = match ? match[1] : '';
+
+            // Clear the paragraph and rebuild with flexbox
+            p.innerHTML = '';
+            p.style.display = 'flex';
+            p.style.alignItems = 'baseline';
+            p.style.width = '100%';
+            p.style.boxSizing = 'border-box';
+            // Remove any old border-bottom from previous conversion
+            p.style.borderBottom = 'none';
+
+            if (prefix) {
+                // Label text span (doesn't grow, stays at its natural width)
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = prefix;
+                labelSpan.style.flexShrink = '0';
+                labelSpan.style.whiteSpace = 'nowrap';
+                p.appendChild(labelSpan);
+            }
+
+            // Line span that fills the remaining width
+            const lineSpan = document.createElement('span');
+            lineSpan.textContent = '\u00A0'; // nbsp to give it height
+            lineSpan.style.flex = '1';
+            lineSpan.style.borderBottom = `${borderWidth} solid ${color}`;
+            lineSpan.style.display = 'inline-block';
+            lineSpan.style.minWidth = '20px';
+            p.appendChild(lineSpan);
+        });
+        return candidates.length;
+    };
+
+    /** Handler triggered from the right-click context menu */
+    const handleExtendWritingLines = () => {
+        if (!contentRef.current || !contextMenu?.block) return;
+        const currentPage = contextMenu.block.closest('.page') as HTMLElement | null;
+        if (!currentPage) return;
+
+        // 1) Extend on the current page first
+        const count = extendWritingLinesOnPage(currentPage);
+        if (count === 0) return;
+
+        // 2) Check other pages for underscore paragraphs
+        const allPages = Array.from(contentRef.current.querySelectorAll('.page')) as HTMLElement[];
+        const currentIndex = allPages.indexOf(currentPage);
+        const otherPagesWithLines = allPages
+            .map((p, i) => ({ index: i, hasLines: getUnderscoreParas(p).length > 0 }))
+            .filter(p => p.index !== currentIndex && p.hasLines);
+
+        if (otherPagesWithLines.length > 0) {
+            // Show page picker modal
+            setExtendLinesModal({
+                isOpen: true,
+                pages: allPages.map((p, i) => ({
+                    index: i,
+                    label: `Page ${i + 1}`,
+                    hasLines: getUnderscoreParas(p).length > 0,
+                    selected: i !== currentIndex && getUnderscoreParas(p).length > 0
+                }))
+            });
+        }
+
+        // Persist changes
+        onContentChange(contentRef.current.innerHTML);
+    };
+
+    /** Apply the extend lines to the selected pages from the modal */
+    const handleApplyExtendLinesToPages = () => {
+        if (!contentRef.current) return;
+        const allPages = Array.from(contentRef.current.querySelectorAll('.page')) as HTMLElement[];
+        extendLinesModal.pages.forEach(p => {
+            if (p.selected && p.hasLines) {
+                extendWritingLinesOnPage(allPages[p.index]);
+            }
+        });
+        setExtendLinesModal({ isOpen: false, pages: [] });
+        onContentChange(contentRef.current.innerHTML);
+    };
+
     const safeDistribute = (axis: 'x' | 'y', delta: number = 0) => {
         if (typeof onDistributeMultiSelection === 'function') {
             onDistributeMultiSelection(axis, delta);
@@ -1127,6 +1234,42 @@ const Editor: React.FC<EditorProps> = ({
                     if (e.key === 'Backspace') {
                         const rangeNow = selection.getRangeAt(0);
                         if (isAtBlockStart(rangeNow, textBlock)) {
+                            // --- STYLED CONTAINER GUARD ---
+                            // If the textBlock is the first child inside a styled container
+                            // (div/section with border, background, or significant padding),
+                            // we must NEVER let the browser's native Backspace run because it
+                            // would merge the text into the preceding block and destroy the
+                            // container wrapper, stripping all visual formatting.
+                            const styledParent = textBlock.parentElement?.closest(
+                                'div:not(.page):not(.editor-workspace), section, article, main'
+                            ) as HTMLElement | null;
+                            if (styledParent && styledParent.closest('.page')) {
+                                const scs = window.getComputedStyle(styledParent);
+                                const spHasBg = scs.backgroundColor !== 'rgba(0, 0, 0, 0)' && scs.backgroundColor !== 'transparent';
+                                const spHasBorder = parseFloat(scs.borderTopWidth) > 0 || parseFloat(scs.borderLeftWidth) > 0;
+                                const spHasPad = parseFloat(scs.paddingTop) > 4 || parseFloat(scs.paddingLeft) > 4;
+                                if ((spHasBg || spHasBorder || spHasPad) && textBlock === styledParent.firstElementChild) {
+                                    // Operate on the CONTAINER boundary, not the inner textBlock
+                                    const containerPrev = findAdjacentPrev(styledParent);
+                                    if (containerPrev && isEmptyElement(containerPrev)) {
+                                        e.preventDefault();
+                                        containerPrev.remove();
+                                        placeCaretInBlock(textBlock, false);
+                                        scheduleReflow();
+                                        return;
+                                    }
+                                    // Non-empty previous element: move caret there (two-phase)
+                                    if (containerPrev) {
+                                        e.preventDefault();
+                                        placeCaretAtEnd(containerPrev);
+                                        return;
+                                    }
+                                    // No previous element at all — at top of document, just prevent
+                                    e.preventDefault();
+                                    return;
+                                }
+                            }
+
                             const prevEl = findAdjacentPrev(textBlock);
                             if (prevEl && isEmptyElement(prevEl)) {
                                 e.preventDefault();
@@ -1154,6 +1297,26 @@ const Editor: React.FC<EditorProps> = ({
                         const rangeNow = selection.getRangeAt(0);
                         if (isAtBlockEnd(rangeNow, textBlock)) {
                             const nextEl = findAdjacentNext(textBlock);
+
+                            // --- STYLED CONTAINER GUARD (Delete) ---
+                            // If the next element is a styled container (div/section with
+                            // border, background, or significant padding), prevent native
+                            // Delete from merging its content into the current block.
+                            if (nextEl && !isTextBlock(nextEl)) {
+                                const tag = nextEl.tagName.toLowerCase();
+                                if (['div', 'section', 'article', 'main'].includes(tag)) {
+                                    const ncs = window.getComputedStyle(nextEl);
+                                    const nHasBg = ncs.backgroundColor !== 'rgba(0, 0, 0, 0)' && ncs.backgroundColor !== 'transparent';
+                                    const nHasBorder = parseFloat(ncs.borderTopWidth) > 0 || parseFloat(ncs.borderLeftWidth) > 0;
+                                    const nHasPad = parseFloat(ncs.paddingTop) > 4 || parseFloat(ncs.paddingLeft) > 4;
+                                    if (nHasBg || nHasBorder || nHasPad) {
+                                        e.preventDefault();
+                                        placeCaretAtStart(nextEl);
+                                        return;
+                                    }
+                                }
+                            }
+
                             if (nextEl && isEmptyElement(nextEl)) {
                                 e.preventDefault();
                                 nextEl.remove();
@@ -2846,6 +3009,12 @@ const Editor: React.FC<EditorProps> = ({
                     onDelete={handleDeleteBlock}
                     onDuplicate={handleDuplicateBlock}
                     hasBlock={!!contextMenu.block}
+                    onExtendWritingLines={
+                        contextMenu.block?.closest('.page') &&
+                            getUnderscoreParas(contextMenu.block.closest('.page') as HTMLElement).length > 0
+                            ? handleExtendWritingLines
+                            : undefined
+                    }
                 />
             )}
 
@@ -2909,6 +3078,53 @@ const Editor: React.FC<EditorProps> = ({
                     insertAtCursor(`<img src="${dataUrl}" data-original-url="${url}" class="qr-code" style="width: 150px; height: auto; display: inline-block;" />`);
                 }}
             />
+
+            {/* Extend Writing Lines page picker modal */}
+            {extendLinesModal.isOpen && (
+                <div className="fixed inset-0 z-[2000] flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}>
+                    <div className="bg-white rounded-xl shadow-2xl p-6 w-[400px] max-h-[70vh] flex flex-col">
+                        <h3 className="text-lg font-bold mb-1">✏️ Extend writing lines</h3>
+                        <p className="text-sm text-gray-500 mb-4">Lines on the current page have been extended. Apply to other pages too?</p>
+                        <div className="flex-1 overflow-y-auto border rounded-lg p-2 mb-4" style={{ maxHeight: '40vh' }}>
+                            {extendLinesModal.pages.filter(p => p.hasLines).map(p => (
+                                <label
+                                    key={p.index}
+                                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={p.selected}
+                                        onChange={() => {
+                                            setExtendLinesModal(prev => ({
+                                                ...prev,
+                                                pages: prev.pages.map(pg =>
+                                                    pg.index === p.index ? { ...pg, selected: !pg.selected } : pg
+                                                )
+                                            }));
+                                        }}
+                                        className="w-4 h-4 accent-purple-600"
+                                    />
+                                    <span className="text-sm">{p.label}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => setExtendLinesModal({ isOpen: false, pages: [] })}
+                                className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50"
+                            >
+                                Skip
+                            </button>
+                            <button
+                                onClick={handleApplyExtendLinesToPages}
+                                className="px-4 py-2 text-sm rounded-lg bg-purple-600 text-white hover:bg-purple-700"
+                            >
+                                Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

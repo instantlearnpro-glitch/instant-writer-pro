@@ -246,9 +246,7 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
     border: none;
     outline: none;
     resize: vertical;
-    background-image: linear-gradient(#8d55f1 1px, transparent 1px), linear-gradient(#dbc9ff 1px, transparent 1px);
-    background-size: 100% 50px;
-    background-position: 0 48px, 0 24px;
+    background: none;
     line-height: 50px;
     padding: 0;
     cursor: text;
@@ -413,47 +411,47 @@ export const DEFAULT_HTML = `
 // Pages 151-200: larger gutter values
 // Format: { top, bottom, left (gutter/inside), right (outside) }
 export const PAGE_FORMATS = {
-  LETTER: {
-    id: 'letter',
-    name: 'US Letter (8.5" x 11")',
-    width: '8.5in',
-    height: '11in',
-    // 110-150 pages: gutter 0.45", outside 0.5", top/bottom 0.5"
-    margins: { top: 0.5, bottom: 0.5, left: 0.45, right: 0.5 }
-  },
-  LETTER_THICK: {
-    id: 'letter-thick',
-    name: 'US Letter 151-200pp (8.5" x 11")',
-    width: '8.5in',
-    height: '11in',
-    // 151-200 pages: gutter 0.5", outside 0.5", top/bottom 0.5"
-    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
-  },
-  TRADE: {
-    id: '6x9',
-    name: 'Trade 110-150pp (6" x 9")',
-    width: '6in',
-    height: '9in',
-    // 110-150 pages: gutter 0.375", outside 0.25", top/bottom 0.5"
-    margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.25 }
-  },
-  TRADE_THICK: {
-    id: '6x9-thick',
-    name: 'Trade 151-200pp (6" x 9")',
-    width: '6in',
-    height: '9in',
-    // 151-200 pages: gutter 0.5", outside 0.25", top/bottom 0.5"
-    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.25 }
-  },
-  CUSTOM: {
-    id: 'custom',
-    name: 'Custom Size',
-    width: '8.5in',
-    height: '11in',
-    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
-  }
-};  
-  export const FONTS = [
+    LETTER: {
+        id: 'letter',
+        name: 'US Letter (8.5" x 11")',
+        width: '8.5in',
+        height: '11in',
+        // 110-150 pages: gutter 0.45", outside 0.5", top/bottom 0.5"
+        margins: { top: 0.5, bottom: 0.5, left: 0.45, right: 0.5 }
+    },
+    LETTER_THICK: {
+        id: 'letter-thick',
+        name: 'US Letter 151-200pp (8.5" x 11")',
+        width: '8.5in',
+        height: '11in',
+        // 151-200 pages: gutter 0.5", outside 0.5", top/bottom 0.5"
+        margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
+    },
+    TRADE: {
+        id: '6x9',
+        name: 'Trade 110-150pp (6" x 9")',
+        width: '6in',
+        height: '9in',
+        // 110-150 pages: gutter 0.375", outside 0.25", top/bottom 0.5"
+        margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.25 }
+    },
+    TRADE_THICK: {
+        id: '6x9-thick',
+        name: 'Trade 151-200pp (6" x 9")',
+        width: '6in',
+        height: '9in',
+        // 151-200 pages: gutter 0.5", outside 0.25", top/bottom 0.5"
+        margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.25 }
+    },
+    CUSTOM: {
+        id: 'custom',
+        name: 'Custom Size',
+        width: '8.5in',
+        height: '11in',
+        margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
+    }
+};
+export const FONTS = [
     { name: 'Default', value: 'inherit' },
     // App Specific
     { name: 'Courier Prime', value: "'Courier Prime', monospace" },
@@ -500,4 +498,4 @@ export const PAGE_FORMATS = {
     { name: 'Concert One', value: "'Concert One', cursive" },
     { name: 'Prompt', value: "'Prompt', sans-serif" },
     { name: 'Work Sans', value: "'Work Sans', sans-serif" }
-  ];
+];

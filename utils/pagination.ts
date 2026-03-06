@@ -82,12 +82,17 @@ const isFlowElement = (el: HTMLElement): boolean => {
 };
 
 const shouldAvoidBreak = (el: HTMLElement): boolean => {
-    // Only LISTS (ul/ol) can be split at child boundaries during overflow.
-    // This allows e.g. item 1 on page 1 and items 2-5 on page 2.
-    // Generic divs/sections stay together to keep images+text paired.
     const tag = el.tagName.toLowerCase();
+    // Lists can be split at child boundaries during overflow.
     if ((tag === 'ul' || tag === 'ol') && isSplitContainer(el)) return false;
-    // ALL other elements are kept together as a single block.
+    // Text-level elements can be split mid-paragraph (Word-like behavior).
+    // splitTextBlockByRange will handle splitting at the correct line.
+    if (tag === 'p' || tag === 'li' || tag === 'blockquote' ||
+        tag === 'h1' || tag === 'h2' || tag === 'h3' ||
+        tag === 'h4' || tag === 'h5' || tag === 'h6') {
+        return false;
+    }
+    // ALL other elements (divs, images, tables, etc.) are kept together.
     return true;
 };
 
@@ -577,7 +582,7 @@ const splitTextBlockByRange = (element: HTMLElement, pageBottom: number): HTMLEl
     return newElement;
 };
 
-const isSplitContainer = (el: HTMLElement) => {
+const isSplitContainer = (el: HTMLElement, availableHeight?: number) => {
     const tag = el.tagName.toLowerCase();
     if (el.classList.contains('page')) return false;
     if (el.classList.contains('editor-workspace')) return false;
@@ -588,12 +593,23 @@ const isSplitContainer = (el: HTMLElement) => {
     if (el.classList.contains('mission-box') || el.classList.contains('shape-rectangle')
         || el.classList.contains('shape-circle') || el.classList.contains('shape-pill')
         || el.classList.contains('shape-speech') || el.classList.contains('shape-cloud')
-        || el.classList.contains('toc-container')) return false;
+        || el.classList.contains('toc-container')
+        || el.classList.contains('writing-lines')
+        || el.classList.contains('tracing-line')
+        || el.classList.contains('exercise-block')) return false;
 
     const cs = window.getComputedStyle(el);
     const hasBorder = parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0;
     const hasBg = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
-    if (hasBorder || hasBg) return false;
+    if (hasBorder || hasBg) {
+        // Allow splitting styled containers if they are taller than the available
+        // page content area — otherwise all their content stays trapped and leaves
+        // large empty spaces on the page.
+        if (availableHeight != null && el.offsetHeight > availableHeight + 1) {
+            return true;
+        }
+        return false;
+    }
 
     return true;
 };
@@ -624,6 +640,11 @@ const splitContainerByChildren = (container: HTMLElement, pageBottom: number): H
 
     for (let i = splitIndex; i < children.length; i++) {
         newContainer.appendChild(children[i]);
+    }
+
+    // Clean up: if the original container is now empty, remove it
+    if (container.children.length === 0 && !container.textContent?.trim()) {
+        container.remove();
     }
 
     return newContainer;
@@ -820,7 +841,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 avoidBreak = false;
             }
 
-            if (!avoidBreak && isSplitContainer(lastEl)) {
+            if (!avoidBreak && isSplitContainer(lastEl, availableHeight)) {
                 const split = splitContainerByChildren(lastEl, pageBottom) || splitContainerByRange(lastEl, pageBottom);
                 if (split) {
                     let nextPage = pages[i + 1];
@@ -940,9 +961,10 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     continue;
                 }
 
-                // Element doesn't fit whole — if it's an unstyled split container
-                // (ul/ol/div without border/bg), try to split and pull up children.
-                if (isSplitContainer(firstEl)) {
+                // Element doesn't fit whole — try to split and pull up children.
+                // Pass availableHeight so that oversized styled containers (with
+                // border/bg) can also be split when they exceed the page height.
+                if (isSplitContainer(firstEl, availableHeight)) {
                     const pulled = pullUpSplitContainer(firstEl, pgFree);
                     if (pulled.movedAny && pulled.partial) {
                         page.appendChild(pulled.partial);
@@ -976,6 +998,26 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 overflowElement: overflowEl ? summarizeElement(overflowEl) : null,
                 footerCandidates: summarizeFooterCandidates(page)
             });
+        }
+    }
+
+    // Sweep: remove empty flow containers left behind by split operations.
+    // These are divs/sections with no children and no text that still occupy
+    // space (e.g., .writing-lines with a min-height and CSS gradient background).
+    if (pullUp) {
+        for (const page of pages) {
+            const containers = Array.from(page.querySelectorAll('div:not(.page):not(.page-footer), section, article')) as HTMLElement[];
+            for (const c of containers) {
+                if (!c.isConnected) continue;
+                if (c.children.length > 0) continue;
+                if (c.textContent?.trim()) continue;
+                // Preserve page break markers — they are empty divs by design
+                if (c.getAttribute('data-page-break') === 'true') continue;
+                if (c.getAttribute('data-user-page-break') === 'true') continue;
+                // It's an empty container — remove it
+                c.remove();
+                changesMade = true;
+            }
         }
     }
 

@@ -2151,6 +2151,30 @@ const App: React.FC = () => {
             return;
         }
 
+        // Image alignment: apply CSS centering directly to the selected image
+        if (selectedImage && (command === 'justifyLeft' || command === 'justifyCenter' || command === 'justifyRight')) {
+            if (command === 'justifyCenter') {
+                selectedImage.style.display = 'block';
+                selectedImage.style.marginLeft = 'auto';
+                selectedImage.style.marginRight = 'auto';
+            } else if (command === 'justifyRight') {
+                selectedImage.style.display = 'block';
+                selectedImage.style.marginLeft = 'auto';
+                selectedImage.style.marginRight = '0';
+            } else {
+                // justifyLeft — reset to default
+                selectedImage.style.display = '';
+                selectedImage.style.marginLeft = '';
+                selectedImage.style.marginRight = '';
+            }
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                updateDocStatePreserveScroll(workspace.innerHTML);
+            }
+            handleImageSelect(selectedImage);
+            return;
+        }
+
         if (multiSelectedElements.length > 0) {
             if (command === 'fontName' && value) {
                 if (applyStyleToMultiSelection({ 'font-family': value })) return;
