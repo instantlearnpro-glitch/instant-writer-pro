@@ -1253,12 +1253,16 @@ const App: React.FC = () => {
         const selection = window.getSelection();
         if (selection && selection.rangeCount > 0) {
             const range = selection.getRangeAt(0).cloneRange();
-            setSelectionState(prev => ({ ...prev, range }));
+            // Only capture ranges inside the editor workspace, not toolbar elements
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace && workspace.contains(range.commonAncestorContainer)) {
+                setSelectionState(prev => ({ ...prev, range }));
+            }
         }
         suppressSelectionRef.current = true;
         window.setTimeout(() => {
             suppressSelectionRef.current = false;
-        }, 0);
+        }, 300);
     };
 
     const getTextStyleSource = () => {
@@ -2149,6 +2153,137 @@ const App: React.FC = () => {
         if (command === 'deleteFooter') {
             handleRemoveFooter();
             return;
+        }
+
+        // --- Multi-block formatting via saved selection range ---
+        // When the user selects text across multiple blocks and then clicks a toolbar
+        // button, this function applies styles to ALL blocks in the selection range.
+        const BLOCK_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace):not(.page-footer)';
+
+        const applyStyleToSelectionRange = (styles: Record<string, string>): boolean => {
+            const range = selectionState.range;
+            if (!range || range.collapsed) return false;
+
+            const workspace = document.querySelector('.editor-workspace');
+            if (!workspace) return false;
+
+            // Find the start and end block elements
+            const startNode = range.startContainer;
+            const endNode = range.endContainer;
+            const startEl = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode as HTMLElement;
+            const endEl = endNode.nodeType === Node.TEXT_NODE ? endNode.parentElement : endNode as HTMLElement;
+            const startBlock = startEl?.closest(BLOCK_SELECTOR) as HTMLElement | null;
+            const endBlock = endEl?.closest(BLOCK_SELECTOR) as HTMLElement | null;
+
+            if (!startBlock || !endBlock) return false;
+
+            // Get all blocks in the workspace
+            const allBlocks = Array.from(workspace.querySelectorAll(BLOCK_SELECTOR)) as HTMLElement[];
+            const startIdx = allBlocks.indexOf(startBlock);
+            let endIdx = allBlocks.indexOf(endBlock);
+            if (startIdx === -1) return false;
+            if (endIdx === -1) endIdx = startIdx;
+
+            // Ensure correct order (user might select bottom-to-top)
+            const lo = Math.min(startIdx, endIdx);
+            const hi = Math.max(startIdx, endIdx);
+
+            // If only 1 block, let the normal single-block logic handle it
+            if (lo === hi) return false;
+
+            // Apply the styles to every block between start and end (inclusive)
+            for (let i = lo; i <= hi; i++) {
+                const el = allBlocks[i];
+                Object.entries(styles).forEach(([k, v]) => {
+                    if (v === 'none' || v === 'normal' || v === '') {
+                        el.style.removeProperty(k);
+                    } else {
+                        el.style.setProperty(k, v, 'important');
+                    }
+                });
+                if (el.getAttribute('style') === '') el.removeAttribute('style');
+            }
+
+            // Dispatch synthetic input event to trigger Editor's reflow pipeline
+            workspace.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        };
+
+        // --- Multi-block command routing ---
+        // For commands that need multi-block support, try applyStyleToSelectionRange first.
+        // If it returns true (multi-block selection), we're done. Otherwise fall through.
+
+        if (command === 'fontName' && value) {
+            if (applyStyleToSelectionRange({ 'font-family': value })) {
+                setSelectionState(prev => ({ ...prev, fontName: value }));
+                return;
+            }
+        }
+
+        if (command === 'fontSize') {
+            const sv = value || '16pt';
+            let sf = sv;
+            if (!sv.includes('pt') && !sv.includes('px') && !sv.includes('em')) sf = `${sv}pt`;
+            if (applyStyleToSelectionRange({ 'font-size': sf })) {
+                setSelectionState(prev => ({ ...prev, fontSize: sv.replace('pt', '').replace('px', '') }));
+                return;
+            }
+        }
+
+        if (command === 'lineHeight') {
+            if (applyStyleToSelectionRange({ 'line-height': value || 'normal' })) return;
+        }
+
+        if (command === 'letterSpacing') {
+            if (applyStyleToSelectionRange({ 'letter-spacing': value || 'normal' })) {
+                setSelectionState(prev => ({ ...prev, letterSpacing: value || 'normal' }));
+                return;
+            }
+        }
+
+        if (command === 'textTransform') {
+            if (applyStyleToSelectionRange({ 'text-transform': value || 'none' })) return;
+        }
+
+        if (command === 'foreColor' && value) {
+            if (applyStyleToSelectionRange({ 'color': value })) return;
+        }
+
+        if (command === 'bold') {
+            const next = selectionState.bold ? 'normal' : 'bold';
+            if (applyStyleToSelectionRange({ 'font-weight': next })) {
+                setSelectionState(prev => ({ ...prev, bold: !prev.bold }));
+                return;
+            }
+        }
+
+        if (command === 'italic') {
+            const next = selectionState.italic ? 'normal' : 'italic';
+            if (applyStyleToSelectionRange({ 'font-style': next })) {
+                setSelectionState(prev => ({ ...prev, italic: !prev.italic }));
+                return;
+            }
+        }
+
+        if (command === 'underline') {
+            const next = selectionState.underline ? 'none' : 'underline';
+            if (applyStyleToSelectionRange({ 'text-decoration': next })) {
+                setSelectionState(prev => ({ ...prev, underline: !prev.underline }));
+                return;
+            }
+        }
+
+        if (command === 'justifyLeft') {
+            if (applyStyleToSelectionRange({ 'text-align': 'left' })) return;
+        }
+        if (command === 'justifyCenter') {
+            if (applyStyleToSelectionRange({ 'text-align': 'center' })) return;
+        }
+        if (command === 'justifyRight') {
+            if (applyStyleToSelectionRange({ 'text-align': 'right' })) return;
+        }
+        if (command === 'justifyFull') {
+            if (applyStyleToSelectionRange({ 'text-align': 'justify' })) return;
         }
 
         // Image alignment: apply CSS centering directly to the selected image

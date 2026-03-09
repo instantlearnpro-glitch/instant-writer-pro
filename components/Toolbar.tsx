@@ -680,13 +680,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
                             {/* BIU */}
                             <div className="flex items-center gap-1">
-                                <button onClick={() => onFormat('bold')} className={`${ButtonClass(selectionState.bold)} !p-2`} title="Bold">
+                                <button onClick={() => onFormat('bold')} onMouseDown={e => e.preventDefault()} className={`${ButtonClass(selectionState.bold)} !p-2`} title="Bold">
                                     <Bold size={16} />
                                 </button>
-                                <button onClick={() => onFormat('italic')} className={`${ButtonClass(selectionState.italic)} !p-2`} title="Italic">
+                                <button onClick={() => onFormat('italic')} onMouseDown={e => e.preventDefault()} className={`${ButtonClass(selectionState.italic)} !p-2`} title="Italic">
                                     <Italic size={16} />
                                 </button>
-                                <button onClick={() => onFormat('underline')} className={`${ButtonClass(selectionState.underline)} !p-2`} title="Underline">
+                                <button onClick={() => onFormat('underline')} onMouseDown={e => e.preventDefault()} className={`${ButtonClass(selectionState.underline)} !p-2`} title="Underline">
                                     <Underline size={16} />
                                 </button>
                             </div>

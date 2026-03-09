@@ -350,6 +350,7 @@ const Editor: React.FC<EditorProps> = ({
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; block: HTMLElement | null; linkUrl?: string } | null>(null);
     const [activeBlock, setActiveBlock] = useState<HTMLElement | null>(null);
     const [qrModal, setQrModal] = useState<{ isOpen: boolean; url: string }>({ isOpen: false, url: '' });
+    const savedRangeRef = useRef<Range | null>(null);
     const [activeLink, setActiveLink] = useState<{ url: string; x: number; y: number; element: HTMLAnchorElement } | null>(null);
     const [marqueeBox, setMarqueeBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
     const [marginOverflowRects, setMarginOverflowRects] = useState<Array<{ x: number; y: number; width: number; height: number }>>([]);
@@ -1264,7 +1265,7 @@ const Editor: React.FC<EditorProps> = ({
                                         placeCaretAtEnd(containerPrev);
                                         return;
                                     }
-                                    // No previous element at all — at top of document, just prevent
+                                    // No previous element at all — at top of page, just prevent
                                     e.preventDefault();
                                     return;
                                 }
@@ -1288,6 +1289,28 @@ const Editor: React.FC<EditorProps> = ({
                                 // Move caret to the focusable end of the previous element
                                 placeCaretAtEnd(prevEl);
                                 return;
+                            }
+
+                            // --- CROSS-PAGE MERGE GUARD ---
+                            // If the previous text block is on a DIFFERENT page,
+                            // we must NEVER let native Backspace run — it would
+                            // merge DOM across .page boundaries and lose text
+                            // (overflow:hidden clips it).
+                            if (prevEl && isTextBlock(prevEl)) {
+                                const prevPage = prevEl.closest('.page');
+                                const curPage = textBlock.closest('.page');
+                                if (prevPage && curPage && prevPage !== curPage) {
+                                    e.preventDefault();
+                                    // Manual merge: move children of current block
+                                    // into previous block, then remove current block
+                                    while (textBlock.firstChild) {
+                                        prevEl.appendChild(textBlock.firstChild);
+                                    }
+                                    textBlock.remove();
+                                    placeCaretAtEnd(prevEl);
+                                    scheduleReflow();
+                                    return;
+                                }
                             }
                         }
                     }
@@ -1331,6 +1354,22 @@ const Editor: React.FC<EditorProps> = ({
                                 e.preventDefault();
                                 placeCaretAtStart(nextEl);
                                 return;
+                            }
+
+                            // --- CROSS-PAGE MERGE GUARD (Delete) ---
+                            if (nextEl && isTextBlock(nextEl)) {
+                                const nextPage = nextEl.closest('.page');
+                                const curPage = textBlock.closest('.page');
+                                if (nextPage && curPage && nextPage !== curPage) {
+                                    e.preventDefault();
+                                    while (nextEl.firstChild) {
+                                        textBlock.appendChild(nextEl.firstChild);
+                                    }
+                                    nextEl.remove();
+                                    placeCaretInBlock(textBlock, true);
+                                    scheduleReflow();
+                                    return;
+                                }
                             }
                         }
                     }
@@ -1475,27 +1514,7 @@ const Editor: React.FC<EditorProps> = ({
             }
 
             if (clientY >= last.rect.bottom) {
-                const newPara = document.createElement('p');
-                newPara.innerHTML = '<br>';
-                const selected = contentRef.current.querySelectorAll('[data-selected="true"]');
-                selected.forEach(el => (el as HTMLElement).removeAttribute('data-selected'));
-                setActiveBlock(null);
-                onImageSelect(null);
-                onTextLayerSelect(null);
-                onHRSelect(null);
-                onFooterSelect(null);
-                page.appendChild(newPara);
-
-                const selection = window.getSelection();
-                if (selection) {
-                    const newRange = document.createRange();
-                    newRange.selectNodeContents(newPara);
-                    newRange.collapse(true);
-                    selection.removeAllRanges();
-                    selection.addRange(newRange);
-                }
-
-                scheduleReflow();
+                placeCaretInBlock(last.block, true);
                 return true;
             }
 
@@ -1854,13 +1873,24 @@ const Editor: React.FC<EditorProps> = ({
         if (tag === 'table') return 'table';
         if (tag === 'ul' || tag === 'ol') return `list:${tag}`;
         if (el.classList.contains('worksheet')) return 'worksheet';
-        return null;
+        // Generic: any element can be merged with another of same tag + class
+        return `generic:${tag}:${el.className}`;
     };
 
     const mergeListElements = (target: HTMLElement, source: HTMLElement): boolean => {
         while (source.firstChild) {
             target.appendChild(source.firstChild);
         }
+        source.remove();
+        return true;
+    };
+
+    const mergeGenericElements = (target: HTMLElement, source: HTMLElement): boolean => {
+        while (source.firstChild) {
+            target.appendChild(source.firstChild);
+        }
+        // Clean up split markers if present
+        target.removeAttribute('data-split-source');
         source.remove();
         return true;
     };
@@ -1898,6 +1928,8 @@ const Editor: React.FC<EditorProps> = ({
                 merged = mergeListElements(target, source) || merged;
             } else if (key === 'worksheet') {
                 merged = mergeWorksheets(target, source) || merged;
+            } else if (key.startsWith('generic')) {
+                merged = mergeGenericElements(target, source) || merged;
             }
         }
         if (merged) {
@@ -2545,6 +2577,56 @@ const Editor: React.FC<EditorProps> = ({
         ? 'editor-workspace flex flex-row flex-wrap justify-center gap-4 outline-none relative'
         : 'editor-workspace w-full flex flex-col items-center outline-none relative';
 
+    // Detect mergeable split containers (elements split by reflow that
+    // now live on the same page and can be reunited).
+    const resolveSplitContainerMergeState = (block: HTMLElement | null): { canMerge: boolean; elements: HTMLElement[] } => {
+        if (!block) return { canMerge: false, elements: [] };
+        // Walk up to the direct child of .page
+        const page = block.closest('.page');
+        if (!page) return { canMerge: false, elements: [] };
+        let target = block;
+        while (target.parentElement && target.parentElement !== page) {
+            target = target.parentElement;
+        }
+        if (target.parentElement !== page) return { canMerge: false, elements: [] };
+
+        const splitId = target.getAttribute('data-split-source');
+        if (!splitId) return { canMerge: false, elements: [] };
+
+        // Collect all siblings (across the whole document, not just this page)
+        // that share the same data-split-source
+        const all = contentRef.current
+            ? Array.from(contentRef.current.querySelectorAll(`[data-split-source="${CSS.escape(splitId)}"]`)) as HTMLElement[]
+            : [];
+
+        return { canMerge: all.length > 1, elements: all };
+    };
+
+    const handleMergeSplitContainers = () => {
+        if (!contextMenu?.block || !contentRef.current) return;
+        const { canMerge, elements } = resolveSplitContainerMergeState(contextMenu.block);
+        if (!canMerge || elements.length < 2) return;
+
+        const target = elements[0];
+        for (let i = 1; i < elements.length; i++) {
+            const source = elements[i];
+            while (source.firstChild) {
+                target.appendChild(source.firstChild);
+            }
+            source.remove();
+        }
+        // Clean up the marker
+        target.removeAttribute('data-split-source');
+
+        setActiveBlock(target);
+        reflowPagesUntilStable(contentRef.current);
+        onContentChange(contentRef.current.innerHTML);
+    };
+
+    const splitContainerMergeState = contextMenu?.block
+        ? resolveSplitContainerMergeState(contextMenu.block)
+        : { canMerge: false, elements: [] };
+
     const splitTableState = contextMenu?.block
         ? resolveTableMergeState(contextMenu.block.closest('table') as HTMLTableElement | null)
         : { canMergePrev: false, canMergeNext: false };
@@ -2980,13 +3062,21 @@ const Editor: React.FC<EditorProps> = ({
                     onCopyStyle={onCopyStyle}
                     onPasteStyle={onPasteStyle}
                     canPasteStyle={hasStyleClipboard}
-                    onCreateQRCode={() => setQrModal({ isOpen: true, url: contextMenu.linkUrl || '' })}
+                    onCreateQRCode={() => {
+                        // Save the current selection before opening the modal
+                        const sel = window.getSelection();
+                        if (sel && sel.rangeCount > 0 && contentRef.current?.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+                            savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+                        }
+                        setQrModal({ isOpen: true, url: contextMenu.linkUrl || '' });
+                    }}
                     onTransformToTOC={contextMenu.block?.closest('table') ? () => openTableTocModal(contextMenu.block!.closest('table') as HTMLTableElement) : undefined}
                     onMergeWorksheetPrev={worksheetMergeState.canMergePrev ? () => handleMergeWorksheet('prev') : undefined}
                     onMergeWorksheetNext={worksheetMergeState.canMergeNext ? () => handleMergeWorksheet('next') : undefined}
                     onMergeTablePrev={splitTableState.canMergePrev ? () => handleMergeTable('prev') : undefined}
                     onMergeTableNext={splitTableState.canMergeNext ? () => handleMergeTable('next') : undefined}
                     onMergeSelected={mergeSelectedState.canMerge ? handleMergeSelectedElements : undefined}
+                    onMergeSplitContainers={splitContainerMergeState.canMerge ? handleMergeSplitContainers : undefined}
                     onRefreshTOC={contextMenu.block?.closest('.toc-container') ? () => {
                         const container = contextMenu.block?.closest('.toc-container') as HTMLElement | null;
                         const tocId = container?.getAttribute('data-toc-id') || undefined;
@@ -3044,6 +3134,10 @@ const Editor: React.FC<EditorProps> = ({
                     onEdit={() => { }} // Placeholder
                     onRemove={() => { }} // Placeholder
                     onCreateQRCode={() => {
+                        const sel = window.getSelection();
+                        if (sel && sel.rangeCount > 0 && contentRef.current?.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+                            savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+                        }
                         setQrModal({ isOpen: true, url: activeLink.url });
                         setActiveLink(null);
                     }}
@@ -3075,7 +3169,16 @@ const Editor: React.FC<EditorProps> = ({
                 initialUrl={qrModal.url}
                 onClose={() => setQrModal({ ...qrModal, isOpen: false })}
                 onInsert={(dataUrl, url) => {
+                    // Restore saved selection before inserting
+                    if (savedRangeRef.current && contentRef.current?.contains(savedRangeRef.current.commonAncestorContainer)) {
+                        const sel = window.getSelection();
+                        if (sel) {
+                            sel.removeAllRanges();
+                            sel.addRange(savedRangeRef.current);
+                        }
+                    }
                     insertAtCursor(`<img src="${dataUrl}" data-original-url="${url}" class="qr-code" style="width: 150px; height: auto; display: inline-block;" />`);
+                    savedRangeRef.current = null;
                 }}
             />
 

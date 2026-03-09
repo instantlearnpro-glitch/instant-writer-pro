@@ -41,6 +41,7 @@ interface BlockContextMenuProps {
   onToggleMarginOverride?: () => void;
   isMarginOverride?: boolean;
   onExtendWritingLines?: () => void;
+  onMergeSplitContainers?: () => void;
   hasBlock: boolean;
 }
 
@@ -83,6 +84,7 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
   onToggleMarginOverride,
   isMarginOverride,
   onExtendWritingLines,
+  onMergeSplitContainers,
   hasBlock
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -302,6 +304,21 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h8M4 12h16M4 17h8" />
               </svg>
               Merge elements
+            </button>
+          </>
+        )}
+
+        {onMergeSplitContainers && (
+          <>
+            <div className="border-t border-gray-100 my-1" />
+            <button
+              onClick={() => { onMergeSplitContainers(); onClose(); }}
+              className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12M8 12h12M4 17h16M4 7h.01M4 12h.01" />
+              </svg>
+              Merge split boxes
             </button>
           </>
         )}

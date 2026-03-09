@@ -55,8 +55,6 @@ const recordReflowIssue = (entry: Record<string, unknown>) => {
     if ((window.__reflowDebug?.length || 0) > 50) {
         window.__reflowDebug?.shift();
     }
-    // eslint-disable-next-line no-console
-    console.warn('[reflow-debug]', entry);
 };
 
 /**
@@ -735,12 +733,25 @@ const pullUpSplitContainer = (
     const isOl = container.tagName.toLowerCase() === 'ol';
     const originalStart = isOl ? parseInt(container.getAttribute('start') || '1', 10) : 1;
 
+    // Deduct only the TOP vertical overhead for the partial container.
+    // The partial is the "top half" — it needs top padding/border but
+    // the bottom is open.  The original keeps the bottom styling.
+    const ccs = window.getComputedStyle(container);
+    const cPadTop = parseFloat(ccs.paddingTop) || 0;
+    const cBorderTop = parseFloat(ccs.borderTopWidth) || 0;
+    const cMarginTop = parseFloat(ccs.marginTop) || 0;
+    const cMarginBot = parseFloat(ccs.marginBottom) || 0;
+    const topOverhead = cPadTop + cBorderTop + cMarginTop + cMarginBot;
+    pgFree -= topOverhead;
+    if (pgFree <= 0) return { partial: null, movedAny: false, pgFree: pgFree + topOverhead };
+
     for (const child of [...children]) {
         const childH = child.offsetHeight;
         const childS = window.getComputedStyle(child);
         const childMt = parseFloat(childS.marginTop) || 0;
         const childMb = parseFloat(childS.marginBottom) || 0;
         const childTotal = childH + childMt + childMb;
+
 
         if (childTotal <= pgFree + 1) {
             // Child fits whole — move it
@@ -761,6 +772,18 @@ const pullUpSplitContainer = (
                 }
             }
             break; // Stop after first non-fitting child (even if partially split)
+        } else if (isTextSplitTarget(child)) {
+            // Child is a text block (p, h*, li, blockquote) — try line-level split
+            const pulled = pullUpTextBlock(child, pgFree);
+            if (pulled) {
+                partialContainer.appendChild(pulled.partial);
+                pgFree -= pulled.usedHeight;
+                movedAny = true;
+                if (!child.textContent?.trim() && child.children.length === 0) {
+                    child.remove();
+                }
+            }
+            break; // Stop after first split attempt
         } else {
             break; // Stop at the first non-fitting, non-splittable child
         }
@@ -772,7 +795,192 @@ const pullUpSplitContainer = (
             || partialContainer.children.length;
         container.setAttribute('start', String(originalStart + movedCount));
     }
+
+    // Mark both halves so auto-merge can reunite them later.
+    if (movedAny && partialContainer) {
+        const splitId = container.getAttribute('data-split-source')
+            || `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        container.setAttribute('data-split-source', splitId);
+        partialContainer.setAttribute('data-split-source', splitId);
+    }
+
     return { partial: movedAny ? partialContainer : null, movedAny, pgFree };
+};
+
+/**
+ * Splits a text block (p, h1-h6, li, blockquote) so that the portion
+ * fitting within `budgetPx` vertical pixels is extracted into a clone.
+ *
+ * This is the pull-up counterpart of `splitTextBlockByRange()` (which is
+ * used during push-down).  It uses a binary search on Range bounding
+ * rects to find the last character/word boundary that still falls within
+ * the vertical budget, then extracts the leading fragment into a clone
+ * and leaves the remainder in the original element.
+ *
+ * Returns `{ partial, usedHeight }` or `null` when nothing fits (e.g.
+ * the very first rendered line already exceeds the budget).
+ */
+const pullUpTextBlock = (
+    element: HTMLElement,
+    budgetPx: number
+): { partial: HTMLElement; usedHeight: number } | null => {
+    // Collect all non-empty text nodes inside the element
+    const textNodes: Text[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let n = walker.nextNode() as Text | null;
+    while (n) {
+        if (n.textContent && n.textContent.trim().length > 0) {
+            textNodes.push(n);
+        }
+        n = walker.nextNode() as Text | null;
+    }
+    if (textNodes.length === 0) return null;
+
+    // Account for CSS transform scale (zoom).
+    // getBoundingClientRect() returns viewport pixels (scaled),
+    // but budgetPx comes from offsetHeight (CSS pixels, unscaled).
+    const scale = getScale(element);
+    // Convert budgetPx to viewport pixels and subtract a safety margin
+    // so we never spill into the footer/page-number zone.
+    const budgetViewport = budgetPx * scale - 2;
+    if (budgetViewport <= 0) return null;
+
+    // We need to know the element's top so we can compute how many
+    // viewport pixels a given text prefix occupies.
+    const elRect = element.getBoundingClientRect();
+    const elTop = elRect.top;
+    // The budget line in viewport coordinates:
+    const budgetLine = elTop + budgetViewport;
+
+    // Quick check: does the first rendered line already overflow?
+    // Measure the first text node's first character.
+    const firstRange = document.createRange();
+    firstRange.setStart(textNodes[0], 0);
+    firstRange.setEnd(textNodes[0], Math.min(1, (textNodes[0].textContent || '').length));
+    const firstRect = firstRange.getBoundingClientRect();
+    if (firstRect.bottom > budgetLine + 1) {
+        // Even a single character doesn't fit — nothing we can pull up.
+        return null;
+    }
+
+    // Binary search for the split point.
+    // We search across ALL text nodes in document order.  The split
+    // point is defined as: the last character whose Range(0..char)
+    // bounding rect bottom <= budgetLine.
+    let splitTextNode: Text = textNodes[0];
+    let splitOffset = 0;
+
+    // Find which text node first crosses the budget line
+    let targetNode: Text | null = null;
+    for (const tn of textNodes) {
+        const r = document.createRange();
+        r.selectNodeContents(tn);
+        const tnRect = r.getBoundingClientRect();
+        if (tnRect.bottom > budgetLine + 1) {
+            targetNode = tn;
+            break;
+        }
+        // This entire text node fits — record it as our latest safe point
+        splitTextNode = tn;
+        splitOffset = (tn.textContent || '').length;
+    }
+
+    if (targetNode) {
+        // Binary search within targetNode for the exact split offset
+        const text = targetNode.textContent || '';
+        let low = 0;
+        let high = text.length;
+        let best = 0;
+        const range = document.createRange();
+
+        while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            range.setStart(targetNode, 0);
+            range.setEnd(targetNode, Math.max(0, mid));
+            const rect = range.getBoundingClientRect();
+            if (rect.bottom <= budgetLine) {
+                best = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        if (best === 0 && targetNode === textNodes[0]) {
+            // Nothing fits at all
+            return null;
+        }
+
+        splitTextNode = targetNode;
+        splitOffset = best;
+    }
+
+    // Safety: if nothing meaningful was identified, bail out
+    if (splitOffset <= 0 && splitTextNode === textNodes[0]) {
+        return null;
+    }
+
+    // Create a range from the start of the element to the split point,
+    // then extract the fitting fragment into a clone.
+    const splitRange = document.createRange();
+    splitRange.selectNodeContents(element);
+    try {
+        splitRange.setEnd(splitTextNode, splitOffset);
+    } catch {
+        return null;
+    }
+
+    const fragment = splitRange.extractContents();
+    if (!fragment || fragment.childNodes.length === 0) return null;
+
+    // Check the fragment actually has text
+    const fragText = fragment.textContent || '';
+    if (!fragText.trim()) return null;
+
+    const partial = element.cloneNode(false) as HTMLElement;
+    partial.removeAttribute('id');
+    partial.appendChild(fragment);
+
+    // Preserve computed text-related styles as inline styles so the partial
+    // doesn't lose inherited styling when moved out of a styled container.
+    const computedStyle = window.getComputedStyle(element);
+    const textStyleProps = [
+        'lineHeight', 'fontSize', 'fontFamily', 'fontWeight', 'fontStyle',
+        'letterSpacing', 'wordSpacing', 'textAlign', 'color', 'textIndent'
+    ];
+    for (const prop of textStyleProps) {
+        const val = (computedStyle as any)[prop];
+        if (val && !partial.style.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()))) {
+            partial.style.setProperty(
+                prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
+                val
+            );
+        }
+    }
+    // Also apply the same preservation to the remaining element so it
+    // stays consistent even if it's moved later.
+    for (const prop of textStyleProps) {
+        const val = (computedStyle as any)[prop];
+        if (val && !element.style.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()))) {
+            element.style.setProperty(
+                prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
+                val
+            );
+        }
+    }
+
+    // Mark both halves so auto-merge can reunite them later.
+    const splitId = element.getAttribute('data-split-source')
+        || `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    element.setAttribute('data-split-source', splitId);
+    partial.setAttribute('data-split-source', splitId);
+
+    // Conservative: assume we used all the available space.
+    // This ensures pgFree drops to ~0 and we stop pulling for this page.
+    const usedHeight = budgetPx;
+
+    // Clean up: if the original element is now empty, let the caller remove it.
+    return { partial, usedHeight };
 };
 
 /**
@@ -784,6 +992,18 @@ const pullUpSplitContainer = (
 export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number }): { changed: boolean; budgetExceeded: boolean } => {
     // 1. Sanitize first
     ensureContentIsPaginated(editor);
+
+    // 1b. Clean up orphaned page-footer content.
+    // Browser contentEditable sometimes merges .page-footer text into adjacent
+    // paragraphs when the user deletes at a boundary.  Find any .page-footer
+    // that is NOT a direct child of a .page and remove it.
+    const orphanedFooters = editor.querySelectorAll('.page-footer, [data-page-footer="true"]');
+    orphanedFooters.forEach(f => {
+        const parent = f.parentElement;
+        if (parent && !parent.classList.contains('page')) {
+            f.remove();
+        }
+    });
 
     const pages = Array.from(editor.querySelectorAll('.page')) as HTMLElement[];
     let changesMade = false;
@@ -883,6 +1103,35 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 }
             }
 
+            // Fallback: ANY container (even styled) that overflows — split by
+            // children.  This handles the common case where the user presses
+            // Enter inside a styled container near the page bottom, causing
+            // overflow.  Without this, the ENTIRE container is pushed to the
+            // next page, making text "disappear".
+            if (!avoidBreak && !isSplitContainer(lastEl, availableHeight)) {
+                const tag = lastEl.tagName.toLowerCase();
+                if (['div', 'section', 'article', 'main'].includes(tag)
+                    && lastEl.children.length >= 2) {
+                    const split = splitContainerByChildren(lastEl, pageBottom);
+                    if (split) {
+                        let nextPage = pages[i + 1];
+                        if (!nextPage) {
+                            nextPage = document.createElement('div');
+                            nextPage.className = 'page';
+                            editor.appendChild(nextPage);
+                            pages.push(nextPage);
+                        }
+                        if (nextPage.firstChild) {
+                            nextPage.insertBefore(split, nextPage.firstChild);
+                        } else {
+                            nextPage.appendChild(split);
+                        }
+                        changesMade = true;
+                        continue;
+                    }
+                }
+            }
+
             // If the element itself is taller than the page, don't keep moving it forever
             const firstFlow = getFirstFlowChild(page);
             const isOnlyFlow = firstFlow && firstFlow === lastEl;
@@ -929,9 +1178,28 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             const pgComp = window.getComputedStyle(page);
             const pgPtop = parseFloat(pgComp.paddingTop) || 0;
             const pgPbot = parseFloat(pgComp.paddingBottom) || 0;
-            const pgContentArea = page.offsetHeight - pgPtop - pgPbot;
+            let pgContentArea = page.offsetHeight - pgPtop - pgPbot;
+
+            // Respect footer / page-number zone — content must NEVER overlap it.
+            // This mirrors the same logic used in hasPageSpace().
+            const pullFooterCandidates = Array.from(page.querySelectorAll(
+                '.page-footer, .page-number, [data-page-footer="true"], [data-page-number="true"], footer'
+            )) as HTMLElement[];
+            pullFooterCandidates.forEach(el => {
+                if (!el.isConnected) return;
+                if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return;
+                const fStyle = window.getComputedStyle(el);
+                const isAbsolute = fStyle.position === 'absolute' || fStyle.position === 'fixed';
+                const isNamed = isFooterElement(el);
+                if (!isNamed && !isAbsolute) return;
+                // el.offsetTop is relative to the page (offsetParent = page)
+                const footerRelH = el.offsetTop - pgPtop;
+                pgContentArea = Math.min(pgContentArea, Math.max(0, footerRelH));
+            });
+
             const pgUsed = getContentHeightOffset(page);
             let pgFree = pgContentArea - pgUsed;
+
 
             while (nextPage && pgFree > 1 && iterations < maxIterations) {
                 const firstEl = getFirstFlowChild(nextPage);
@@ -951,6 +1219,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 const elMt = parseFloat(elS.marginTop) || 0;
                 const elMb = parseFloat(elS.marginBottom) || 0;
                 const elTotal = elH + elMt + elMb;
+
 
                 if (elTotal <= pgFree + 1) {
                     // Element fits — move it up
@@ -978,6 +1247,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     }
                 }
 
+
                 // Element doesn't fit and can't be split: stop pulling into this page.
                 break;
             }
@@ -1002,21 +1272,87 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
     }
 
     // Sweep: remove empty flow containers left behind by split operations.
-    // These are divs/sections with no children and no text that still occupy
-    // space (e.g., .writing-lines with a min-height and CSS gradient background).
+    // These are divs/sections with no visible content that still occupy
+    // space (e.g., styled boxes whose children were all pulled up).
     if (pullUp) {
         for (const page of pages) {
             const containers = Array.from(page.querySelectorAll('div:not(.page):not(.page-footer), section, article')) as HTMLElement[];
             for (const c of containers) {
                 if (!c.isConnected) continue;
-                if (c.children.length > 0) continue;
-                if (c.textContent?.trim()) continue;
                 // Preserve page break markers — they are empty divs by design
                 if (c.getAttribute('data-page-break') === 'true') continue;
                 if (c.getAttribute('data-user-page-break') === 'true') continue;
-                // It's an empty container — remove it
+                // Preserve writing-lines — they're intentionally empty but visual
+                if (c.classList.contains('writing-lines')) continue;
+                if (c.classList.contains('tracing-line')) continue;
+                // Check for meaningful content: text, images, tables, HR, etc.
+                if (c.textContent?.trim()) continue;
+                if (c.querySelector('img, table, hr, svg, canvas, video')) continue;
+                // It's a container with no meaningful content — remove it
                 c.remove();
                 changesMade = true;
+            }
+        }
+    }
+
+    // Auto-merge pass: reunite split fragments on the same page.
+    // Merges via (a) data-split-source markers, or (b) same tag+class for
+    // styled containers (border/background/padding).  Plain text blocks
+    // (p, h*, li, blockquote) are only merged via markers, never by style.
+    if (pullUp) {
+        const textTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'UL', 'OL']);
+
+        const isStyledContainer = (el: HTMLElement): boolean => {
+            const cs = window.getComputedStyle(el);
+            const hasBg = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
+            const hasBorder = parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0;
+            const hasPad = parseFloat(cs.paddingTop) > 4 || parseFloat(cs.paddingLeft) > 4;
+            return hasBg || hasBorder || hasPad;
+        };
+
+        for (const page of pages) {
+            const kids = Array.from(page.children) as HTMLElement[];
+            let i = 0;
+            while (i < kids.length - 1) {
+                const a = kids[i];
+                const b = kids[i + 1];
+                if (!a.isConnected || !b.isConnected) { i++; continue; }
+
+                let shouldMerge = false;
+                const splitA = a.getAttribute('data-split-source');
+                const splitB = b.getAttribute('data-split-source');
+
+                // Only merge via split-source markers (fragments split by reflow)
+                if (splitA && splitB && splitA === splitB) {
+                    shouldMerge = true;
+                }
+                // Also merge styled containers with same tag+class, but ONLY if
+                // at least one has a split marker (i.e., was split by reflow,
+                // not two unrelated containers from the original document).
+                if (!shouldMerge && (splitA || splitB) &&
+                    a.tagName === b.tagName &&
+                    a.className === b.className &&
+                    !textTags.has(a.tagName) &&
+                    isStyledContainer(a)) {
+                    shouldMerge = true;
+                }
+
+                if (shouldMerge) {
+                    while (b.firstChild) {
+                        a.appendChild(b.firstChild);
+                    }
+                    b.remove();
+                    kids.splice(i + 1, 1);
+                    changesMade = true;
+                    if (splitA) {
+                        const nextKid = kids[i + 1];
+                        if (!nextKid || nextKid.getAttribute('data-split-source') !== splitA) {
+                            a.removeAttribute('data-split-source');
+                        }
+                    }
+                } else {
+                    i++;
+                }
             }
         }
     }
@@ -1037,6 +1373,26 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 emptyPage.remove();
                 pages.splice(i, 1);
                 changesMade = true;
+            }
+        }
+
+        // Renumber page footers after page removal.
+        // Find the first page that has a footer to determine the start page.
+        let footerStartIdx = -1;
+        for (let i = 0; i < pages.length; i++) {
+            if (pages[i].querySelector('.page-footer')) {
+                footerStartIdx = i;
+                break;
+            }
+        }
+        if (footerStartIdx >= 0) {
+            let counter = 1;
+            for (let i = footerStartIdx; i < pages.length; i++) {
+                const ft = pages[i].querySelector('.page-footer') as HTMLElement | null;
+                if (ft) {
+                    ft.textContent = String(counter);
+                }
+                counter++;
             }
         }
     }
