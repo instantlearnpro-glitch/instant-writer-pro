@@ -643,6 +643,12 @@ const splitContainerByChildren = (container: HTMLElement, pageBottom: number): H
     // Clean up: if the original container is now empty, remove it
     if (container.children.length === 0 && !container.textContent?.trim()) {
         container.remove();
+    } else {
+        // Mark both halves for auto-merge and continuation detection
+        const splitId = container.getAttribute('data-split-source')
+            || `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        container.setAttribute('data-split-source', splitId);
+        newContainer.setAttribute('data-split-source', splitId);
     }
 
     return newContainer;
@@ -710,6 +716,11 @@ const splitContainerByRange = (container: HTMLElement, pageBottom: number): HTML
 
     if (!container.textContent?.trim() && container.children.length === 0) {
         container.remove();
+    } else {
+        const splitId = container.getAttribute('data-split-source')
+            || `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        container.setAttribute('data-split-source', splitId);
+        newContainer.setAttribute('data-split-source', splitId);
     }
 
     return newContainer;
@@ -1393,6 +1404,48 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     ft.textContent = String(counter);
                 }
                 counter++;
+            }
+        }
+    }
+
+    // --- Post-reflow list cleanup ---
+    // This runs AFTER all splitting/merging and does NOT set changesMade
+    // to avoid triggering infinite reflow cycles.
+    for (const page of pages) {
+        // 1. Remove empty LI shells left behind by split operations
+        const listItems = Array.from(page.querySelectorAll('li')) as HTMLElement[];
+        for (const li of listItems) {
+            const text = (li.textContent || '').replace(/[\u200B\u00A0\s]/g, '');
+            if (text === '' && !li.querySelector('img, table, hr, textarea')) {
+                const parent = li.parentElement;
+                li.remove();
+                if (parent && (parent.tagName === 'UL' || parent.tagName === 'OL') && parent.children.length === 0) {
+                    parent.remove();
+                }
+            }
+        }
+
+        // 2. Mark continuation LIs (first LI in a split UL/OL that continues from previous page)
+        //    A UL/OL with data-split-source as the FIRST flow child of a page is a continuation.
+        const firstFlow = Array.from(page.children).find(c => isFlowElement(c as HTMLElement)) as HTMLElement | null;
+        if (firstFlow && (firstFlow.tagName === 'UL' || firstFlow.tagName === 'OL') && firstFlow.hasAttribute('data-split-source')) {
+            const firstLi = firstFlow.querySelector(':scope > li') as HTMLElement | null;
+            if (firstLi && !firstLi.hasAttribute('data-list-continuation')) {
+                // Only mark it if the PREVIOUS page has a matching split-source UL/OL as its last flow child
+                const pageIdx = pages.indexOf(page);
+                if (pageIdx > 0) {
+                    const prevPage = pages[pageIdx - 1];
+                    const prevKids = Array.from(prevPage.children).filter(c => isFlowElement(c as HTMLElement)) as HTMLElement[];
+                    const lastPrevFlow = prevKids[prevKids.length - 1];
+                    if (lastPrevFlow && lastPrevFlow.tagName === firstFlow.tagName &&
+                        lastPrevFlow.getAttribute('data-split-source') === firstFlow.getAttribute('data-split-source')) {
+                        // Check if the last LI in the previous page's list has text — if so, this is a mid-sentence continuation
+                        const lastPrevLi = lastPrevFlow.querySelector(':scope > li:last-child') as HTMLElement | null;
+                        if (lastPrevLi && lastPrevLi.textContent?.trim()) {
+                            firstLi.setAttribute('data-list-continuation', 'true');
+                        }
+                    }
+                }
             }
         }
     }

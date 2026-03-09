@@ -2770,6 +2770,28 @@ const App: React.FC = () => {
         } else if (formatBlockTag) {
             addHeadingToStructure(formatBlockTag, formatBlockSignature || undefined);
         }
+
+        // Feature: Sync newly created lists with 'Normal' (p) paragraph styles
+        if (command === 'insertUnorderedList' || command === 'insertOrderedList') {
+            const normalStyles = savedHeadingStylesRef.current['p'];
+            if (normalStyles) {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const node = sel.getRangeAt(0).commonAncestorContainer;
+                    const el = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+                    const listBlock = el?.closest('ul, ol');
+                    if (listBlock) {
+                        const items = Array.from(listBlock.querySelectorAll('li'));
+                        items.forEach(li => applyInlineHeadingStyles(li as HTMLElement, normalStyles));
+                        
+                        const workspace = document.querySelector('.editor-workspace');
+                        if (workspace) {
+                            updateDocStatePreserveScroll(workspace.innerHTML);
+                        }
+                    }
+                }
+            }
+        }
     };
 
     const handleUpdateStyle = (targetTagName?: string) => {
@@ -3020,19 +3042,28 @@ const App: React.FC = () => {
                 return next;
             });
 
-            // For NORMAL TEXT (p, blockquote, pre): update ALL existing elements of this type.
-            // Body text should be consistent — when user updates "Normal" style, ALL paragraphs change.
-            // For HEADINGS (h1, h2, h3): do NOT update existing elements.
-            // Heading elements keep their imported appearance; only future assignments use the saved style.
-            const isBodyText = ['p', 'blockquote', 'pre'].includes(selector);
-            if (isBodyText && workspace) {
-                const existingElements = workspace.querySelectorAll(selector);
+            // Heading elements will now also update their appearance based on user request.
+            const isTextToSync = ['h1', 'h2', 'h3', 'p', 'blockquote', 'pre'].includes(selector);
+            if (isTextToSync && workspace) {
+                const existingElements = Array.from(workspace.querySelectorAll(selector)) as HTMLElement[];
+                
+                // Feature: If updating 'Normal' (p) text, also sync all bulleted/numbered lists (li)
+                if (selector === 'p') {
+                    const listItems = Array.from(workspace.querySelectorAll('li')) as HTMLElement[];
+                    existingElements.push(...listItems);
+                }
+                
                 existingElements.forEach(el => {
                     const htmlEl = el as HTMLElement;
                     // Skip elements inside special containers
                     if (!htmlEl.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle, .page-footer')) {
-                        // Skip elements that are already tagged as headings in the structure
-                        if (htmlEl.getAttribute('data-structure-status') === 'approved') return;
+                        // We used to skip elements that were tagged as structure here. 
+                        // But users explicitly want to update headings (which are often in the structure).
+                        // If the user updates 'p' but some 'p' are headings, to be safe we should only skip if we are updating 'p' 
+                        // AND the element is a heading. But checking tagName is safer.
+                        // Actually, if we're updating H1, H2, H3, we definitely want to update approved structure elements.
+                        if (selector === 'p' && htmlEl.getAttribute('data-structure-status') === 'approved') return;
+                        
                         applyInlineHeadingStyles(htmlEl, capturedStylesForSave);
                     }
                 });

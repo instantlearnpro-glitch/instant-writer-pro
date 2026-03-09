@@ -1193,7 +1193,10 @@ const Editor: React.FC<EditorProps> = ({
                     ? (node as HTMLElement)
                     : node.parentElement;
                 const textBlock = element?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote') as HTMLElement | null;
-                if (textBlock) {
+                
+                // Allow native browser handling for lists. The custom block deletion logic assumes elements 
+                // are top-level children of the page, which breaks nested UL/LI structures.
+                if (textBlock && textBlock.tagName !== 'LI') {
                     if (isEmptyParagraph(textBlock)) {
                         e.preventDefault();
                         const page = textBlock.closest('.page') as HTMLElement | null;
@@ -1433,7 +1436,10 @@ const Editor: React.FC<EditorProps> = ({
                 ? (container as HTMLElement)
                 : container.parentElement;
             const shape = element?.closest('.mission-box, .shape-rectangle, .shape-circle, .shape-pill, .shape-speech, .shape-cloud');
-            if (shape && contentRef.current) {
+            const isList = element?.closest('li');
+            
+            // Allow creating new list items inside shapes by deferring to native Enter.
+            if (shape && !isList && contentRef.current) {
                 e.preventDefault();
                 const paragraph = document.createElement('p');
                 paragraph.appendChild(document.createElement('br'));
@@ -1458,6 +1464,33 @@ const Editor: React.FC<EditorProps> = ({
         reflowDebounceRef.current = window.setTimeout(() => {
             reflowDebounceRef.current = null;
             if (!contentRef.current) return;
+
+            // --- Clean Empty List Items ---
+            const sel = window.getSelection();
+            let focusNode: Node | null = null;
+            if (sel && sel.rangeCount > 0) {
+                focusNode = sel.getRangeAt(0).commonAncestorContainer;
+            }
+            
+            const listItems = Array.from(contentRef.current.querySelectorAll('li')) as HTMLElement[];
+            listItems.forEach(li => {
+                // Don't remove if cursor is actively inside it
+                if (focusNode && li.contains(focusNode)) return;
+                
+                // If it's effectively textless and contains no significant elements 
+                // (Strip zero-width spaces (\u200B) and non-breaking spaces (\u00A0) which contenteditable often leaves behind)
+                const text = (li.textContent || '').replace(/[\u200B\u00A0\s]/g, '');
+                if (text === '' && !li.querySelector('img, table, hr, textarea')) {
+                    const parent = li.parentElement;
+                    li.remove();
+                    // Clean up parent list if it became empty
+                    if (parent && (parent.tagName === 'UL' || parent.tagName === 'OL') && parent.children.length === 0) {
+                        parent.remove();
+                    }
+                }
+            });
+            // ------------------------------
+
             const restoreSelection = preserveSelection(contentRef.current);
             reflowPagesUntilStable(contentRef.current, {
                 onDone: () => {
@@ -2504,11 +2537,39 @@ const Editor: React.FC<EditorProps> = ({
             }
         };
 
+        const handleSelectionForCleanup = () => {
+            if (contentRef.current) {
+                let removedAny = false;
+                const sel = window.getSelection();
+                let focusNode: Node | null = null;
+                if (sel && sel.rangeCount > 0) {
+                    focusNode = sel.getRangeAt(0).commonAncestorContainer;
+                }
+                const listItems = Array.from(contentRef.current.querySelectorAll('li')) as HTMLElement[];
+                listItems.forEach(li => {
+                    if (focusNode && li.contains(focusNode)) return;
+                    const text = (li.textContent || '').replace(/[\u200B\u00A0\s]/g, '');
+                    if (text === '' && !li.querySelector('img, table, hr, textarea')) {
+                        const parent = li.parentElement;
+                        li.remove();
+                        removedAny = true;
+                        if (parent && (parent.tagName === 'UL' || parent.tagName === 'OL') && parent.children.length === 0) {
+                            parent.remove();
+                        }
+                    }
+                });
+                if (removedAny) {
+                    handleInput();
+                }
+            }
+        };
+
         container.addEventListener('click', handleClick);
         container.addEventListener('input', handleInput);
         container.addEventListener('keyup', handleInput);
         container.addEventListener('mouseup', handleSelectionChange);
         document.addEventListener('selectionchange', handleSelectionChange);
+        document.addEventListener('selectionchange', handleSelectionForCleanup);
 
         return () => {
             if (reflowTimeout) clearTimeout(reflowTimeout);
@@ -2517,6 +2578,7 @@ const Editor: React.FC<EditorProps> = ({
             container.removeEventListener('keyup', handleInput);
             container.removeEventListener('mouseup', handleSelectionChange);
             document.removeEventListener('selectionchange', handleSelectionChange);
+            document.removeEventListener('selectionchange', handleSelectionForCleanup);
         };
     }, [handleSelectionChange, onImageSelect, onContentChange, selectionMode, onBlockSelection, buildSelectionStateFromElement, onSelectionChange, isTextLayerMode, onInsertTextLayerAt]);
 

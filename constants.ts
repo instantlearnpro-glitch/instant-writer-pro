@@ -391,6 +391,10 @@ li {
     margin-bottom: 5px;
     padding-left: 5px;
 }
+/* Continuation LIs (split across pages) — hide bullet but keep indentation */
+li[data-list-continuation="true"] {
+    list-style-type: none !important;
+}
 `;
 
 export const DEFAULT_HTML = `
