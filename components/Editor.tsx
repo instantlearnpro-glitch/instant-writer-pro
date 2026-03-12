@@ -101,6 +101,16 @@ const getInlineFontSizePt = (targetEl: HTMLElement, blockEl: HTMLElement): numbe
     return parseFloat(computed) * 0.75;
 };
 
+/** Get line-height, preferring inline style (preserves ratio like '1.5') over computed (px). */
+const getInlineLineHeight = (targetEl: HTMLElement, blockEl: HTMLElement): string => {
+    let el: HTMLElement | null = targetEl;
+    while (el && el !== blockEl.parentElement) {
+        if (el.style.lineHeight) return el.style.lineHeight;
+        el = el.parentElement;
+    }
+    return window.getComputedStyle(blockEl).lineHeight || 'normal';
+};
+
 const hasAncestorTag = (node: Node | null, tagNames: string[], stopAt?: HTMLElement | null) => {
     let element = node
         ? (node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement)
@@ -870,7 +880,7 @@ const Editor: React.FC<EditorProps> = ({
             alignJustify: textAlign === 'justify',
             fontName: computedTarget.fontFamily || 'sans-serif',
             fontSize: mapFontSizeToCommandValue(fontSizePt),
-            lineHeight: computedBlock.lineHeight || 'normal',
+            lineHeight: getInlineLineHeight(targetElement || block, block),
             letterSpacing: computedTarget.letterSpacing || 'normal',
             foreColor: rgbToHex(computedTarget.color),
             borderWidth: safeParseInt(computedBlock.borderTopWidth),
@@ -946,7 +956,7 @@ const Editor: React.FC<EditorProps> = ({
             alignJustify: textAlign === 'justify',
             fontName: computedText.fontFamily || 'sans-serif',
             fontSize: mapFontSizeToCommandValue(fontSizePt),
-            lineHeight: computedBlock.lineHeight || 'normal',
+            lineHeight: getInlineLineHeight(textElement, element),
             letterSpacing: computedText.letterSpacing || 'normal',
             foreColor: rgbToHex(computedText.color),
             borderWidth: safeParseInt(computedBlock.borderTopWidth),

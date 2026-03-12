@@ -388,7 +388,14 @@ const buildSelectionStateFromElement = (element: HTMLElement): SelectionState =>
         alignJustify: textAlign === 'justify',
         fontName: computedText.fontFamily || 'sans-serif',
         fontSize: mapFontSizeToCommandValue(fontSizeRaw),
-        lineHeight: computedBlock.lineHeight || 'normal',
+        lineHeight: (() => {
+            let el: HTMLElement | null = textElement;
+            while (el && el !== element.parentElement) {
+                if (el.style.lineHeight) return el.style.lineHeight;
+                el = el.parentElement;
+            }
+            return computedBlock.lineHeight || 'normal';
+        })(),
         letterSpacing: computedText.letterSpacing || 'normal',
         foreColor: rgbToHex(computedText.color),
         borderWidth: safeParseInt(computedBlock.borderTopWidth),

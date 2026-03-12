@@ -198,7 +198,15 @@ const Toolbar: React.FC<ToolbarProps> = ({
         } else {
             const numeric = parseFloat(raw);
             if (!isNaN(numeric)) {
-                ratio = (raw.includes('px') || raw.includes('pt')) && !isNaN(fontSizeVal) ? numeric / fontSizeVal : numeric;
+                if (raw.includes('px') && !isNaN(fontSizeVal)) {
+                    // lineHeight is computed px, fontSizeVal is pt → convert pt to px for division
+                    ratio = numeric / (fontSizeVal * 1.333);
+                } else if (raw.includes('pt') && !isNaN(fontSizeVal)) {
+                    ratio = numeric / fontSizeVal;
+                } else {
+                    // Bare number = already a ratio
+                    ratio = numeric;
+                }
             }
         }
 
@@ -288,6 +296,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
         { label: 'Heading 1', tag: 'h1' },
         { label: 'Heading 2', tag: 'h2' },
         { label: 'Heading 3', tag: 'h3' },
+        { label: 'Heading 4', tag: 'h4' },
+        { label: 'Heading 5', tag: 'h5' },
         { label: 'Quote', tag: 'blockquote' },
         { label: 'Code', tag: 'pre' },
     ];

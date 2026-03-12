@@ -575,6 +575,12 @@ const splitTextBlockByRange = (element: HTMLElement, pageBottom: number): HTMLEl
 
     if (!element.textContent?.trim() && element.children.length === 0) {
         element.remove();
+    } else {
+        // Mark both halves for auto-merge when they end up on the same page
+        const splitId = element.getAttribute('data-split-source')
+            || `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        element.setAttribute('data-split-source', splitId);
+        newElement.setAttribute('data-split-source', splitId);
     }
 
     return newElement;
@@ -1365,6 +1371,28 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     !textTags.has(a.tagName) &&
                     isStyledContainer(a)) {
                     shouldMerge = true;
+                }
+
+                // Merge text blocks (p, h1-h6, li, etc.) split mid-sentence.
+                // Guards: same tag, same class, same font-size, same font-weight,
+                // first must NOT end with terminal punctuation,
+                // and second must NOT start with a number (numbered list/TOC entry).
+                if (!shouldMerge &&
+                    textTags.has(a.tagName) &&
+                    a.tagName === b.tagName &&
+                    a.className === b.className) {
+                    const csA = window.getComputedStyle(a);
+                    const csB = window.getComputedStyle(b);
+                    if (csA.fontSize === csB.fontSize && csA.fontWeight === csB.fontWeight) {
+                        const aText = (a.textContent || '').trimEnd();
+                        const bText = (b.textContent || '').trimStart();
+                        const lastChar = aText.slice(-1);
+                        // Don't merge if second starts with a number (numbered list entry)
+                        const startsWithNumber = /^\d/.test(bText);
+                        if (lastChar && !'.!?:'.includes(lastChar) && !startsWithNumber) {
+                            shouldMerge = true;
+                        }
+                    }
                 }
 
                 if (shouldMerge) {
