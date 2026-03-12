@@ -1550,9 +1550,36 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
         }
     }
 
-    // Return both whether changes were made and whether the budget was exceeded.
-    // The caller (reflowPagesUntilStable) uses budgetExceeded to decide whether to
-    // schedule another pass even when changesMade is false (so we don't miss work).
+    // Post-reflow: auto-hide bullets on LIs starting with lowercase,
+    // auto-show on LIs starting with uppercase that were hidden.
+    // Then renumber all OLs counting only visible items.
+    if (changesMade) {
+        editor.querySelectorAll('ol > li, ul > li').forEach(li => {
+            const el = li as HTMLElement;
+            const text = (el.textContent || '').trimStart();
+            const fc = text.charAt(0);
+            const isLower = fc && fc === fc.toLowerCase() && fc !== fc.toUpperCase();
+            if (isLower && el.style.listStyleType !== 'none') {
+                el.style.listStyleType = 'none';
+            }
+        });
+        // Renumber all OLs
+        editor.querySelectorAll('ol').forEach(ol => {
+            const olEl = ol as HTMLElement;
+            const start = parseInt(olEl.getAttribute('start') || '1', 10);
+            let num = start;
+            olEl.querySelectorAll(':scope > li').forEach(li => {
+                const el = li as HTMLElement;
+                if (el.style.listStyleType !== 'none') {
+                    el.setAttribute('value', String(num));
+                    num++;
+                } else {
+                    el.removeAttribute('value');
+                }
+            });
+        });
+    }
+
     return { changed: changesMade, budgetExceeded, lastProcessedPage };
 };
 
