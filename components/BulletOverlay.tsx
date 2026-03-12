@@ -1,11 +1,31 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 
 interface BulletItem {
     li: HTMLLIElement;
     rect: DOMRect;
     isOl: boolean;
-    index: number; // 1-based display number
-    isHidden: boolean; // bullet is hidden (list-style-type: none)
+    index: number;
+    isHidden: boolean;
+    textPreview: string;
+    startsLowercase: boolean;
+    startsUppercase: boolean;
+}
+
+type ActionType = 'hide' | 'restore';
+
+interface ActionRecord {
+    type: ActionType;
+    startsLowercase: boolean;
+    startsUppercase: boolean;
+}
+
+interface PatternSuggestion {
+    description: string;
+    action: ActionType;
+    candidates: BulletItem[];
+    // Which items user has checked for batch apply
+    checked: boolean[];
+    currentPreview: number; // index being previewed
 }
 
 interface BulletOverlayProps {
@@ -14,10 +34,25 @@ interface BulletOverlayProps {
     onClose: () => void;
 }
 
+const PATTERN_THRESHOLD = 3;
+
+function getTextInfo(li: HTMLLIElement) {
+    const text = (li.textContent || '').trimStart();
+    const fc = text.charAt(0);
+    return {
+        textPreview: text.slice(0, 60) + (text.length > 60 ? '…' : ''),
+        startsLowercase: !!(fc && fc === fc.toLowerCase() && fc !== fc.toUpperCase()),
+        startsUppercase: !!(fc && fc === fc.toUpperCase() && fc !== fc.toLowerCase()),
+    };
+}
+
 const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentChange, onClose }) => {
     const [bullets, setBullets] = useState<BulletItem[]>([]);
     const [editingIdx, setEditingIdx] = useState<number | null>(null);
     const [editValue, setEditValue] = useState('');
+    const [actionHistory, setActionHistory] = useState<ActionRecord[]>([]);
+    const [pattern, setPattern] = useState<PatternSuggestion | null>(null);
+    const patternDismissedRef = useRef(false);
 
     const scan = useCallback(() => {
         if (!containerRef.current) return;
@@ -25,59 +60,143 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
         containerRef.current.querySelectorAll('ol > li, ul > li').forEach(li => {
             const el = li as HTMLLIElement;
             const rect = el.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) return; // Skip invisible items
+            if (rect.width === 0 || rect.height === 0) return;
             const parent = el.parentElement!;
             const isOl = parent.tagName === 'OL';
-            const isHidden = el.style.listStyleType === 'none';
-            // Calculate the display number for OL items
+            const isHidden = el.style.listStyleType === 'none' || window.getComputedStyle(el).listStyleType === 'none';
             let index = 1;
             if (isOl) {
                 const start = parseInt(parent.getAttribute('start') || '1', 10);
-                // Count only visible siblings before this one
                 const siblings = Array.from(parent.querySelectorAll(':scope > li'));
                 const pos = siblings.indexOf(el);
-                // If LI has explicit value attribute, use that
                 const explicitVal = el.getAttribute('value');
-                if (explicitVal) {
-                    index = parseInt(explicitVal, 10);
-                } else {
-                    index = start + pos;
-                }
+                index = explicitVal ? parseInt(explicitVal, 10) : start + pos;
             }
-            items.push({ li: el, rect, isOl, index, isHidden });
+            const info = getTextInfo(el);
+            items.push({ li: el, rect, isOl, index, isHidden, ...info });
         });
         setBullets(items);
+        return items;
     }, [containerRef]);
 
     useEffect(() => {
         scan();
-        // Re-scan on scroll/resize
         const workspace = containerRef.current?.closest('.editor-container') || window;
-        const handleScroll = () => scan();
+        const handleScroll = () => { if (!pattern) scan(); };
         workspace.addEventListener('scroll', handleScroll, true);
         window.addEventListener('resize', handleScroll);
         return () => {
             workspace.removeEventListener('scroll', handleScroll, true);
             window.removeEventListener('resize', handleScroll);
         };
-    }, [scan]);
+    }, [scan, pattern]);
 
     const save = () => {
         if (containerRef.current) onContentChange(containerRef.current.innerHTML);
     };
 
-    // Hide the bullet (keep the LI for indentation)
-    const handleHide = (item: BulletItem) => {
-        item.li.style.listStyleType = 'none';
-        save();
-        scan();
+    const renumberList = (list: HTMLElement) => {
+        if (list.tagName !== 'OL') return;
+        const start = parseInt(list.getAttribute('start') || '1', 10);
+        let num = start;
+        list.querySelectorAll(':scope > li').forEach(li => {
+            const el = li as HTMLElement;
+            const cs = window.getComputedStyle(el);
+            const hidden = el.style.listStyleType === 'none' || cs.listStyleType === 'none';
+            if (!hidden) {
+                el.setAttribute('value', String(num));
+                num++;
+            } else {
+                el.removeAttribute('value');
+            }
+        });
     };
 
-    // Restore a hidden bullet
-    const handleRestore = (item: BulletItem) => {
-        item.li.style.listStyleType = '';
+    // Detect pattern after recording an action
+    const detectPattern = useCallback((history: ActionRecord[], currentBullets: BulletItem[]) => {
+        if (patternDismissedRef.current) return;
+        if (history.length < PATTERN_THRESHOLD) return;
+
+        const recent = history.slice(-PATTERN_THRESHOLD);
+        // All same action type?
+        const allSameType = recent.every(a => a.type === recent[0].type);
+        if (!allSameType) return;
+
+        const actionType = recent[0].type;
+
+        // Detect pattern: all actions on lowercase-start items?
+        const allLower = recent.every(a => a.startsLowercase);
+        // Or: all actions on uppercase-start items?
+        const allUpper = recent.every(a => a.startsUppercase);
+
+        if (!allLower && !allUpper) return;
+
+        // Find remaining candidates
+        let candidates: BulletItem[];
+        let description: string;
+
+        if (actionType === 'hide' && allLower) {
+            candidates = currentBullets.filter(b => !b.isHidden && b.startsLowercase);
+            description = 'Nascondi tutti i bullet che iniziano con minuscola';
+        } else if (actionType === 'hide' && allUpper) {
+            candidates = currentBullets.filter(b => !b.isHidden && b.startsUppercase);
+            description = 'Nascondi tutti i bullet che iniziano con maiuscola';
+        } else if (actionType === 'restore' && allLower) {
+            candidates = currentBullets.filter(b => b.isHidden && b.startsLowercase);
+            description = 'Ripristina tutti i bullet nascosti (minuscola)';
+        } else if (actionType === 'restore' && allUpper) {
+            candidates = currentBullets.filter(b => b.isHidden && b.startsUppercase);
+            description = 'Ripristina tutti i bullet nascosti (maiuscola)';
+        } else {
+            return;
+        }
+
+        if (candidates.length === 0) return;
+
+        setPattern({
+            description,
+            action: actionType,
+            candidates,
+            checked: candidates.map(() => true),
+            currentPreview: 0,
+        });
+    }, []);
+
+    const recordAction = useCallback((type: ActionType, item: BulletItem) => {
+        setActionHistory(prev => {
+            const next = [...prev, {
+                type,
+                startsLowercase: item.startsLowercase,
+                startsUppercase: item.startsUppercase,
+            }];
+            // Run detection on next tick after scan updates
+            setTimeout(() => {
+                const fresh = scan();
+                if (fresh) detectPattern(next, fresh);
+            }, 50);
+            return next;
+        });
+    }, [scan, detectPattern]);
+
+    const handleHide = (item: BulletItem) => {
+        item.li.style.listStyleType = 'none';
+        if (item.li.parentElement) renumberList(item.li.parentElement);
         save();
         scan();
+        recordAction('hide', item);
+    };
+
+    const handleRestore = (item: BulletItem) => {
+        const parent = item.li.parentElement;
+        if (parent?.hasAttribute('data-list-continuation')) {
+            parent.removeAttribute('data-list-continuation');
+        }
+        item.li.style.setProperty('list-style-type', item.isOl ? 'decimal' : 'disc', 'important');
+        item.li.style.removeProperty('counter-increment');
+        if (item.li.parentElement) renumberList(item.li.parentElement);
+        save();
+        scan();
+        recordAction('restore', item);
     };
 
     const handleEditStart = (idx: number, item: BulletItem) => {
@@ -93,6 +212,55 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
         }
         setEditingIdx(null);
         scan();
+    };
+
+    // Batch apply pattern
+    const handleBatchApply = () => {
+        if (!pattern) return;
+        const listsToRenumber = new Set<HTMLElement>();
+        pattern.candidates.forEach((item, i) => {
+            if (!pattern.checked[i]) return;
+            if (pattern.action === 'hide') {
+                item.li.style.listStyleType = 'none';
+            } else {
+                const parent = item.li.parentElement;
+                if (parent?.hasAttribute('data-list-continuation')) {
+                    parent.removeAttribute('data-list-continuation');
+                }
+                item.li.style.setProperty('list-style-type', item.isOl ? 'decimal' : 'disc', 'important');
+                item.li.style.removeProperty('counter-increment');
+            }
+            if (item.li.parentElement) listsToRenumber.add(item.li.parentElement);
+        });
+        listsToRenumber.forEach(l => renumberList(l));
+        save();
+        setPattern(null);
+        scan();
+    };
+
+    const handleBatchDismiss = () => {
+        patternDismissedRef.current = true;
+        setPattern(null);
+    };
+
+    // Toggle checkbox in pattern review
+    const toggleCheck = (i: number) => {
+        if (!pattern) return;
+        const next = [...pattern.checked];
+        next[i] = !next[i];
+        setPattern({ ...pattern, checked: next });
+    };
+
+    // Scroll to item for preview
+    const scrollToItem = (item: BulletItem) => {
+        item.li.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Flash effect
+        item.li.style.outline = '3px solid #f59e0b';
+        item.li.style.outlineOffset = '2px';
+        setTimeout(() => {
+            item.li.style.outline = '';
+            item.li.style.outlineOffset = '';
+        }, 1500);
     };
 
     return (
@@ -119,9 +287,76 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
                 </button>
             </div>
 
+            {/* Pattern suggestion panel */}
+            {pattern && (
+                <div className="fixed top-24 right-6 z-[995] bg-white rounded-xl shadow-2xl border border-amber-200 w-96 max-h-[70vh] flex flex-col overflow-hidden">
+                    {/* Header */}
+                    <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center gap-2">
+                        <span className="text-amber-600 text-lg">🔍</span>
+                        <div className="flex-1">
+                            <div className="text-sm font-bold text-amber-800">Pattern riconosciuto!</div>
+                            <div className="text-xs text-amber-600">{pattern.description}</div>
+                        </div>
+                        <button
+                            onClick={handleBatchDismiss}
+                            className="text-amber-400 hover:text-amber-600 text-sm"
+                            title="Ignora"
+                        >✕</button>
+                    </div>
+
+                    {/* Item list */}
+                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                        <div className="text-[10px] text-gray-400 uppercase font-bold px-2 mb-1">
+                            {pattern.candidates.length} elementi trovati — seleziona quelli da modificare
+                        </div>
+                        {pattern.candidates.map((item, i) => (
+                            <div
+                                key={i}
+                                className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
+                                    pattern.checked[i] ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50 border border-transparent'
+                                }`}
+                                onClick={() => toggleCheck(i)}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={pattern.checked[i]}
+                                    onChange={() => toggleCheck(i)}
+                                    className="accent-amber-500 flex-shrink-0"
+                                />
+                                <span className="flex-1 truncate text-gray-700">
+                                    {pattern.action === 'hide' ? '🔴' : '🟢'} {item.textPreview}
+                                </span>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); scrollToItem(item); }}
+                                    className="text-[9px] text-brand-500 hover:text-brand-700 font-bold flex-shrink-0"
+                                    title="Vai a questo elemento"
+                                >
+                                    👁
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="border-t border-gray-200 px-4 py-3 flex items-center gap-2 bg-gray-50">
+                        <button
+                            onClick={handleBatchApply}
+                            className="flex-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold py-2 px-3 rounded-lg transition-colors"
+                        >
+                            ✓ Applica a {pattern.checked.filter(Boolean).length} selezionati
+                        </button>
+                        <button
+                            onClick={handleBatchDismiss}
+                            className="text-xs text-gray-500 hover:text-gray-700 py-2 px-3"
+                        >
+                            Ignora
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Overlay controls on each bullet */}
             {bullets.map((item, idx) => {
-                // Position the controls to the LEFT of the LI, where the bullet/number sits
                 const top = item.rect.top;
                 const left = item.rect.left - 30;
 
@@ -135,7 +370,6 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
                         }}
                     >
                         {item.isHidden ? (
-                            /* Bullet is hidden — show + to restore */
                             <button
                                 onClick={(e) => { e.stopPropagation(); handleRestore(item); }}
                                 className="w-5 h-5 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center text-[11px] font-bold shadow-md transition-all hover:scale-110"
@@ -144,7 +378,6 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
                                 +
                             </button>
                         ) : (
-                            /* Bullet is visible — show ✕ to hide */
                             <button
                                 onClick={(e) => { e.stopPropagation(); handleHide(item); }}
                                 className="w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-[9px] shadow-md transition-all hover:scale-110"
@@ -154,7 +387,6 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
                             </button>
                         )}
 
-                        {/* Edit button (only for OL numbered lists with visible bullets) */}
                         {item.isOl && !item.isHidden && editingIdx !== idx && (
                             <button
                                 onClick={(e) => { e.stopPropagation(); handleEditStart(idx, item); }}
@@ -165,7 +397,6 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
                             </button>
                         )}
 
-                        {/* Inline number editor */}
                         {item.isOl && editingIdx === idx && (
                             <div className="flex items-center gap-0.5 ml-0.5">
                                 <input
