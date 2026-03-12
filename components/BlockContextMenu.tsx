@@ -42,6 +42,9 @@ interface BlockContextMenuProps {
   isMarginOverride?: boolean;
   onExtendWritingLines?: () => void;
   onMergeSplitContainers?: () => void;
+  onFixBullets?: () => void;
+  onRemoveBullet?: () => void;
+  onToggleBulletType?: () => void;
   hasBlock: boolean;
 }
 
@@ -85,6 +88,9 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
   isMarginOverride,
   onExtendWritingLines,
   onMergeSplitContainers,
+  onFixBullets,
+  onRemoveBullet,
+  onToggleBulletType,
   hasBlock
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -459,6 +465,38 @@ const BlockContextMenu: React.FC<BlockContextMenuProps> = ({
               </svg>
               Extend writing lines ✏️
             </button>
+          </>
+        )}
+
+        {/* Bullet/List tools */}
+        {(onFixBullets || onRemoveBullet || onToggleBulletType) && (
+          <>
+            <div className="border-t border-gray-100 my-1" />
+            <div className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide px-3 py-1">Lista</div>
+            {onFixBullets && (
+              <button
+                onClick={() => { onFixBullets(); onClose(); }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto"
+              >
+                🔧 Correggi Bullet
+              </button>
+            )}
+            {onRemoveBullet && (
+              <button
+                onClick={() => { onRemoveBullet(); onClose(); }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-red-50 text-red-600 flex items-center gap-2 pointer-events-auto"
+              >
+                ✕ Rimuovi questo bullet
+              </button>
+            )}
+            {onToggleBulletType && (
+              <button
+                onClick={() => { onToggleBulletType(); onClose(); }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50 hover:text-brand-700 flex items-center gap-2 pointer-events-auto"
+              >
+                🔄 Cambia tipo (•/1.)
+              </button>
+            )}
           </>
         )}
       </div>

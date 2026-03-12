@@ -713,6 +713,16 @@ const splitContainerByRange = (container: HTMLElement, pageBottom: number): HTML
         return null;
     }
 
+    // Count OL items BEFORE extractContents (extraction alters the DOM)
+    const isOl = container.tagName.toLowerCase() === 'ol';
+    const isUl = container.tagName.toLowerCase() === 'ul';
+    let olItemCountBefore = 0;
+    let olExistingStart = 1;
+    if (isOl) {
+        olExistingStart = parseInt(container.getAttribute('start') || '1', 10);
+        olItemCountBefore = container.querySelectorAll(':scope > li').length;
+    }
+
     const fragment = splitRange.extractContents();
     if (!fragment || fragment.childNodes.length === 0) return null;
 
@@ -720,20 +730,32 @@ const splitContainerByRange = (container: HTMLElement, pageBottom: number): HTML
     newContainer.removeAttribute('id');
     newContainer.appendChild(fragment);
 
-    // Preserve numbered list continuation
-    if (container.tagName.toLowerCase() === 'ol') {
-        const existingStart = parseInt(container.getAttribute('start') || '1', 10);
-        const remainingItems = container.querySelectorAll(':scope > li').length;
-        const continuationStart = existingStart + remainingItems;
-        newContainer.setAttribute('start', String(continuationStart));
-        // Mark the continuation so CSS can hide the bullet on the first li
-        // (it's a text continuation, not a new item).
-        // This attribute is removed during auto-merge.
-        newContainer.setAttribute('data-list-continuation', 'true');
-    }
-    // Preserve bullet list continuation (ul) — mark for CSS
-    if (container.tagName.toLowerCase() === 'ul') {
-        newContainer.setAttribute('data-list-continuation', 'true');
+    // Fix numbered/bullet list continuation
+    if (isOl || isUl) {
+        const newLIs = Array.from(newContainer.querySelectorAll(':scope > li'));
+
+        // Rule: if an LI's text starts with a lowercase letter, it's a
+        // continuation of a split sentence — hide its bullet/number.
+        let hiddenCount = 0;
+        for (const li of newLIs) {
+            const text = (li.textContent || '').trimStart();
+            const firstChar = text.charAt(0);
+            if (firstChar && firstChar === firstChar.toLowerCase() && firstChar !== firstChar.toUpperCase()) {
+                // Starts with lowercase letter → hide bullet
+                (li as HTMLElement).style.listStyleType = 'none';
+                // For OL: don't count this item in CSS counter
+                (li as HTMLElement).style.setProperty('counter-increment', 'none');
+                hiddenCount++;
+            }
+        }
+
+        if (isOl) {
+            const remainingInOriginal = container.querySelectorAll(':scope > li').length;
+            newContainer.setAttribute('start', String(olExistingStart + remainingInOriginal));
+        }
+        if (hiddenCount > 0) {
+            newContainer.setAttribute('data-list-continuation', 'true');
+        }
     }
 
     if (!container.textContent?.trim() && container.children.length === 0) {
@@ -1373,12 +1395,14 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     shouldMerge = true;
                 }
 
-                // Merge text blocks (p, h1-h6, li, etc.) split mid-sentence.
+                // Merge text blocks (p, h1-h6, etc.) split mid-sentence.
                 // Guards: same tag, same class, same font-size, same font-weight,
                 // first must NOT end with terminal punctuation,
                 // and second must NOT start with a number (numbered list/TOC entry).
+                // NOTE: LI excluded — list items merge ONLY via data-split-source.
                 if (!shouldMerge &&
                     textTags.has(a.tagName) &&
+                    a.tagName !== 'LI' &&
                     a.tagName === b.tagName &&
                     a.className === b.className) {
                     const csA = window.getComputedStyle(a);
@@ -1387,7 +1411,6 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                         const aText = (a.textContent || '').trimEnd();
                         const bText = (b.textContent || '').trimStart();
                         const lastChar = aText.slice(-1);
-                        // Don't merge if second starts with a number (numbered list entry)
                         const startsWithNumber = /^\d/.test(bText);
                         if (lastChar && !'.!?:'.includes(lastChar) && !startsWithNumber) {
                             shouldMerge = true;

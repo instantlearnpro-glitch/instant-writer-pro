@@ -3254,6 +3254,60 @@ const Editor: React.FC<EditorProps> = ({
                             ? handleExtendWritingLines
                             : undefined
                     }
+                    onFixBullets={(() => {
+                        const list = contextMenu.block?.closest('ol, ul') || (contextMenu.block?.tagName === 'OL' || contextMenu.block?.tagName === 'UL' ? contextMenu.block : null);
+                        if (!list) return undefined;
+                        return () => {
+                            let hidden = 0, restored = 0;
+                            list.querySelectorAll(':scope > li').forEach(li => {
+                                const el = li as HTMLElement;
+                                const text = (el.textContent || '').trimStart();
+                                const fc = text.charAt(0);
+                                const isLow = fc && fc === fc.toLowerCase() && fc !== fc.toUpperCase();
+                                const isUp = fc && fc === fc.toUpperCase() && fc !== fc.toLowerCase();
+                                if (isLow && el.style.listStyleType !== 'none') { el.style.listStyleType = 'none'; hidden++; }
+                                else if (isUp && el.style.listStyleType === 'none') { el.style.listStyleType = ''; restored++; }
+                            });
+                            if (contentRef.current) onContentChange(contentRef.current.innerHTML);
+                            alert(`Corretto: ${hidden} nascosti, ${restored} ripristinati`);
+                        };
+                    })()}
+                    onRemoveBullet={(() => {
+                        const li = contextMenu.block?.closest('li') || (contextMenu.block?.tagName === 'LI' ? contextMenu.block : null);
+                        if (!li) return undefined;
+                        return () => {
+                            const list = li.parentElement;
+                            if (!list) return;
+                            // Convert LI content to a P and insert after the list
+                            const p = document.createElement('p');
+                            while (li.firstChild) p.appendChild(li.firstChild);
+                            // Copy inline styles
+                            if ((li as HTMLElement).getAttribute('style')) p.setAttribute('style', (li as HTMLElement).getAttribute('style') || '');
+                            li.remove();
+                            // If list is now empty, replace with the P
+                            if (list.children.length === 0) {
+                                list.replaceWith(p);
+                            } else {
+                                list.after(p);
+                            }
+                            if (contentRef.current) onContentChange(contentRef.current.innerHTML);
+                        };
+                    })()}
+                    onToggleBulletType={(() => {
+                        const list = contextMenu.block?.closest('ol, ul') || (contextMenu.block?.tagName === 'OL' || contextMenu.block?.tagName === 'UL' ? contextMenu.block : null);
+                        if (!list) return undefined;
+                        return () => {
+                            const newTag = list.tagName === 'OL' ? 'ul' : 'ol';
+                            const newList = document.createElement(newTag);
+                            // Copy attributes
+                            Array.from(list.attributes).forEach((attr: Attr) => {
+                                if (attr.name !== 'start') newList.setAttribute(attr.name, attr.value);
+                            });
+                            while (list.firstChild) newList.appendChild(list.firstChild);
+                            list.replaceWith(newList);
+                            if (contentRef.current) onContentChange(contentRef.current.innerHTML);
+                        };
+                    })()}
                 />
             )}
 
