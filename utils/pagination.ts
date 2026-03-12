@@ -714,6 +714,22 @@ const splitContainerByRange = (container: HTMLElement, pageBottom: number): HTML
     newContainer.removeAttribute('id');
     newContainer.appendChild(fragment);
 
+    // Preserve numbered list continuation
+    if (container.tagName.toLowerCase() === 'ol') {
+        const existingStart = parseInt(container.getAttribute('start') || '1', 10);
+        const remainingItems = container.querySelectorAll(':scope > li').length;
+        const continuationStart = existingStart + remainingItems;
+        newContainer.setAttribute('start', String(continuationStart));
+        // Mark the continuation so CSS can hide the bullet on the first li
+        // (it's a text continuation, not a new item).
+        // This attribute is removed during auto-merge.
+        newContainer.setAttribute('data-list-continuation', 'true');
+    }
+    // Preserve bullet list continuation (ul) — mark for CSS
+    if (container.tagName.toLowerCase() === 'ul') {
+        newContainer.setAttribute('data-list-continuation', 'true');
+    }
+
     if (!container.textContent?.trim() && container.children.length === 0) {
         container.remove();
     } else {
@@ -1000,7 +1016,7 @@ const pullUpTextBlock = (
  * Never splits elements, never pulls content up, never removes pages.
  * This preserves the original document structure and spacing.
  */
-export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number }): { changed: boolean; budgetExceeded: boolean } => {
+export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number; startPage?: number }): { changed: boolean; budgetExceeded: boolean; lastProcessedPage: number } => {
     // 1. Sanitize first
     ensureContentIsPaginated(editor);
 
@@ -1024,8 +1040,11 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
     const timeBudgetMs = options?.timeBudgetMs ?? 500; // Per-while-loop budget, not per-page
     const pullUp = options?.pullUp ?? true;
     let budgetExceeded = false;
+    const startPage = options?.startPage ?? 0;
+    let lastProcessedPage = startPage;
 
-    for (let i = 0; i < pages.length && iterations < maxIterations; i++) {
+    for (let i = startPage; i < pages.length && iterations < maxIterations; i++) {
+        lastProcessedPage = i;
         // Time budget check on the outer loop to keep the UI responsive.
         // If we exceed the budget, stop and let reflowPagesUntilStable
         // schedule the remaining work in the next animation frame.
@@ -1361,6 +1380,15 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                             a.removeAttribute('data-split-source');
                         }
                     }
+                    // Clean up list continuation markers after merge
+                    a.removeAttribute('data-list-continuation');
+                    a.querySelectorAll('[data-list-continuation]').forEach(el => el.removeAttribute('data-list-continuation'));
+                    a.querySelectorAll('li').forEach(li => {
+                        if ((li as HTMLElement).style.listStyleType === 'none') {
+                            (li as HTMLElement).style.listStyleType = '';
+                        }
+                        li.removeAttribute('value');
+                    });
                 } else {
                     i++;
                 }
@@ -1453,7 +1481,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
     // Return both whether changes were made and whether the budget was exceeded.
     // The caller (reflowPagesUntilStable) uses budgetExceeded to decide whether to
     // schedule another pass even when changesMade is false (so we don't miss work).
-    return { changed: changesMade, budgetExceeded };
+    return { changed: changesMade, budgetExceeded, lastProcessedPage };
 };
 
 /**
@@ -1483,15 +1511,10 @@ export const reflowPagesUntilStable = (
     editor: HTMLElement,
     options?: { pullUp?: boolean; maxPasses?: number; onDone?: () => void }
 ) => {
-    // 50 passes maximum: each pass can cascade one level of pages.
-    // For a document where content needs to rise 40 pages, we need 40 passes.
-    const maxPasses = options?.maxPasses ?? 50;
+    const maxPasses = options?.maxPasses ?? 200;
     const pullUp = options?.pullUp ?? true;
     const onDone = options?.onDone;
 
-    // Pass 1: synchronous — process pages with a tight budget for UI responsiveness.
-    // 80ms = roughly 1 frame at 60fps. This processes ~20 pages per pass.
-    // For the full 170-page document, reflowPagesUntilStable uses rAF passes.
     const result1 = reflowPages(editor, { pullUp, timeBudgetMs: 80, maxIterations: 3000 });
 
     if (!result1.changed && !result1.budgetExceeded) {
@@ -1499,17 +1522,29 @@ export const reflowPagesUntilStable = (
         return;
     }
 
-    // Pass 2+: schedule via rAF so the browser can render between passes
+    // Track where the previous pass stopped so the next pass continues
+    // from there instead of re-processing stable pages from page 0.
+    let nextStart = result1.budgetExceeded ? result1.lastProcessedPage : 0;
     let pass = 1;
+
     const scheduleNextPass = () => {
         if (pass >= maxPasses) { onDone?.(); return; }
         requestAnimationFrame(() => {
-            const result = reflowPages(editor, { pullUp, timeBudgetMs: 150, maxIterations: 3000 });
+            const result = reflowPages(editor, {
+                pullUp,
+                timeBudgetMs: 300,
+                maxIterations: 3000,
+                startPage: nextStart
+            });
             pass++;
             if (result.changed || result.budgetExceeded) {
-                scheduleNextPass(); // More work to do
+                nextStart = result.budgetExceeded ? result.lastProcessedPage : 0;
+                scheduleNextPass();
+            } else if (nextStart > 0) {
+                nextStart = 0;
+                scheduleNextPass();
             } else {
-                onDone?.(); // Stable
+                onDone?.();
             }
         });
     };

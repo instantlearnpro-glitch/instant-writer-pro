@@ -366,6 +366,7 @@ const Editor: React.FC<EditorProps> = ({
     const reflowDebounceRef = useRef<number | null>(null);
     const lastUserEditAtRef = useRef<number>(0);
     const lastEmittedHtmlRef = useRef<string>('');
+    const [pageIndicator, setPageIndicator] = useState<{ current: number; total: number }>({ current: 1, total: 1 });
     const [tableTocModal, setTableTocModal] = useState<{
         isOpen: boolean;
         tableId: string;
@@ -731,6 +732,50 @@ const Editor: React.FC<EditorProps> = ({
             window.removeEventListener('resize', updateRects);
         };
     }, [htmlContent, showMarginGuides, containerRef, zoom, cssContent]);
+
+    // Scroll-based page indicator: "Page X / Y"
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        let rafId = 0;
+        const updateIndicator = () => {
+            const workspace = container.querySelector('.editor-workspace');
+            if (!workspace) return;
+            const pages = workspace.querySelectorAll('.page');
+            const total = pages.length;
+            if (total === 0) return;
+            const containerRect = container.getBoundingClientRect();
+            const viewMid = containerRect.top + containerRect.height * 0.3;
+            let closest = 0;
+            let closestDist = Infinity;
+            pages.forEach((p, idx) => {
+                const r = p.getBoundingClientRect();
+                const pageMid = r.top + r.height / 2;
+                const dist = Math.abs(pageMid - viewMid);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closest = idx;
+                }
+            });
+            setPageIndicator({ current: closest + 1, total });
+        };
+        const onScroll = () => {
+            cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(updateIndicator);
+        };
+        container.addEventListener('scroll', onScroll, { passive: true });
+        // Initial update
+        updateIndicator();
+        // Also update when content changes
+        const mo = new MutationObserver(() => { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(updateIndicator); });
+        const ws = container.querySelector('.editor-workspace');
+        if (ws) mo.observe(ws, { childList: true, subtree: false });
+        return () => {
+            container.removeEventListener('scroll', onScroll);
+            cancelAnimationFrame(rafId);
+            mo.disconnect();
+        };
+    }, [containerRef, htmlContent]);
 
     const handleSelectionChange = useCallback(() => {
         if (suppressSelectionRef?.current) return;
@@ -2713,7 +2758,13 @@ const Editor: React.FC<EditorProps> = ({
                 background-color: white;
                 display: block; 
                 outline: none;
-                position: relative; 
+                position: relative;
+            }
+            /* Hide bullet/number on first li when list was split mid-item */
+            .editor-workspace ol[data-list-continuation] > li:first-child,
+            .editor-workspace ul[data-list-continuation] > li:first-child,
+            .editor-workspace li[data-list-continuation] {
+                list-style-type: none;
             }
             .cursor-crosshair, .cursor-crosshair * {
                 cursor: crosshair !important;
@@ -3290,6 +3341,27 @@ const Editor: React.FC<EditorProps> = ({
                     </div>
                 </div>
             )}
+
+            {/* Floating page indicator */}
+            <div style={{
+                position: 'fixed',
+                bottom: 60,
+                right: 24,
+                background: 'rgba(0,0,0,0.75)',
+                color: '#fff',
+                fontSize: 13,
+                fontWeight: 600,
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                padding: '5px 14px',
+                borderRadius: 8,
+                zIndex: 50,
+                pointerEvents: 'none',
+                userSelect: 'none',
+                letterSpacing: '0.5px',
+                backdropFilter: 'blur(4px)'
+            }}>
+                {pageIndicator.current} / {pageIndicator.total}
+            </div>
         </div>
     );
 };
