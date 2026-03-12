@@ -71,8 +71,34 @@ const rgbToHex = (rgb: string) => {
     return `#${r}${g}${b}`;
 };
 
-const mapFontSizeToCommandValue = (fontSizePx: number) => {
-    return String(Math.max(1, Math.round(fontSizePx)));
+const mapFontSizeToCommandValue = (fontSizePt: number) => {
+    return String(Math.max(1, Math.round(fontSizePt)));
+};
+
+/** Get font size in pt, preferring inline style (which preserves 'pt') over computed (always px). */
+const getInlineFontSizePt = (targetEl: HTMLElement, blockEl: HTMLElement): number => {
+    // Walk up from target to block, checking inline styles
+    let el: HTMLElement | null = targetEl;
+    while (el && el !== blockEl.parentElement) {
+        if (el.style.fontSize) {
+            const raw = el.style.fontSize;
+            if (raw.endsWith('pt')) return parseFloat(raw);
+            if (raw.endsWith('em') || raw.endsWith('rem')) return parseFloat(raw) * 12;
+            // px or bare number
+            return parseFloat(raw) * 0.75;
+        }
+        el = el.parentElement;
+    }
+    // Check first inline child with font-size
+    const inlineChild = targetEl.querySelector('span[style], font[size]') as HTMLElement | null;
+    if (inlineChild?.style.fontSize) {
+        const raw = inlineChild.style.fontSize;
+        if (raw.endsWith('pt')) return parseFloat(raw);
+        return parseFloat(raw) * 0.75;
+    }
+    // Fallback: computed (always px) → convert to pt
+    const computed = window.getComputedStyle(targetEl).fontSize || '16px';
+    return parseFloat(computed) * 0.75;
 };
 
 const hasAncestorTag = (node: Node | null, tagNames: string[], stopAt?: HTMLElement | null) => {
@@ -798,7 +824,7 @@ const Editor: React.FC<EditorProps> = ({
 
         const computedBlock = window.getComputedStyle(block);
         const computedTarget = targetElement ? window.getComputedStyle(targetElement) : computedBlock;
-        const fontSizePx = parseFloat(computedTarget.fontSize || '16');
+        const fontSizePt = getInlineFontSizePt(targetElement || block, block);
         const fontWeight = computedTarget.fontWeight;
         const computedBold = fontWeight === 'bold' || parseInt(fontWeight, 10) >= 600;
         const textDecoration = computedTarget.textDecorationLine || computedTarget.textDecoration;
@@ -843,7 +869,7 @@ const Editor: React.FC<EditorProps> = ({
             alignRight: textAlign === 'right' || textAlign === 'end',
             alignJustify: textAlign === 'justify',
             fontName: computedTarget.fontFamily || 'sans-serif',
-            fontSize: mapFontSizeToCommandValue(fontSizePx),
+            fontSize: mapFontSizeToCommandValue(fontSizePt),
             lineHeight: computedBlock.lineHeight || 'normal',
             letterSpacing: computedTarget.letterSpacing || 'normal',
             foreColor: rgbToHex(computedTarget.color),
@@ -872,7 +898,7 @@ const Editor: React.FC<EditorProps> = ({
 
         const computedBlock = window.getComputedStyle(element);
         const computedText = window.getComputedStyle(textElement);
-        const fontSizePx = parseFloat(computedText.fontSize || '16');
+        const fontSizePt = getInlineFontSizePt(textElement, element);
         const fontWeight = computedText.fontWeight;
         const isBold = fontWeight === 'bold' || parseInt(fontWeight, 10) >= 600;
         const textDecoration = computedText.textDecorationLine || computedText.textDecoration;
@@ -919,7 +945,7 @@ const Editor: React.FC<EditorProps> = ({
             alignRight: textAlign === 'right' || textAlign === 'end',
             alignJustify: textAlign === 'justify',
             fontName: computedText.fontFamily || 'sans-serif',
-            fontSize: mapFontSizeToCommandValue(fontSizePx),
+            fontSize: mapFontSizeToCommandValue(fontSizePt),
             lineHeight: computedBlock.lineHeight || 'normal',
             letterSpacing: computedText.letterSpacing || 'normal',
             foreColor: rgbToHex(computedText.color),

@@ -46,11 +46,22 @@ const pxToPt = (px: string): string => {
 };
 
 const mapFontSizeToCommandValue = (fontSizeStr: string) => {
-    // execCommand fontSize expects 1-7, but we are moving away from it.
-    // However, if it's called, we just return the raw string or rounded number.
-    const num = parseFloat(fontSizeStr);
+    // If the value already has a unit, parse accordingly
+    const str = fontSizeStr.trim();
+    if (str.endsWith('pt')) {
+        const pt = parseFloat(str);
+        return isNaN(pt) ? '16' : String(Math.max(1, Math.round(pt)));
+    }
+    if (str.endsWith('em') || str.endsWith('rem')) {
+        // Rough conversion: 1em ≈ 12pt
+        const em = parseFloat(str);
+        return isNaN(em) ? '16' : String(Math.max(1, Math.round(em * 12)));
+    }
+    // Default: treat as px, convert to pt (1pt = 1.333px)
+    const num = parseFloat(str);
     if (isNaN(num)) return fontSizeStr;
-    return String(Math.max(1, Math.round(num)));
+    const pt = num * 0.75;
+    return String(Math.max(1, Math.round(pt)));
 };
 
 type StyleClipboard =
@@ -313,7 +324,27 @@ const buildSelectionStateFromElement = (element: HTMLElement): SelectionState =>
 
     const computedBlock = window.getComputedStyle(element);
     const computedText = window.getComputedStyle(textElement);
-    const fontSizePx = parseFloat(computedText.fontSize || '16');
+
+    // Font size detection: prefer inline style (preserves original unit like "16pt")
+    // over getComputedStyle (always returns px which needs conversion).
+    let fontSizeRaw = '';
+    // Check inline style on text element and its ancestors up to block element
+    let fsEl: HTMLElement | null = textElement;
+    while (fsEl && fsEl !== element.parentElement) {
+        if (fsEl.style.fontSize) {
+            fontSizeRaw = fsEl.style.fontSize;
+            break;
+        }
+        fsEl = fsEl.parentElement;
+    }
+    // Also check inline children (spans with font-size)
+    if (!fontSizeRaw) {
+        const inlineChild = textElement.querySelector('span[style], font[size]') as HTMLElement | null;
+        if (inlineChild?.style.fontSize) fontSizeRaw = inlineChild.style.fontSize;
+    }
+    // Fallback: computed value (px)
+    if (!fontSizeRaw) fontSizeRaw = computedText.fontSize || '16px';
+
     const fontWeight = computedText.fontWeight;
     const isBold = fontWeight === 'bold' || parseInt(fontWeight, 10) >= 600;
     const textDecoration = computedText.textDecorationLine || computedText.textDecoration;
@@ -356,7 +387,7 @@ const buildSelectionStateFromElement = (element: HTMLElement): SelectionState =>
         alignRight: textAlign === 'right' || textAlign === 'end',
         alignJustify: textAlign === 'justify',
         fontName: computedText.fontFamily || 'sans-serif',
-        fontSize: mapFontSizeToCommandValue(String(fontSizePx)),
+        fontSize: mapFontSizeToCommandValue(fontSizeRaw),
         lineHeight: computedBlock.lineHeight || 'normal',
         letterSpacing: computedText.letterSpacing || 'normal',
         foreColor: rgbToHex(computedText.color),
@@ -2048,7 +2079,7 @@ const App: React.FC = () => {
 
             // Parse current styles from the CLICKED footer (as representative)
             const computed = window.getComputedStyle(footer);
-            const footerFontSize = parseFloat(computed.fontSize || '12');
+            const footerFontSize = parseFloat(computed.fontSize || '12') * 0.75;
             setSelectionState(prev => ({
                 ...prev,
                 fontSize: String(Math.round(footerFontSize)),
