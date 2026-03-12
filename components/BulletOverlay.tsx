@@ -95,14 +95,15 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
         if (containerRef.current) onContentChange(containerRef.current.innerHTML);
     };
 
-    const renumberList = (list: HTMLElement) => {
-        if (list.tagName !== 'OL') return;
-        const start = parseInt(list.getAttribute('start') || '1', 10);
-        let num = start;
+    // Renumber a single OL's visible items, starting from `startNum`
+    const renumberList = (list: HTMLElement, startNum?: number): number => {
+        if (list.tagName !== 'OL') return 0;
+        let num = startNum ?? parseInt(list.getAttribute('start') || '1', 10);
+        // Update start attribute to match actual start
+        if (startNum !== undefined) list.setAttribute('start', String(startNum));
         list.querySelectorAll(':scope > li').forEach(li => {
             const el = li as HTMLElement;
-            const cs = window.getComputedStyle(el);
-            const hidden = el.style.listStyleType === 'none' || cs.listStyleType === 'none';
+            const hidden = el.style.listStyleType === 'none';
             if (!hidden) {
                 el.setAttribute('value', String(num));
                 num++;
@@ -110,7 +111,67 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
                 el.removeAttribute('value');
             }
         });
+        return num; // Next number for continuation
     };
+
+    // Renumber ALL OLs in the workspace, treating page-split OLs as one list
+    const renumberAllOLs = useCallback(() => {
+        if (!containerRef.current) return;
+        const pages = Array.from(containerRef.current.querySelectorAll('.page')) as HTMLElement[];
+        const processedOLs = new Set<Element>();
+        
+        pages.forEach((page, _pi) => {
+            const contentArea = (page.querySelector('.page-content') || page) as HTMLElement;
+            const olsInPage = Array.from(contentArea.querySelectorAll(':scope > ol')) as HTMLElement[];
+            
+            olsInPage.forEach(ol => {
+                if (processedOLs.has(ol)) return;
+                processedOLs.add(ol);
+                
+                const hasContinuation = ol.hasAttribute('data-list-continuation') || 
+                    parseInt(ol.getAttribute('start') || '1', 10) > 1;
+                
+                if (!hasContinuation) {
+                    // Fresh list — start from 1
+                    let currentNum = renumberList(ol, 1);
+                    
+                    // Find continuation OLs on subsequent pages
+                    let pageIdx = pages.indexOf(page);
+                    let searching = true;
+                    
+                    while (searching && pageIdx < pages.length - 1) {
+                        pageIdx++;
+                        const nextPage = pages[pageIdx];
+                        const nextContent = (nextPage.querySelector('.page-content') || nextPage) as HTMLElement;
+                        const firstOl = nextContent.querySelector(':scope > ol') as HTMLElement | null;
+                        if (firstOl && !processedOLs.has(firstOl) && 
+                            (firstOl.hasAttribute('data-list-continuation') || 
+                             parseInt(firstOl.getAttribute('start') || '1', 10) > 1)) {
+                            processedOLs.add(firstOl);
+                            currentNum = renumberList(firstOl, currentNum);
+                        } else {
+                            searching = false;
+                        }
+                    }
+                }
+            });
+        });
+        
+        // Handle any remaining OLs not in pages
+        containerRef.current.querySelectorAll('ol').forEach(ol => {
+            if (!processedOLs.has(ol)) {
+                renumberList(ol as HTMLElement, 1);
+            }
+        });
+    }, [containerRef]);
+
+    // Run renumbering on mount to fix pre-existing issues
+    useEffect(() => {
+        renumberAllOLs();
+        save();
+        scan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Detect pattern after recording an action
     const detectPattern = useCallback((history: ActionRecord[], currentBullets: BulletItem[]) => {
@@ -180,7 +241,7 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
 
     const handleHide = (item: BulletItem) => {
         item.li.style.listStyleType = 'none';
-        if (item.li.parentElement) renumberList(item.li.parentElement);
+        renumberAllOLs();
         save();
         scan();
         recordAction('hide', item);
@@ -193,7 +254,7 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
         }
         item.li.style.setProperty('list-style-type', item.isOl ? 'decimal' : 'disc', 'important');
         item.li.style.removeProperty('counter-increment');
-        if (item.li.parentElement) renumberList(item.li.parentElement);
+        renumberAllOLs();
         save();
         scan();
         recordAction('restore', item);
@@ -217,7 +278,6 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
     // Batch apply pattern
     const handleBatchApply = () => {
         if (!pattern) return;
-        const listsToRenumber = new Set<HTMLElement>();
         pattern.candidates.forEach((item, i) => {
             if (!pattern.checked[i]) return;
             if (pattern.action === 'hide') {
@@ -230,9 +290,8 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
                 item.li.style.setProperty('list-style-type', item.isOl ? 'decimal' : 'disc', 'important');
                 item.li.style.removeProperty('counter-increment');
             }
-            if (item.li.parentElement) listsToRenumber.add(item.li.parentElement);
         });
-        listsToRenumber.forEach(l => renumberList(l));
+        renumberAllOLs();
         save();
         setPattern(null);
         scan();
