@@ -101,9 +101,22 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
         let num = startNum ?? parseInt(list.getAttribute('start') || '1', 10);
         // Update start attribute to match actual start
         if (startNum !== undefined) list.setAttribute('start', String(startNum));
-        list.querySelectorAll(':scope > li').forEach(li => {
+        const hasContinuationAttr = list.hasAttribute('data-list-continuation');
+        const children = Array.from(list.querySelectorAll(':scope > li'));
+        children.forEach((li, liIdx) => {
             const el = li as HTMLElement;
-            const hidden = el.style.listStyleType === 'none';
+            // Check all ways a bullet can be hidden:
+            // 1. Inline style
+            const hiddenInline = el.style.listStyleType === 'none';
+            // 2. data-list-continuation on the LI itself
+            const hiddenByAttr = el.hasAttribute('data-list-continuation');
+            // 3. First child of a [data-list-continuation] parent
+            const hiddenByParent = hasContinuationAttr && liIdx === 0;
+            // 4. Computed style fallback
+            const hiddenComputed = !hiddenInline && !hiddenByAttr && !hiddenByParent &&
+                window.getComputedStyle(el).listStyleType === 'none';
+            
+            const hidden = hiddenInline || hiddenByAttr || hiddenByParent || hiddenComputed;
             if (!hidden) {
                 el.setAttribute('value', String(num));
                 num++;
@@ -114,55 +127,51 @@ const BulletOverlay: React.FC<BulletOverlayProps> = ({ containerRef, onContentCh
         return num; // Next number for continuation
     };
 
-    // Renumber ALL OLs in the workspace, treating page-split OLs as one list
+    // Renumber ALL OLs in the workspace
     const renumberAllOLs = useCallback(() => {
         if (!containerRef.current) return;
-        const pages = Array.from(containerRef.current.querySelectorAll('.page')) as HTMLElement[];
-        const processedOLs = new Set<Element>();
+        // Find ALL OLs in document order
+        const allOLs = Array.from(containerRef.current.querySelectorAll('ol')) as HTMLElement[];
+        const processedOLs = new Set<HTMLElement>();
         
-        pages.forEach((page, _pi) => {
-            const contentArea = (page.querySelector('.page-content') || page) as HTMLElement;
-            const olsInPage = Array.from(contentArea.querySelectorAll(':scope > ol')) as HTMLElement[];
+        for (const ol of allOLs) {
+            if (processedOLs.has(ol)) continue;
             
-            olsInPage.forEach(ol => {
-                if (processedOLs.has(ol)) return;
-                processedOLs.add(ol);
-                
-                const hasContinuation = ol.hasAttribute('data-list-continuation') || 
-                    parseInt(ol.getAttribute('start') || '1', 10) > 1;
-                
-                if (!hasContinuation) {
-                    // Fresh list — start from 1
-                    let currentNum = renumberList(ol, 1);
-                    
-                    // Find continuation OLs on subsequent pages
-                    let pageIdx = pages.indexOf(page);
-                    let searching = true;
-                    
-                    while (searching && pageIdx < pages.length - 1) {
-                        pageIdx++;
-                        const nextPage = pages[pageIdx];
-                        const nextContent = (nextPage.querySelector('.page-content') || nextPage) as HTMLElement;
-                        const firstOl = nextContent.querySelector(':scope > ol') as HTMLElement | null;
-                        if (firstOl && !processedOLs.has(firstOl) && 
-                            (firstOl.hasAttribute('data-list-continuation') || 
-                             parseInt(firstOl.getAttribute('start') || '1', 10) > 1)) {
-                            processedOLs.add(firstOl);
-                            currentNum = renumberList(firstOl, currentNum);
-                        } else {
-                            searching = false;
-                        }
-                    }
-                }
-            });
-        });
-        
-        // Handle any remaining OLs not in pages
-        containerRef.current.querySelectorAll('ol').forEach(ol => {
-            if (!processedOLs.has(ol)) {
-                renumberList(ol as HTMLElement, 1);
+            const isContinuation = ol.hasAttribute('data-list-continuation') || 
+                parseInt(ol.getAttribute('start') || '1', 10) > 1;
+            
+            if (isContinuation) {
+                // This is a continuation — skip it here, it'll be processed
+                // when we find its chain head
+                continue;
             }
-        });
+            
+            // This is a fresh list — renumber from 1
+            processedOLs.add(ol);
+            let nextNum = renumberList(ol, 1);
+            
+            // Look for continuations: subsequent OLs with start > 1 or data-list-continuation
+            const olIdx = allOLs.indexOf(ol);
+            for (let i = olIdx + 1; i < allOLs.length; i++) {
+                const nextOl = allOLs[i];
+                if (processedOLs.has(nextOl)) continue;
+                const isNext = nextOl.hasAttribute('data-list-continuation') || 
+                    parseInt(nextOl.getAttribute('start') || '1', 10) > 1;
+                if (isNext) {
+                    processedOLs.add(nextOl);
+                    nextNum = renumberList(nextOl, nextNum);
+                } else {
+                    break; // Found a fresh list, stop chaining
+                }
+            }
+        }
+        
+        // Any unprocessed OLs (orphan continuations) — renumber from 1
+        for (const ol of allOLs) {
+            if (!processedOLs.has(ol)) {
+                renumberList(ol, 1);
+            }
+        }
     }, [containerRef]);
 
     // Run renumbering on mount to fix pre-existing issues
