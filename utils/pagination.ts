@@ -1551,8 +1551,8 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
     }
 
     // Post-reflow: auto-hide bullets on LIs starting with lowercase,
-    // auto-show on LIs starting with uppercase that were hidden.
-    // Then renumber all OLs counting only visible items.
+    // Then renumber all OLs — each OL starts from 1 unless it's a
+    // page-split continuation (same data-split-source as previous OL).
     if (changesMade) {
         editor.querySelectorAll('ol > li, ul > li').forEach(li => {
             const el = li as HTMLElement;
@@ -1563,12 +1563,25 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 el.style.listStyleType = 'none';
             }
         });
-        // Renumber all OLs
-        editor.querySelectorAll('ol').forEach(ol => {
-            const olEl = ol as HTMLElement;
-            const start = parseInt(olEl.getAttribute('start') || '1', 10);
-            let num = start;
-            olEl.querySelectorAll(':scope > li').forEach(li => {
+
+        // Smart renumber: chain only OLs with matching data-split-source
+        const allOLs = Array.from(editor.querySelectorAll('ol')) as HTMLElement[];
+        // Map: splitSource → running count
+        const chainCounters = new Map<string, number>();
+        
+        for (const ol of allOLs) {
+            const splitSrc = ol.getAttribute('data-split-source');
+            let startNum = 1;
+            
+            if (splitSrc && chainCounters.has(splitSrc)) {
+                // Continuation of a split list — pick up from where we left off
+                startNum = chainCounters.get(splitSrc)!;
+            }
+            
+            // Renumber visible items
+            let num = startNum;
+            ol.setAttribute('start', String(startNum));
+            ol.querySelectorAll(':scope > li').forEach(li => {
                 const el = li as HTMLElement;
                 if (el.style.listStyleType !== 'none') {
                     el.setAttribute('value', String(num));
@@ -1577,7 +1590,12 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     el.removeAttribute('value');
                 }
             });
-        });
+            
+            // Store the next number for this chain
+            if (splitSrc) {
+                chainCounters.set(splitSrc, num);
+            }
+        }
     }
 
     return { changed: changesMade, budgetExceeded, lastProcessedPage };
