@@ -639,7 +639,15 @@ const splitContainerByChildren = (container: HTMLElement, pageBottom: number): H
     // Preserve numbered list continuation
     if (container.tagName.toLowerCase() === 'ol') {
         const existingStart = parseInt(container.getAttribute('start') || '1', 10);
-        newContainer.setAttribute('start', String(existingStart + splitIndex));
+        // Count only VISIBLE items before splitIndex
+        let visibleBefore = 0;
+        for (let i = 0; i < splitIndex; i++) {
+            const li = children[i] as HTMLElement;
+            if (li.style?.listStyleType !== 'none') {
+                visibleBefore++;
+            }
+        }
+        newContainer.setAttribute('start', String(existingStart + visibleBefore));
     }
 
     for (let i = splitIndex; i < children.length; i++) {
@@ -750,8 +758,16 @@ const splitContainerByRange = (container: HTMLElement, pageBottom: number): HTML
         }
 
         if (isOl) {
-            const remainingInOriginal = container.querySelectorAll(':scope > li').length;
-            newContainer.setAttribute('start', String(olExistingStart + remainingInOriginal));
+            // Count only VISIBLE items remaining in original (skip hidden continuations)
+            const remainingLIs = Array.from(container.querySelectorAll(':scope > li'));
+            let visibleCount = 0;
+            for (const li of remainingLIs) {
+                const el = li as HTMLElement;
+                if (el.style.listStyleType !== 'none') {
+                    visibleCount++;
+                }
+            }
+            newContainer.setAttribute('start', String(olExistingStart + visibleCount));
         }
         if (hiddenCount > 0) {
             newContainer.setAttribute('data-list-continuation', 'true');
@@ -846,9 +862,14 @@ const pullUpSplitContainer = (
 
     // Update start on the remaining original <ol> ONCE after the loop
     if (isOl && movedAny) {
-        const movedCount = partialContainer.querySelectorAll(':scope > li').length
-            || partialContainer.children.length;
-        container.setAttribute('start', String(originalStart + movedCount));
+        // Count only VISIBLE moved items
+        let movedVisible = 0;
+        partialContainer.querySelectorAll(':scope > li').forEach(li => {
+            if ((li as HTMLElement).style.listStyleType !== 'none') {
+                movedVisible++;
+            }
+        });
+        container.setAttribute('start', String(originalStart + movedVisible));
     }
 
     // Mark both halves so auto-merge can reunite them later.
