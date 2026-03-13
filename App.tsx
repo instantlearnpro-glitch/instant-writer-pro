@@ -985,7 +985,7 @@ const App: React.FC = () => {
                                 };
                                 updateDocState(newState, true);
                             })
-                            .catch((err: any) => { console.error(err); alert("Error converting Word document."); });
+                            .catch((err: unknown) => { console.error(err); alert("Error converting Word document."); });
                     }
                 }
             };
@@ -4543,7 +4543,7 @@ ${workspace.innerHTML}
         };
 
         const getSpacingOption = (computed: CSSStyleDeclaration) => {
-            const spacing: any = {};
+            const spacing: { after?: number; line?: number; lineRule?: 'atLeast' | 'exactly' | 'auto' } = {};
             const mb = cssToTwip(computed.marginBottom);
             if (mb > 0) spacing.after = mb;
 
@@ -4717,7 +4717,7 @@ ${workspace.innerHTML}
                     }
 
                     const computed = window.getComputedStyle(el);
-                    let alignment: any = AlignmentType.LEFT;
+                    let alignment: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.LEFT;
                     if (computed.textAlign === 'center') alignment = AlignmentType.CENTER;
                     if (computed.textAlign === 'right') alignment = AlignmentType.RIGHT;
                     if (computed.textAlign === 'justify') alignment = AlignmentType.JUSTIFIED;
@@ -4804,9 +4804,9 @@ ${workspace.innerHTML}
             onProgress?.(100);
             console.log('[DOCX Export] Download triggered successfully');
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('[DOCX Export] Error:', err);
-            alert(`An error occurred during DOCX export:\n${err.message || String(err)}\n\nPlease check the console for more details.`);
+            alert(`An error occurred during DOCX export:\n${err instanceof Error ? err.message : String(err)}\n\nPlease check the console for more details.`);
         } finally {
             overflowFixedElements.forEach(({ el, originalOverflow }) => {
                 el.style.overflow = originalOverflow;
