@@ -184,14 +184,19 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       }
       if (direction.includes('s')) {
         element.style.height = `${Math.max(20, startPos.current.height + deltaY)}px`;
+        element.style.overflow = 'hidden';
       }
       if (direction.includes('n')) {
-        // Top trim: drag down → clip from top, bottom stays fixed
-        // Reduce height and add equal margin-top to keep bottom in place
+        // Top trim: drag down → clip from TOP, bottom stays fixed
+        // 1. Reduce height (box gets smaller)
+        // 2. Add margin-top (bottom edge stays in place)
+        // 3. overflow: hidden (clips overflow)
+        // 4. scrollTop shifts content up so TOP is cut, not bottom
         const trimAmount = Math.max(0, Math.min(deltaY, startPos.current.height - 20));
         element.style.height = `${startPos.current.height - trimAmount}px`;
         element.style.marginTop = `${initialMarginTop + trimAmount}px`;
         element.style.overflow = 'hidden';
+        element.scrollTop = trimAmount;
       }
 
       updatePosition();
