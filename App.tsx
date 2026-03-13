@@ -1169,11 +1169,9 @@ const App: React.FC = () => {
                             setPageFormatId(matchedFormat.id);
                             setPageMargins(matchedFormat.margins);
                             importMargins = matchedFormat.margins;
-                            console.log(`[Import] Matched page size to format: ${matchedFormat.id} (${matchedFormat.width} x ${matchedFormat.height})`);
                         } else {
                             setPageFormatId('custom');
                             setCustomPageSize({ width: targetSize.width, height: targetSize.height });
-                            console.log(`[Import] Custom page size: ${targetSize.width} x ${targetSize.height}`);
                         }
                     }
 
@@ -1273,7 +1271,7 @@ const App: React.FC = () => {
 
                     if (imageFiles.length > 0) {
                         if (linkedCount > 0) {
-                            console.log(`Linked ${linkedCount} images from selection.`);
+
                         } else {
                             // If user selected images but none matched, warn them
                             alert("Images were selected but didn't match the filenames in the HTML. Please ensure filenames (e.g., 'image.png') match exactly.");
@@ -2809,7 +2807,7 @@ const App: React.FC = () => {
                     // Replace in DOM
                     blockToConvert.parentNode?.replaceChild(newEl, blockToConvert);
                     targetBlock = newEl;
-                    console.log(`[Style] formatBlock fallback: converted ${blockToConvert.nodeName} → ${appliedTagStr}`);
+
                 }
             }
 
@@ -2820,7 +2818,7 @@ const App: React.FC = () => {
 
             // Apply saved styles (Word-like behavior)
             const stylesToApply = savedHeadingStylesRef.current[appliedTagStr as keyof typeof savedHeadingStyles];
-            console.log('[FormatBlock] targetBlock:', targetBlock?.tagName, 'stylesToApply:', stylesToApply ? Object.keys(stylesToApply).length + ' props' : 'none');
+
             if (stylesToApply && targetBlock) {
                 applyInlineHeadingStyles(targetBlock, stylesToApply);
             }
@@ -2872,7 +2870,7 @@ const App: React.FC = () => {
             const currentActiveBlock = activeBlockRef.current;
             if (currentActiveBlock && workspace.contains(currentActiveBlock)) {
                 styledElement = currentActiveBlock;
-                console.log('[UpdateStyle] Captured from activeBlockRef:', currentActiveBlock.tagName, currentActiveBlock.textContent?.substring(0, 40));
+
             }
             // Then try the current selection
             if (!styledElement) {
@@ -3022,7 +3020,7 @@ const App: React.FC = () => {
             if (htmlModified && workspace) {
                 updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
             }
-            console.log(`[Style] Updated style for ${selector} (shape/HR only)`);
+
             return;
         }
 
@@ -3139,7 +3137,7 @@ const App: React.FC = () => {
             htmlContent: workspace ? workspace.innerHTML : docState.htmlContent
         }, true);
 
-        console.log(`[Style] Updated style for ${selector}`);
+
     };
 
     // --- Feature: Real-time Block Styling (Frames & Pudding & Shapes) ---

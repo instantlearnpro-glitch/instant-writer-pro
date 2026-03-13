@@ -2347,7 +2347,6 @@ const Editor: React.FC<EditorProps> = ({
                         .find(p => p) || null;
                 }
                 if (page) {
-                    console.log('[TextLayer] insert at click', { x: e.clientX, y: e.clientY });
                     e.preventDefault();
                     e.stopPropagation();
                     const rect = page.getBoundingClientRect();
