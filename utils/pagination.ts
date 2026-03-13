@@ -41,8 +41,8 @@ const summarizeElement = (el: HTMLElement) => {
         position: style.position,
         display: style.display,
         overflow: `${style.overflowX}/${style.overflowY}`,
-        breakInside: (style as any).breakInside || (style as any).webkitBreakInside || null,
-        pageBreakInside: (style as any).pageBreakInside || null
+        breakInside: style.getPropertyValue('break-inside') || style.getPropertyValue('-webkit-break-inside') || null,
+        pageBreakInside: style.getPropertyValue('page-break-inside') || null
     };
 };
 
@@ -1025,7 +1025,7 @@ const pullUpTextBlock = (
         'letterSpacing', 'wordSpacing', 'textAlign', 'color', 'textIndent'
     ];
     for (const prop of textStyleProps) {
-        const val = (computedStyle as any)[prop];
+        const val = computedStyle.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()));
         if (val && !partial.style.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()))) {
             partial.style.setProperty(
                 prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
@@ -1036,7 +1036,7 @@ const pullUpTextBlock = (
     // Also apply the same preservation to the remaining element so it
     // stays consistent even if it's moved later.
     for (const prop of textStyleProps) {
-        const val = (computedStyle as any)[prop];
+        const val = computedStyle.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()));
         if (val && !element.style.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()))) {
             element.style.setProperty(
                 prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
