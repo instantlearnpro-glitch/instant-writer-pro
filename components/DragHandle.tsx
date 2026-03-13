@@ -280,6 +280,25 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
         }}
       />
 
+      {/* Top (for non-HR elements) */}
+      {!isHR && (
+        <div
+          onMouseDown={(e) => handleResizeStart(e, 'n')}
+          style={{
+            position: 'absolute',
+            top: -6,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 24,
+            height: 12,
+            background: '#8d55f1',
+            borderRadius: 4,
+            cursor: 'ns-resize',
+            pointerEvents: 'auto'
+          }}
+        />
+      )}
+
       {/* Bottom (for non-HR elements) */}
       {!isHR && (
         <div
