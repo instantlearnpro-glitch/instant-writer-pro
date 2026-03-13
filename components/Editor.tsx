@@ -2582,12 +2582,16 @@ const Editor: React.FC<EditorProps> = ({
 
             if (block) {
                 if (isTextBlock(block)) {
-                    // Clicking a text block — deselect any previous activeBlock (unless Command for multi-select)
-                    if (!e.metaKey && !e.ctrlKey && activeBlock && activeBlock !== block) {
-                        activeBlock.removeAttribute('data-selected');
-                        setActiveBlock(null);
-                        onImageSelect(null);
-                        onTextLayerSelect(null);
+                    // Clicking a text block — deselect any previously selected block
+                    // Use DOM query (not stale closure state) to find the current selection
+                    if (!e.metaKey && !e.ctrlKey) {
+                        const prevSelected = contentRef.current?.querySelector('[data-selected="true"]') as HTMLElement | null;
+                        if (prevSelected && prevSelected !== block) {
+                            prevSelected.removeAttribute('data-selected');
+                            setActiveBlock(null);
+                            onImageSelect(null);
+                            onTextLayerSelect(null);
+                        }
                     }
                     const selection = window.getSelection();
                     const hasSelection = selection && selection.rangeCount > 0 && !selection.isCollapsed;
@@ -2614,12 +2618,15 @@ const Editor: React.FC<EditorProps> = ({
                     onSelectionChange(buildSelectionStateFromElement(block), block);
                 }
             } else {
-                // Clicked on empty space — deselect activeBlock (unless Command for multi-select)
-                if (!e.metaKey && !e.ctrlKey && activeBlock) {
-                    activeBlock.removeAttribute('data-selected');
-                    setActiveBlock(null);
-                    onImageSelect(null);
-                    onTextLayerSelect(null);
+                // Clicked on empty space — deselect any selected block via DOM
+                if (!e.metaKey && !e.ctrlKey) {
+                    const prevSelected = contentRef.current?.querySelector('[data-selected="true"]') as HTMLElement | null;
+                    if (prevSelected) {
+                        prevSelected.removeAttribute('data-selected');
+                        setActiveBlock(null);
+                        onImageSelect(null);
+                        onTextLayerSelect(null);
+                    }
                 }
             }
 
