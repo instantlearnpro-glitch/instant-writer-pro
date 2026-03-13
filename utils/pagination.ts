@@ -1873,8 +1873,9 @@ export const rejoinSplitParagraphs = (editor: HTMLElement): number => {
         }
 
         // Container-level merge: if both are non-text elements (DIV, etc.),
-        // try to merge their INNER text children across the page boundary,
-        // then consolidate the containers themselves.
+        // try to merge their INNER text children across the page boundary.
+        // We DO NOT consolidate the generic containers here (split-marked containers
+        // are already handled and merged by the direct check above).
         if (!textTags.has(lastEl.tagName) && !textTags.has(firstEl.tagName) &&
             lastEl.tagName === firstEl.tagName && lastEl.className === firstEl.className) {
             
@@ -1896,20 +1897,11 @@ export const rejoinSplitParagraphs = (editor: HTMLElement): number => {
                 }
             }
 
-            // Merge the text children if they match
+            // Merge the text children if they match across the container boundary
             if (lastTextChild && firstTextChild && shouldMerge(lastTextChild, firstTextChild)) {
                 doMerge(lastTextChild, firstTextChild);
+                p--; // Re-check this boundary
             }
-
-            // Move all remaining children from the next-page container into the current one
-            while (firstEl.firstChild) {
-                lastEl.appendChild(firstEl.firstChild);
-            }
-            firstEl.remove();
-            totalMerged++;
-            lastEl.removeAttribute('data-split-source');
-
-            p--; // Re-check this boundary
         }
     }
 
