@@ -2582,6 +2582,13 @@ const Editor: React.FC<EditorProps> = ({
 
             if (block) {
                 if (isTextBlock(block)) {
+                    // Clicking a text block — deselect any previous activeBlock (unless Command for multi-select)
+                    if (!e.metaKey && !e.ctrlKey && activeBlock && activeBlock !== block) {
+                        activeBlock.removeAttribute('data-selected');
+                        setActiveBlock(null);
+                        onImageSelect(null);
+                        onTextLayerSelect(null);
+                    }
                     const selection = window.getSelection();
                     const hasSelection = selection && selection.rangeCount > 0 && !selection.isCollapsed;
                     const selectionInBlock = hasSelection && block.contains(selection.getRangeAt(0).commonAncestorContainer);
@@ -2605,6 +2612,14 @@ const Editor: React.FC<EditorProps> = ({
                     handleSelectionChange();
                 } else {
                     onSelectionChange(buildSelectionStateFromElement(block), block);
+                }
+            } else {
+                // Clicked on empty space — deselect activeBlock (unless Command for multi-select)
+                if (!e.metaKey && !e.ctrlKey && activeBlock) {
+                    activeBlock.removeAttribute('data-selected');
+                    setActiveBlock(null);
+                    onImageSelect(null);
+                    onTextLayerSelect(null);
                 }
             }
 
