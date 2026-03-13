@@ -1326,6 +1326,26 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     }
                 }
 
+                // Fallback: styled container that doesn't exceed full page height
+                // but IS bigger than pgFree — try to split it anyway to fill the gap.
+                {
+                    const tag = firstEl.tagName.toLowerCase();
+                    if (['div', 'section', 'article', 'main', 'ul', 'ol'].includes(tag)
+                        && firstEl.children.length >= 2
+                        && pgFree > 30) {
+                        const pulled = pullUpSplitContainer(firstEl, pgFree);
+                        if (pulled.movedAny && pulled.partial) {
+                            page.appendChild(pulled.partial);
+                            pgFree = pulled.pgFree;
+                            changesMade = true;
+                            iterations++;
+                            if (firstEl.children.length === 0) {
+                                firstEl.remove();
+                            }
+                            continue;
+                        }
+                    }
+                }
 
                 // Element doesn't fit and can't be split: stop pulling into this page.
                 break;
