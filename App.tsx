@@ -2593,12 +2593,28 @@ const App: React.FC = () => {
                 || selectedTextLayer
                 || (activeBlock && activeBlock.tagName !== 'IMG' ? activeBlock : null);
 
+            // Helper: snapshot computed line-height in px, apply font-size, then lock
+            // the OLD px value back — so line-height doesn't scale with the new font-size.
+            // We do NOT use !important so paragraph merges remain unaffected.
+            const applyFontSizePreservingLH = (el: HTMLElement) => {
+                const cs = window.getComputedStyle(el);
+                const computedLHpx = cs.lineHeight; // always px from computedStyle
+                const inlineLH = el.style.lineHeight;
+                // Apply new font-size
+                el.style.setProperty('font-size', sizeFinal, 'important');
+                // Re-lock old line-height in px only if it wasn't already a fixed px value
+                if ((!inlineLH || inlineLH === 'normal' || !inlineLH.includes('px'))
+                    && computedLHpx && computedLHpx !== 'normal') {
+                    el.style.lineHeight = computedLHpx; // NO !important — merges still work
+                }
+            };
+
             // Apply size to elements and selection
             if (range && (!range.collapsed || selectedTextLayer)) {
                 const spansWholeBlock = targetBlock && range.toString() === targetBlock.innerText;
 
                 if (spansWholeBlock || selectedTextLayer) {
-                    if (targetBlock) targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                    if (targetBlock) applyFontSizePreservingLH(targetBlock);
                 } else {
                     const span = document.createElement('span');
                     span.style.fontSize = sizeFinal;
@@ -2611,11 +2627,11 @@ const App: React.FC = () => {
                         selection?.addRange(newRange);
                     } catch (e) {
                         console.error("DOM split failed for fontSize:", e);
-                        if (targetBlock) targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                        if (targetBlock) applyFontSizePreservingLH(targetBlock);
                     }
                 }
             } else if (targetBlock) {
-                targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                applyFontSizePreservingLH(targetBlock);
             }
 
             setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('pt', '').replace('px', '') }));
