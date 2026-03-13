@@ -154,10 +154,11 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
         maxWidth = Math.max(50, page.clientWidth - paddingLeft - paddingRight);
       }
     }
-    // Grab initial padding-top for top-trim
+
+    // Snapshot initial computed paddings
     const elCS = window.getComputedStyle(element);
     const initialPaddingTop = parseFloat(elCS.paddingTop) || 0;
-    const initialMarginTop = parseFloat(elCS.marginTop) || 0;
+    const initialPaddingBottom = parseFloat(elCS.paddingBottom) || 0;
 
     startPos.current = {
       x: e.clientX,
@@ -183,20 +184,16 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
         element.style.width = `${nextWidth}px`;
       }
       if (direction.includes('s')) {
-        element.style.height = `${Math.max(20, startPos.current.height + deltaY)}px`;
-        element.style.overflow = 'hidden';
+        // Bottom handle: drag down = add padding-bottom (more space below)
+        //                drag up  = reduce padding-bottom (content stays top, box shrinks)
+        const newPb = Math.max(0, initialPaddingBottom + deltaY);
+        element.style.paddingBottom = `${newPb}px`;
       }
       if (direction.includes('n')) {
-        // Top trim: drag down → clip from TOP, bottom stays fixed
-        // 1. Reduce height (box gets smaller)
-        // 2. Add margin-top (bottom edge stays in place)
-        // 3. overflow: hidden (clips overflow)
-        // 4. scrollTop shifts content up so TOP is cut, not bottom
-        const trimAmount = Math.max(0, Math.min(deltaY, startPos.current.height - 20));
-        element.style.height = `${startPos.current.height - trimAmount}px`;
-        element.style.marginTop = `${initialMarginTop + trimAmount}px`;
-        element.style.overflow = 'hidden';
-        element.scrollTop = trimAmount;
+        // Top handle: drag down = reduce padding-top (less space above, content rises)
+        //             drag up   = add padding-top (more space above, content pushed down)
+        const newPt = Math.max(0, initialPaddingTop + deltaY);
+        element.style.paddingTop = `${newPt}px`;
       }
 
       updatePosition();
