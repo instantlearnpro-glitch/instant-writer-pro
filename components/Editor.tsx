@@ -1283,6 +1283,31 @@ const Editor: React.FC<EditorProps> = ({
                     if (isEmptyParagraph(textBlock)) {
                         e.preventDefault();
                         const page = textBlock.closest('.page') as HTMLElement | null;
+                        
+                        // SHAPE PROTECTION: if textBlock is inside a styled container (shape),
+                        // don't remove it — keep a <br> placeholder so the shape survives
+                        const shapeParent = textBlock.parentElement?.closest(
+                            'div:not(.page):not(.editor-workspace):not(.page-content), section, article'
+                        ) as HTMLElement | null;
+                        if (shapeParent && shapeParent.closest('.page')) {
+                            const sps = window.getComputedStyle(shapeParent);
+                            const isShape = shapeParent.className.includes('shape-')
+                                || shapeParent.className.includes('mission-box')
+                                || shapeParent.className.includes('exercise-block')
+                                || (parseFloat(sps.borderTopWidth) > 0 || parseFloat(sps.borderLeftWidth) > 0)
+                                || (sps.backgroundColor !== 'rgba(0, 0, 0, 0)' && sps.backgroundColor !== 'transparent');
+                            
+                            // Count text children remaining in the shape
+                            const textChildren = Array.from(shapeParent.querySelectorAll('p, h1, h2, h3, h4, h5, h6'));
+                            if (isShape && textChildren.length <= 1) {
+                                // Last text element — don't remove, just clear content
+                                textBlock.innerHTML = '<br>';
+                                placeCaretInBlock(textBlock, false);
+                                scheduleReflow();
+                                return;
+                            }
+                        }
+                        
                         const sibling = e.key === 'Backspace'
                             ? textBlock.previousElementSibling
                             : textBlock.nextElementSibling;
