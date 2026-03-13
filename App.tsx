@@ -2958,17 +2958,17 @@ const App: React.FC = () => {
                 shapeEl.classList.add('mission-box');
                 if (sourceShapeClass) shapeEl.classList.add(sourceShapeClass);
 
-                const styleProps: Array<keyof CSSStyleDeclaration> = ['borderColor', 'backgroundColor', 'borderWidth', 'borderStyle', 'padding', 'borderRadius', 'width', 'maxWidth'];
+                const styleProps = ['border-color', 'background-color', 'border-width', 'border-style', 'padding', 'border-radius', 'width', 'max-width'];
                 styleProps.forEach(prop => {
-                    const inlineValue = (sourceShape.style as any)[prop] as string;
+                    const inlineValue = sourceShape.style.getPropertyValue(prop);
                     if (inlineValue) {
-                        (shapeEl!.style as any)[prop] = inlineValue;
+                        shapeEl!.style.setProperty(prop, inlineValue);
                         return;
                     }
 
-                    const computedValue = (sourceComputed as any)[prop] as string;
+                    const computedValue = sourceComputed.getPropertyValue(prop);
                     if (computedValue && computedValue !== 'none' && computedValue !== 'auto') {
-                        (shapeEl!.style as any)[prop] = computedValue;
+                        shapeEl!.style.setProperty(prop, computedValue);
                     }
                 });
 
@@ -3368,18 +3368,18 @@ const App: React.FC = () => {
                 }
             }
             else if (key === 'padding') {
-                (targetBlock.style as any).padding = value;
+                targetBlock.style.padding = value;
             }
             else if (key === 'borderColor') {
-                (targetBlock.style as any).borderColor = value;
+                targetBlock.style.borderColor = value;
                 targetBlock.style.setProperty('--shape-border', value);
             }
             else if (key === 'backgroundColor') {
-                (targetBlock.style as any).backgroundColor = value;
+                targetBlock.style.backgroundColor = value;
                 targetBlock.style.setProperty('--shape-bg', value);
             }
             else if (key === 'borderWidth') {
-                (targetBlock.style as any).borderWidth = value;
+                targetBlock.style.borderWidth = value;
                 // Auto-set style to solid if width > 0 and style is missing/none
                 if (parseInt(value) > 0) {
                     const computedStyle = window.getComputedStyle(targetBlock);
@@ -3389,11 +3389,11 @@ const App: React.FC = () => {
                 }
             }
             else if (key === 'width') {
-                (targetBlock.style as any).width = value;
-                (targetBlock.style as any).maxWidth = '100%'; // Constraint to prevent page overflow
+                targetBlock.style.width = value;
+                targetBlock.style.maxWidth = '100%'; // Constraint to prevent page overflow
             }
             else {
-                (targetBlock.style as any)[key] = value;
+                targetBlock.style.setProperty(key.replace(/[A-Z]/g, m => '-' + m.toLowerCase()), value);
             }
         });
 
@@ -4065,7 +4065,7 @@ const App: React.FC = () => {
             let style: 'solid' | 'dashed' | 'dotted' | 'tapered' = 'solid';
             // Check for border-style override or standard
             if (computed.borderTopStyle !== 'none' && computed.borderTopStyle !== 'hidden' && computed.borderTopStyle !== 'inset') {
-                style = computed.borderTopStyle as any;
+                style = computed.borderTopStyle as 'solid' | 'dashed' | 'dotted';
             }
 
             // Detect tapered gradient
@@ -4417,7 +4417,12 @@ ${workspace.innerHTML}
             return;
         }
 
-        const JsPDF = (window as any).jspdf?.jsPDF;
+        interface JsPDFInstance {
+            addPage(format: number[], orientation: string): void;
+            addImage(data: string, format: string, x: number, y: number, w: number, h: number, alias?: string, compression?: string): void;
+            output(type: 'blob'): Blob;
+        }
+        const JsPDF = (window as unknown as { jspdf?: { jsPDF: new (opts: Record<string, unknown>) => JsPDFInstance } }).jspdf?.jsPDF;
         if (!JsPDF) {
             alert('jsPDF library is not loaded. Please refresh the page and try again.');
             return;
@@ -4689,14 +4694,14 @@ ${workspace.innerHTML}
         });
 
         // Convert CSS colors to Hex for DOCX
-        const parseColorToHex = (colorString: string): string => {
-            if (!colorString || colorString === 'transparent' || colorString === 'rgba(0, 0, 0, 0)') return undefined as any;
+        const parseColorToHex = (colorString: string): string | undefined => {
+            if (!colorString || colorString === 'transparent' || colorString === 'rgba(0, 0, 0, 0)') return undefined;
             if (colorString.startsWith('#')) return colorString.replace('#', '');
             const rgb = colorString.match(/\d+/g);
             if (rgb && rgb.length >= 3) {
                 return ((1 << 24) + (parseInt(rgb[0]) << 16) + (parseInt(rgb[1]) << 8) + parseInt(rgb[2])).toString(16).slice(1).toUpperCase();
             }
-            return undefined as any;
+            return undefined;
         };
 
         const cssPxToHalfPoint = (px: string): number => {
