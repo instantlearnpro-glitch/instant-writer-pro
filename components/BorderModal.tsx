@@ -78,7 +78,7 @@ const BorderModal: React.FC<BorderModalProps> = ({ isOpen, onClose, onApply }) =
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Style</label>
                 <select 
                     value={settings.borderStyle}
-                    onChange={(e) => setSettings({...settings, borderStyle: e.target.value as any})}
+                    onChange={(e) => setSettings({...settings, borderStyle: e.target.value as BorderSettings['borderStyle']})}
                     className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
                 >
                     <option value="solid">Solid</option>
