@@ -186,24 +186,12 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
         element.style.height = `${Math.max(20, startPos.current.height + deltaY)}px`;
       }
       if (direction.includes('n')) {
-        // Top trim: reduce padding-top first, then use negative margin-top
-        // deltaY > 0 means dragging down = trim from top
-        if (deltaY > 0) {
-          const newPadding = Math.max(0, initialPaddingTop - deltaY);
-          element.style.paddingTop = `${newPadding}px`;
-          // If padding is exhausted, shrink with margin-top + overflow hidden
-          if (deltaY > initialPaddingTop) {
-            const extra = deltaY - initialPaddingTop;
-            element.style.marginTop = `${initialMarginTop + extra}px`;
-            element.style.height = `${Math.max(20, startPos.current.height - extra)}px`;
-            element.style.overflow = 'hidden';
-          }
-        } else {
-          // Dragging back up — restore padding
-          const newPadding = initialPaddingTop - deltaY; // deltaY is negative, so adding
-          element.style.paddingTop = `${newPadding}px`;
-          element.style.marginTop = `${initialMarginTop}px`;
-        }
+        // Top trim: drag down → clip from top, bottom stays fixed
+        // Reduce height and add equal margin-top to keep bottom in place
+        const trimAmount = Math.max(0, Math.min(deltaY, startPos.current.height - 20));
+        element.style.height = `${startPos.current.height - trimAmount}px`;
+        element.style.marginTop = `${initialMarginTop + trimAmount}px`;
+        element.style.overflow = 'hidden';
       }
 
       updatePosition();
