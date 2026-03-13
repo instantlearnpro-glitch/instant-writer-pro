@@ -581,10 +581,6 @@ const splitTextBlockByRange = (element: HTMLElement, pageBottom: number): HTMLEl
             || `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
         element.setAttribute('data-split-source', splitId);
         newElement.setAttribute('data-split-source', splitId);
-        // Remove inter-paragraph spacing at the split boundary so the two
-        // halves look like one continuous paragraph, not two separate blocks.
-        element.style.marginBottom = '0';
-        newElement.style.marginTop = '0';
     }
 
     return newElement;
@@ -1023,37 +1019,30 @@ const pullUpTextBlock = (
 
     // Preserve computed text-related styles as inline styles so the partial
     // doesn't lose inherited styling when moved out of a styled container.
-    // Track which styles we stamp so merge can remove them later.
     const computedStyle = window.getComputedStyle(element);
     const textStyleProps = [
         'lineHeight', 'fontSize', 'fontFamily', 'fontWeight', 'fontStyle',
         'letterSpacing', 'wordSpacing', 'textAlign', 'color', 'textIndent'
     ];
-    const stampedProps: string[] = [];
     for (const prop of textStyleProps) {
-        const kebab = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
-        const val = computedStyle.getPropertyValue(kebab);
-        if (val && !partial.style.getPropertyValue(kebab)) {
-            partial.style.setProperty(kebab, val);
-            stampedProps.push(kebab);
+        const val = computedStyle.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()));
+        if (val && !partial.style.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()))) {
+            partial.style.setProperty(
+                prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
+                val
+            );
         }
-    }
-    if (stampedProps.length > 0) {
-        partial.setAttribute('data-reflow-styles', stampedProps.join(','));
     }
     // Also apply the same preservation to the remaining element so it
     // stays consistent even if it's moved later.
-    const stampedPropsB: string[] = [];
     for (const prop of textStyleProps) {
-        const kebab = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
-        const val = computedStyle.getPropertyValue(kebab);
-        if (val && !element.style.getPropertyValue(kebab)) {
-            element.style.setProperty(kebab, val);
-            stampedPropsB.push(kebab);
+        const val = computedStyle.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()));
+        if (val && !element.style.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()))) {
+            element.style.setProperty(
+                prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
+                val
+            );
         }
-    }
-    if (stampedPropsB.length > 0) {
-        element.setAttribute('data-reflow-styles', stampedPropsB.join(','));
     }
 
     // Mark both halves so auto-merge can reunite them later.
@@ -1061,9 +1050,6 @@ const pullUpTextBlock = (
         || `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     element.setAttribute('data-split-source', splitId);
     partial.setAttribute('data-split-source', splitId);
-    // Remove inter-paragraph spacing at the split boundary.
-    element.style.marginBottom = '0';
-    partial.style.marginTop = '0';
 
     // Conservative: assume we used all the available space.
     // This ensures pgFree drops to ~0 and we stop pulling for this page.
@@ -1480,30 +1466,6 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     b.remove();
                     kids.splice(i + 1, 1);
                     changesMade = true;
-
-                    // Remove inline styles that were stamped during split
-                    // to preserve styling across page boundaries.
-                    // Now that the halves are reunited, these overrides
-                    // would fight the CSS class rules (especially line-height).
-                    const reflowStyles = a.getAttribute('data-reflow-styles');
-                    if (reflowStyles) {
-                        for (const prop of reflowStyles.split(',')) {
-                            a.style.removeProperty(prop.trim());
-                        }
-                        a.removeAttribute('data-reflow-styles');
-                    }
-                    // Restore original margins (were set to 0 during split)
-                    a.style.removeProperty('margin-bottom');
-                    a.style.removeProperty('margin-top');
-                    // Also clean the empty style attribute if nothing is left
-                    if (a.style.length === 0) {
-                        a.removeAttribute('style');
-                    }
-
-                    // Normalize adjacent text nodes to prevent spurious
-                    // line breaks at the merge boundary.
-                    a.normalize();
-
                     if (splitA) {
                         const nextKid = kids[i + 1];
                         if (!nextKid || nextKid.getAttribute('data-split-source') !== splitA) {
@@ -1727,213 +1689,4 @@ export const reflowPagesUntilStable = (
     scheduleNextPass();
 };
 
-
-/**
- * Rejoin paragraphs that were split mid-sentence by the reflow engine and saved
- * as separate elements. Handles the real DOM structure where <p> elements are
- * inside <div class="page-content"> containers.
- *
- * Three-pass approach:
- * 1. Cross-page: merge split containers/elements across page boundaries
- * 2. Intra-container: recursively merge split text siblings within containers
- * 3. Deep scan: find all data-split-source elements and merge with their siblings
- *
- * Should be called AFTER ensureContentIsPaginated and BEFORE reflowPagesUntilStable.
- */
-export const rejoinSplitParagraphs = (editor: HTMLElement): number => {
-    const pages = Array.from(editor.querySelectorAll('.page')) as HTMLElement[];
-    const textTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE']);
-    const skipClasses = new Set(['page-footer', 'page-ruler', 'margin-guides']);
-    let totalMerged = 0;
-
-    console.log('[rejoinSplitParagraphs] Starting — pages:', pages.length,
-        'split-source elements:', editor.querySelectorAll('[data-split-source]').length,
-        'page-content containers:', editor.querySelectorAll('.page-content').length);
-
-    const isSkipElement = (el: HTMLElement): boolean => {
-        for (const cls of skipClasses) {
-            if (el.classList.contains(cls)) return true;
-        }
-        return el.hasAttribute('data-user-page-break');
-    };
-
-    /** Check if two elements should be merged (text-level or container-level) */
-    const shouldMerge = (a: HTMLElement, b: HTMLElement): boolean => {
-        if (a.tagName !== b.tagName) return false;
-        if (a.className !== b.className) return false;
-
-        // Split markers: highest confidence (works for both containers and text)
-        const splitA = a.getAttribute('data-split-source');
-        const splitB = b.getAttribute('data-split-source');
-        if (splitA && splitB && splitA === splitB) return true;
-
-        // For containers (DIV, SECTION, etc.), only merge via markers
-        if (!textTags.has(a.tagName)) return false;
-
-        // Heuristic for text blocks: same tag+class, first ends mid-sentence
-        const aText = (a.textContent || '').trimEnd();
-        const bText = (b.textContent || '').trimStart();
-        const lastChar = aText.slice(-1);
-        const startsWithNumber = /^\d/.test(bText);
-
-        if (!lastChar || '.!?:'.includes(lastChar) || startsWithNumber || bText.length === 0) return false;
-        return true;
-    };
-
-    /** Merge element b into element a */
-    const doMerge = (a: HTMLElement, b: HTMLElement) => {
-        while (b.firstChild) {
-            a.appendChild(b.firstChild);
-        }
-        b.remove();
-        totalMerged++;
-
-        // Remove reflow-stamped inline styles
-        const reflowStyles = a.getAttribute('data-reflow-styles');
-        if (reflowStyles) {
-            for (const prop of reflowStyles.split(',')) {
-                a.style.removeProperty(prop.trim());
-            }
-            a.removeAttribute('data-reflow-styles');
-        }
-
-        // Restore original margins
-        a.style.removeProperty('margin-bottom');
-        a.style.removeProperty('margin-top');
-
-        // Clean up split markers
-        a.removeAttribute('data-split-source');
-
-        // Clean empty style attribute
-        if (a.style.length === 0) {
-            a.removeAttribute('style');
-        }
-
-        // Normalize to join adjacent text nodes
-        a.normalize();
-    };
-
-    /** Merge consecutive matching siblings within a parent container */
-    const mergeSiblingsIn = (container: HTMLElement) => {
-        const kids = Array.from(container.children) as HTMLElement[];
-        let i = 0;
-
-        while (i < kids.length - 1) {
-            const a = kids[i];
-            const b = kids[i + 1];
-
-            if (!a.isConnected || !b.isConnected) { i++; continue; }
-            if (isSkipElement(a) || isSkipElement(b)) { i++; continue; }
-
-            if (shouldMerge(a, b)) {
-                doMerge(a, b);
-                kids.splice(i + 1, 1);
-            } else {
-                i++;
-            }
-        }
-    };
-
-    // --- Pass 1: Cross-page merge ---
-    // Merge last flow child of page N with first flow child of page N+1.
-    // Handles both direct text elements AND containers (like div.page-content).
-    for (let p = 0; p < pages.length - 1; p++) {
-        const pageCurr = pages[p];
-        const pageNext = pages[p + 1];
-
-        // Find last flow element on current page
-        let lastEl: HTMLElement | null = null;
-        for (let k = pageCurr.children.length - 1; k >= 0; k--) {
-            const kid = pageCurr.children[k] as HTMLElement;
-            if (!isSkipElement(kid)) { lastEl = kid; break; }
-        }
-        if (!lastEl) continue;
-
-        // Find first flow element on next page
-        let firstEl: HTMLElement | null = null;
-        for (let k = 0; k < pageNext.children.length; k++) {
-            const kid = pageNext.children[k] as HTMLElement;
-            if (!isSkipElement(kid)) { firstEl = kid; break; }
-        }
-        if (!firstEl) continue;
-
-        console.log(`[rejoinSplitParagraphs] Cross-page p${p}→p${p+1}:`,
-            `lastEl: <${lastEl.tagName.toLowerCase()} class="${lastEl.className}">`,
-            `firstEl: <${firstEl.tagName.toLowerCase()} class="${firstEl.className}">`,
-            `splitA: ${lastEl.getAttribute('data-split-source')?.slice(0,20) || 'none'}`,
-            `splitB: ${firstEl.getAttribute('data-split-source')?.slice(0,20) || 'none'}`,
-            `lastText: "...${(lastEl.textContent || '').trimEnd().slice(-30)}"`,
-            `firstText: "${(firstEl.textContent || '').trimStart().slice(0,30)}..."`);
-
-        // Direct merge (same tag text elements or containers with matching markers)
-        if (shouldMerge(lastEl, firstEl)) {
-            doMerge(lastEl, firstEl);
-            p--;
-            continue;
-        }
-
-        // Container-level merge: if both are non-text elements (DIV, etc.),
-        // try to merge their INNER text children across the page boundary.
-        // We DO NOT consolidate the generic containers here (split-marked containers
-        // are already handled and merged by the direct check above).
-        if (!textTags.has(lastEl.tagName) && !textTags.has(firstEl.tagName) &&
-            lastEl.tagName === firstEl.tagName && lastEl.className === firstEl.className) {
-            
-            // Find last text child in the current-page container
-            let lastTextChild: HTMLElement | null = null;
-            for (let k = lastEl.children.length - 1; k >= 0; k--) {
-                const kid = lastEl.children[k] as HTMLElement;
-                if (kid.nodeType === Node.ELEMENT_NODE && !isSkipElement(kid)) {
-                    lastTextChild = kid; break;
-                }
-            }
-
-            // Find first text child in the next-page container
-            let firstTextChild: HTMLElement | null = null;
-            for (let k = 0; k < firstEl.children.length; k++) {
-                const kid = firstEl.children[k] as HTMLElement;
-                if (kid.nodeType === Node.ELEMENT_NODE && !isSkipElement(kid)) {
-                    firstTextChild = kid; break;
-                }
-            }
-
-            // Merge the text children if they match across the container boundary
-            if (lastTextChild && firstTextChild && shouldMerge(lastTextChild, firstTextChild)) {
-                doMerge(lastTextChild, firstTextChild);
-                p--; // Re-check this boundary
-            }
-        }
-    }
-
-    // --- Pass 2: Merge siblings at all levels within each page ---
-    for (const page of pages) {
-        // Direct children of the page
-        mergeSiblingsIn(page);
-
-        // Children within containers (like div.page-content)
-        const containers = Array.from(page.querySelectorAll('div, section, article, main')) as HTMLElement[];
-        for (const container of containers) {
-            if (container.classList.contains('page') || !container.isConnected) continue;
-            mergeSiblingsIn(container);
-        }
-    }
-
-    // --- Pass 3: Clean up remaining split markers ---
-    const splitMarked = Array.from(editor.querySelectorAll('[data-split-source]')) as HTMLElement[];
-    for (const el of splitMarked) {
-        if (!el.isConnected) continue;
-        const splitId = el.getAttribute('data-split-source');
-        if (!splitId) continue;
-
-        const next = el.nextElementSibling as HTMLElement | null;
-        if (next && next.getAttribute('data-split-source') === splitId) {
-            if (shouldMerge(el, next)) {
-                doMerge(el, next);
-            }
-        }
-    }
-
-    console.log('[rejoinSplitParagraphs] Done — merged:', totalMerged, 'elements');
-    return totalMerged;
-};
 
