@@ -1019,30 +1019,37 @@ const pullUpTextBlock = (
 
     // Preserve computed text-related styles as inline styles so the partial
     // doesn't lose inherited styling when moved out of a styled container.
+    // Track which styles we stamp so merge can remove them later.
     const computedStyle = window.getComputedStyle(element);
     const textStyleProps = [
         'lineHeight', 'fontSize', 'fontFamily', 'fontWeight', 'fontStyle',
         'letterSpacing', 'wordSpacing', 'textAlign', 'color', 'textIndent'
     ];
+    const stampedProps: string[] = [];
     for (const prop of textStyleProps) {
-        const val = computedStyle.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()));
-        if (val && !partial.style.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()))) {
-            partial.style.setProperty(
-                prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
-                val
-            );
+        const kebab = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+        const val = computedStyle.getPropertyValue(kebab);
+        if (val && !partial.style.getPropertyValue(kebab)) {
+            partial.style.setProperty(kebab, val);
+            stampedProps.push(kebab);
         }
+    }
+    if (stampedProps.length > 0) {
+        partial.setAttribute('data-reflow-styles', stampedProps.join(','));
     }
     // Also apply the same preservation to the remaining element so it
     // stays consistent even if it's moved later.
+    const stampedPropsB: string[] = [];
     for (const prop of textStyleProps) {
-        const val = computedStyle.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()));
-        if (val && !element.style.getPropertyValue(prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()))) {
-            element.style.setProperty(
-                prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
-                val
-            );
+        const kebab = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+        const val = computedStyle.getPropertyValue(kebab);
+        if (val && !element.style.getPropertyValue(kebab)) {
+            element.style.setProperty(kebab, val);
+            stampedPropsB.push(kebab);
         }
+    }
+    if (stampedPropsB.length > 0) {
+        element.setAttribute('data-reflow-styles', stampedPropsB.join(','));
     }
 
     // Mark both halves so auto-merge can reunite them later.
@@ -1466,6 +1473,27 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     b.remove();
                     kids.splice(i + 1, 1);
                     changesMade = true;
+
+                    // Remove inline styles that were stamped during split
+                    // to preserve styling across page boundaries.
+                    // Now that the halves are reunited, these overrides
+                    // would fight the CSS class rules (especially line-height).
+                    const reflowStyles = a.getAttribute('data-reflow-styles');
+                    if (reflowStyles) {
+                        for (const prop of reflowStyles.split(',')) {
+                            a.style.removeProperty(prop.trim());
+                        }
+                        a.removeAttribute('data-reflow-styles');
+                    }
+                    // Also clean the empty style attribute if nothing is left
+                    if (a.style.length === 0) {
+                        a.removeAttribute('style');
+                    }
+
+                    // Normalize adjacent text nodes to prevent spurious
+                    // line breaks at the merge boundary.
+                    a.normalize();
+
                     if (splitA) {
                         const nextKid = kids[i + 1];
                         if (!nextKid || nextKid.getAttribute('data-split-source') !== splitA) {
