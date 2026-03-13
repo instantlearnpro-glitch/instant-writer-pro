@@ -2594,11 +2594,28 @@ const App: React.FC = () => {
                 || (activeBlock && activeBlock.tagName !== 'IMG' ? activeBlock : null);
 
             // Apply size to elements and selection
+            // Helper: preserve line-height in px so it doesn't scale with the new font-size
+            const freezeLineHeight = (el: HTMLElement) => {
+                const cs = window.getComputedStyle(el);
+                const computedLH = cs.lineHeight; // always returns px
+                const inlineLH = el.style.lineHeight;
+                // Only freeze if line-height is not already a fixed px value
+                // (i.e. it's a ratio, 'normal', or em — those will scale)
+                if (!inlineLH || inlineLH === 'normal' || (!inlineLH.includes('px'))) {
+                    if (computedLH && computedLH !== 'normal') {
+                        el.style.setProperty('line-height', computedLH, 'important');
+                    }
+                }
+            };
+
             if (range && (!range.collapsed || selectedTextLayer)) {
                 const spansWholeBlock = targetBlock && range.toString() === targetBlock.innerText;
 
                 if (spansWholeBlock || selectedTextLayer) {
-                    if (targetBlock) targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                    if (targetBlock) {
+                        freezeLineHeight(targetBlock);
+                        targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                    }
                 } else {
                     const span = document.createElement('span');
                     span.style.fontSize = sizeFinal;
@@ -2611,10 +2628,14 @@ const App: React.FC = () => {
                         selection?.addRange(newRange);
                     } catch (e) {
                         console.error("DOM split failed for fontSize:", e);
-                        if (targetBlock) targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                        if (targetBlock) {
+                            freezeLineHeight(targetBlock);
+                            targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                        }
                     }
                 }
             } else if (targetBlock) {
+                freezeLineHeight(targetBlock);
                 targetBlock.style.setProperty('font-size', sizeFinal, 'important');
             }
 
