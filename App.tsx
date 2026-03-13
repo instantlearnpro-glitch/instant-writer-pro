@@ -2593,19 +2593,20 @@ const App: React.FC = () => {
                 || selectedTextLayer
                 || (activeBlock && activeBlock.tagName !== 'IMG' ? activeBlock : null);
 
-            // Helper: snapshot computed line-height in px, apply font-size, then lock
-            // the OLD px value back — so line-height doesn't scale with the new font-size.
-            // We do NOT use !important so paragraph merges remain unaffected.
-            const applyFontSizePreservingLH = (el: HTMLElement) => {
-                const cs = window.getComputedStyle(el);
-                const computedLHpx = cs.lineHeight; // always px from computedStyle
+            // Before applying font-size, fix any ratio-based line-height on the target
+            // block so it doesn't scale. E.g. line-height:1.5 on a block means the
+            // physical interlinea grows when font-size grows — we don't want that.
+            const lockLineHeightPx = (el: HTMLElement) => {
                 const inlineLH = el.style.lineHeight;
-                // Apply new font-size
-                el.style.setProperty('font-size', sizeFinal, 'important');
-                // Re-lock old line-height in px only if it wasn't already a fixed px value
-                if ((!inlineLH || inlineLH === 'normal' || !inlineLH.includes('px'))
-                    && computedLHpx && computedLHpx !== 'normal') {
-                    el.style.lineHeight = computedLHpx; // NO !important — merges still work
+                // If inline line-height is a pure ratio ("1.5") or unitless number,
+                // convert it to the current computed px value BEFORE changing font-size.
+                const isRatio = inlineLH && !/px|pt|em|rem|%/.test(inlineLH) && !isNaN(parseFloat(inlineLH));
+                const isRelative = inlineLH && (inlineLH.includes('em') || inlineLH.includes('%'));
+                if (isRatio || isRelative || !inlineLH) {
+                    const computedLH = window.getComputedStyle(el).lineHeight;
+                    if (computedLH && computedLH !== 'normal') {
+                        el.style.lineHeight = computedLH; // freeze as px
+                    }
                 }
             };
 
@@ -2614,7 +2615,10 @@ const App: React.FC = () => {
                 const spansWholeBlock = targetBlock && range.toString() === targetBlock.innerText;
 
                 if (spansWholeBlock || selectedTextLayer) {
-                    if (targetBlock) applyFontSizePreservingLH(targetBlock);
+                    if (targetBlock) {
+                        lockLineHeightPx(targetBlock);
+                        targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                    }
                 } else {
                     const span = document.createElement('span');
                     span.style.fontSize = sizeFinal;
@@ -2627,11 +2631,15 @@ const App: React.FC = () => {
                         selection?.addRange(newRange);
                     } catch (e) {
                         console.error("DOM split failed for fontSize:", e);
-                        if (targetBlock) applyFontSizePreservingLH(targetBlock);
+                        if (targetBlock) {
+                            lockLineHeightPx(targetBlock);
+                            targetBlock.style.setProperty('font-size', sizeFinal, 'important');
+                        }
                     }
                 }
             } else if (targetBlock) {
-                applyFontSizePreservingLH(targetBlock);
+                lockLineHeightPx(targetBlock);
+                targetBlock.style.setProperty('font-size', sizeFinal, 'important');
             }
 
             setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('pt', '').replace('px', '') }));
