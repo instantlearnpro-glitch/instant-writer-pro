@@ -3257,12 +3257,32 @@ const Editor: React.FC<EditorProps> = ({
                             : undefined
                     }
                     onFixBullets={(() => {
-                        // Show if right-click is anywhere on the page (lists exist on the page)
                         const page = contextMenu.block?.closest('.page');
                         if (!page) return undefined;
                         const hasLists = page.querySelector('ol, ul');
                         if (!hasLists) return undefined;
                         return () => setShowBulletOverlay(true);
+                    })()}
+                    onToggleBulletType={(() => {
+                        const page = contextMenu.block?.closest('.page');
+                        if (!page) return undefined;
+                        const hasOLs = page.querySelector('ol');
+                        if (!hasOLs) return undefined;
+                        return () => {
+                            // Convert ALL OLs on this page to ULs
+                            const ols = Array.from(page.querySelectorAll('ol')) as HTMLElement[];
+                            for (const ol of ols) {
+                                const ul = document.createElement('ul');
+                                Array.from(ol.attributes).forEach((attr: Attr) => {
+                                    if (attr.name !== 'start' && attr.name !== 'value') {
+                                        ul.setAttribute(attr.name, attr.value);
+                                    }
+                                });
+                                while (ol.firstChild) ul.appendChild(ol.firstChild);
+                                ol.replaceWith(ul);
+                            }
+                            if (contentRef.current) onContentChange(contentRef.current.innerHTML);
+                        };
                     })()}
                 />
             )}
