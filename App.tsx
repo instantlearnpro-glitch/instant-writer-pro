@@ -1,19 +1,19 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
-import TOCModal from './components/TOCModal';
-import PageNumberModal from './components/PageNumberModal';
+const TOCModal = lazy(() => import('./components/TOCModal'));
+const PageNumberModal = lazy(() => import('./components/PageNumberModal'));
 import ZoomControls from './components/ZoomControls';
 import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry } from './types';
 import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
 import { getSystemFonts, FontDefinition } from './utils/fontUtils';
 import { scanStructure } from './utils/structureScanner';
 import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from './utils/patternDetector';
-import PatternModal from './components/PatternModal';
-import ExportModal from './components/ExportModal';
-import SettingsModal from './components/SettingsModal';
-import AutoLogModal from './components/AutoLogModal';
+const PatternModal = lazy(() => import('./components/PatternModal'));
+const ExportModal = lazy(() => import('./components/ExportModal'));
+const SettingsModal = lazy(() => import('./components/SettingsModal'));
+const AutoLogModal = lazy(() => import('./components/AutoLogModal'));
 import { ensureContentIsPaginated, reflowPages, reflowPagesUntilStable } from './utils/pagination';
 import { exportPdf } from './utils/pdfExport';
 import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
@@ -5286,49 +5286,51 @@ ${workspace.innerHTML}
                 </div>
             </div>
 
-            <TOCModal
-                isOpen={isTOCModalOpen}
-                onClose={() => setIsTOCModalOpen(false)}
-                onInsert={handleInsertTOC}
-                onRemove={handleRemoveTOC}
-            />
+            <Suspense fallback={null}>
+                <TOCModal
+                    isOpen={isTOCModalOpen}
+                    onClose={() => setIsTOCModalOpen(false)}
+                    onInsert={handleInsertTOC}
+                    onRemove={handleRemoveTOC}
+                />
 
-            <SettingsModal
-                isOpen={isSettingsModalOpen}
-                onClose={() => setIsSettingsModalOpen(false)}
-            />
+                <SettingsModal
+                    isOpen={isSettingsModalOpen}
+                    onClose={() => setIsSettingsModalOpen(false)}
+                />
 
-            <AutoLogModal
-                isOpen={isAutoLogModalOpen}
-                onClose={() => setIsAutoLogModalOpen(false)}
-                onDownload={handleDownloadAutoLog}
-                onClear={handleClearAutoLog}
-            />
+                <AutoLogModal
+                    isOpen={isAutoLogModalOpen}
+                    onClose={() => setIsAutoLogModalOpen(false)}
+                    onDownload={handleDownloadAutoLog}
+                    onClear={handleClearAutoLog}
+                />
 
-            <PageNumberModal
-                isOpen={isPageNumberModalOpen}
-                onClose={() => setIsPageNumberModalOpen(false)}
-                onApply={handleInsertPageNumbers}
-                onPreview={handlePageNumberPreview}
-                anchors={pageAnchors}
-            />
+                <PageNumberModal
+                    isOpen={isPageNumberModalOpen}
+                    onClose={() => setIsPageNumberModalOpen(false)}
+                    onApply={handleInsertPageNumbers}
+                    onPreview={handlePageNumberPreview}
+                    anchors={pageAnchors}
+                />
 
-            <PatternModal
-                isOpen={patternModal.isOpen}
-                actionType={patternModal.actionType}
-                matches={patternModal.matches}
-                onConfirm={handlePatternConfirmApp}
-                onCancel={handlePatternCancelApp}
-            />
+                <PatternModal
+                    isOpen={patternModal.isOpen}
+                    actionType={patternModal.actionType}
+                    matches={patternModal.matches}
+                    onConfirm={handlePatternConfirmApp}
+                    onCancel={handlePatternCancelApp}
+                />
 
-            <ExportModal
-                isOpen={isExportModalOpen}
-                currentFileName={docState.fileName}
-                onClose={() => setIsExportModalOpen(false)}
-                onExportPDF={handleExportPDF}
-                onExportHTML={handleExportHTML}
-                onExportDOCX={handleExportDOCX}
-            />
+                <ExportModal
+                    isOpen={isExportModalOpen}
+                    currentFileName={docState.fileName}
+                    onClose={() => setIsExportModalOpen(false)}
+                    onExportPDF={handleExportPDF}
+                    onExportHTML={handleExportHTML}
+                    onExportDOCX={handleExportDOCX}
+                />
+            </Suspense>
         </div>
     );
 };
