@@ -14,7 +14,7 @@ const PatternModal = lazy(() => import('./components/PatternModal'));
 const ExportModal = lazy(() => import('./components/ExportModal'));
 const SettingsModal = lazy(() => import('./components/SettingsModal'));
 const AutoLogModal = lazy(() => import('./components/AutoLogModal'));
-import { ensureContentIsPaginated, reflowPages, reflowPagesUntilStable } from './utils/pagination';
+import { ensureContentIsPaginated, reflowPages, reflowPagesUntilStable, rejoinSplitParagraphs } from './utils/pagination';
 import { exportPdf } from './utils/pdfExport';
 import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
 import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, convertInchesToTwip, HeadingLevel, PageBreak } from 'docx';
@@ -1207,6 +1207,10 @@ const App: React.FC = () => {
                             unwrapSingleContainer(page);
                             fixClippedContainers(page);
                         });
+                        // Rejoin paragraphs that were split mid-sentence by reflow
+                        // and saved as separate elements (heals old documents).
+                        rejoinSplitParagraphs(workspace);
+
                         // Use reflowPagesUntilStable for full convergence, not single pass.
                         // Use onDone callback because reflowPagesUntilStable is async (uses rAF).
                         reflowPagesUntilStable(workspace, {

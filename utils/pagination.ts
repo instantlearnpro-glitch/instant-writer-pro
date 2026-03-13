@@ -1718,3 +1718,107 @@ export const reflowPagesUntilStable = (
 };
 
 
+/**
+ * Rejoin paragraphs that were split mid-sentence by the reflow engine and saved
+ * as separate elements. This heals documents where a <p> was split across pages
+ * into two <p> elements, creating spurious line breaks and spacing changes.
+ *
+ * Rules:
+ * - Merges consecutive elements with the same tag (p, h1-h6, blockquote)
+ * - Same className and similar computed font-size / font-weight
+ * - First element does NOT end with terminal punctuation (. ! ? :)
+ * - Second element does NOT start with a number (avoids merging numbered entries)
+ * - Also merges via data-split-source markers if present
+ *
+ * Should be called AFTER ensureContentIsPaginated and BEFORE reflowPagesUntilStable.
+ */
+export const rejoinSplitParagraphs = (editor: HTMLElement): number => {
+    const pages = Array.from(editor.querySelectorAll('.page')) as HTMLElement[];
+    const textTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE']);
+    let totalMerged = 0;
+
+    for (const page of pages) {
+        const kids = Array.from(page.children) as HTMLElement[];
+        let i = 0;
+
+        while (i < kids.length - 1) {
+            const a = kids[i];
+            const b = kids[i + 1];
+
+            if (!a.isConnected || !b.isConnected) { i++; continue; }
+            if (!textTags.has(a.tagName)) { i++; continue; }
+            if (a.tagName !== b.tagName) { i++; continue; }
+            if (a.className !== b.className) { i++; continue; }
+
+            // Check via split markers first (highest confidence)
+            const splitA = a.getAttribute('data-split-source');
+            const splitB = b.getAttribute('data-split-source');
+            let shouldMerge = false;
+
+            if (splitA && splitB && splitA === splitB) {
+                shouldMerge = true;
+            }
+
+            // Heuristic merge: same tag, same class, compatible text styles,
+            // and first block doesn't end with terminal punctuation
+            if (!shouldMerge) {
+                const csA = window.getComputedStyle(a);
+                const csB = window.getComputedStyle(b);
+
+                if (csA.fontSize === csB.fontSize && csA.fontWeight === csB.fontWeight) {
+                    const aText = (a.textContent || '').trimEnd();
+                    const bText = (b.textContent || '').trimStart();
+                    const lastChar = aText.slice(-1);
+                    const startsWithNumber = /^\d/.test(bText);
+
+                    // Only merge if the first block clearly ends mid-sentence
+                    if (lastChar && !'.!?:'.includes(lastChar) && !startsWithNumber && bText.length > 0) {
+                        shouldMerge = true;
+                    }
+                }
+            }
+
+            if (shouldMerge) {
+                // Move all child nodes from b into a
+                while (b.firstChild) {
+                    a.appendChild(b.firstChild);
+                }
+                b.remove();
+                kids.splice(i + 1, 1);
+                totalMerged++;
+
+                // Remove reflow-stamped inline styles
+                const reflowStyles = a.getAttribute('data-reflow-styles');
+                if (reflowStyles) {
+                    for (const prop of reflowStyles.split(',')) {
+                        a.style.removeProperty(prop.trim());
+                    }
+                    a.removeAttribute('data-reflow-styles');
+                }
+
+                // Clean up split markers if no more fragments remain
+                if (splitA) {
+                    const nextKid = kids[i + 1];
+                    if (!nextKid || nextKid.getAttribute('data-split-source') !== splitA) {
+                        a.removeAttribute('data-split-source');
+                    }
+                }
+
+                // Clean empty style attribute
+                if (a.style.length === 0) {
+                    a.removeAttribute('style');
+                }
+
+                // Normalize to join adjacent text nodes
+                a.normalize();
+
+                // Don't advance i — check if the NEXT element also merges
+            } else {
+                i++;
+            }
+        }
+    }
+
+    return totalMerged;
+};
+
