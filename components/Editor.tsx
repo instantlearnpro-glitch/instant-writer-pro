@@ -1490,6 +1490,17 @@ const Editor: React.FC<EditorProps> = ({
             }
 
             if (activeBlock) {
+                // If the cursor is INSIDE the activeBlock (user is editing text),
+                // let the browser handle Delete/Backspace normally — don't destroy the block!
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const cursorNode = sel.getRangeAt(0).commonAncestorContainer;
+                    if (activeBlock.contains(cursorNode)) {
+                        // User is typing inside — let browser handle it
+                        return;
+                    }
+                }
+                
                 e.preventDefault();
                 activeBlock.remove();
                 setActiveBlock(null);
