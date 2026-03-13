@@ -581,6 +581,10 @@ const splitTextBlockByRange = (element: HTMLElement, pageBottom: number): HTMLEl
             || `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
         element.setAttribute('data-split-source', splitId);
         newElement.setAttribute('data-split-source', splitId);
+        // Remove inter-paragraph spacing at the split boundary so the two
+        // halves look like one continuous paragraph, not two separate blocks.
+        element.style.marginBottom = '0';
+        newElement.style.marginTop = '0';
     }
 
     return newElement;
@@ -1057,6 +1061,9 @@ const pullUpTextBlock = (
         || `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     element.setAttribute('data-split-source', splitId);
     partial.setAttribute('data-split-source', splitId);
+    // Remove inter-paragraph spacing at the split boundary.
+    element.style.marginBottom = '0';
+    partial.style.marginTop = '0';
 
     // Conservative: assume we used all the available space.
     // This ensures pgFree drops to ~0 and we stop pulling for this page.
@@ -1485,6 +1492,9 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                         }
                         a.removeAttribute('data-reflow-styles');
                     }
+                    // Restore original margins (were set to 0 during split)
+                    a.style.removeProperty('margin-bottom');
+                    a.style.removeProperty('margin-top');
                     // Also clean the empty style attribute if nothing is left
                     if (a.style.length === 0) {
                         a.removeAttribute('style');
@@ -1751,13 +1761,9 @@ export const rejoinSplitParagraphs = (editor: HTMLElement): number => {
         const splitB = b.getAttribute('data-split-source');
         if (splitA && splitB && splitA === splitB) return true;
 
-        // Heuristic merge: same tag, same class, compatible text styles,
-        // and first block doesn't end with terminal punctuation
-        const csA = window.getComputedStyle(a);
-        const csB = window.getComputedStyle(b);
-
-        if (csA.fontSize !== csB.fontSize || csA.fontWeight !== csB.fontWeight) return false;
-
+        // Heuristic merge: same tag + class, first block doesn't end with
+        // terminal punctuation. No getComputedStyle — too fragile at import
+        // time when styles may not be fully resolved yet.
         const aText = (a.textContent || '').trimEnd();
         const bText = (b.textContent || '').trimStart();
         const lastChar = aText.slice(-1);
@@ -1785,6 +1791,10 @@ export const rejoinSplitParagraphs = (editor: HTMLElement): number => {
             }
             a.removeAttribute('data-reflow-styles');
         }
+
+        // Restore original margins (were set to 0 during split)
+        a.style.removeProperty('margin-bottom');
+        a.style.removeProperty('margin-top');
 
         // Clean up split markers
         const splitA = a.getAttribute('data-split-source');
