@@ -26,6 +26,9 @@ declare global {
         htmlDocx: {
             asBlob: (html: string, options?: Record<string, unknown>) => Blob;
         };
+        mammoth?: {
+            convertToHtml: (options: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string; messages: unknown[] }>;
+        };
     }
 }
 
@@ -969,11 +972,9 @@ const App: React.FC = () => {
             reader.onload = (event) => {
                 const arrayBuffer = event.target?.result as ArrayBuffer;
                 if (arrayBuffer) {
-                    // @ts-ignore
                     if (window.mammoth) {
-                        // @ts-ignore
                         window.mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
-                            .then((result: any) => {
+                            .then((result) => {
                                 const html = result.value;
                                 const bodyContent = `<div class="page">${html}</div>`;
                                 const newState = {

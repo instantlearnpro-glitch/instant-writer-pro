@@ -64,12 +64,11 @@ export const getSystemFonts = async (): Promise<FontDefinition[]> => {
     // 1. Try Local Font Access API (Chromium only, requires permission)
     if ('queryLocalFonts' in window) {
         try {
-            // @ts-ignore - API might not be in TS lib
-            const localFonts = await window.queryLocalFonts();
+            const localFonts: Array<{ family: string }> = await (window as unknown as { queryLocalFonts: () => Promise<Array<{ family: string }>> }).queryLocalFonts();
             
             // Deduplicate by family
             const families = new Set<string>();
-            localFonts.forEach((f: any) => families.add(f.family));
+            localFonts.forEach((f) => families.add(f.family));
 
             // Create definitions
             systemFonts = Array.from(families).sort().map(family => ({
