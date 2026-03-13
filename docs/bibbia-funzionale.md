@@ -113,15 +113,45 @@ Per ogni elemento compilare:
 - Checklist rapida: TODO
 
 ### BlockContextMenu (components/BlockContextMenu.tsx)
-- Scopo: TODO
-- Input/props: TODO
-- Output/eventi: TODO
-- Comportamento normale: TODO
-- Edge case e limiti: TODO
-- Persistenza/stato: TODO
-- Dipendenze: TODO
-- Cose da non rompere: TODO
-- Checklist rapida: TODO
+- Scopo: menu contestuale (tasto destro) su blocchi nell'editor.
+- Input/props: x, y, callbacks azioni (copy, cut, paste, move, delete, ecc.), props opzionali per lista (onFixBullets, onToggleBulletType).
+- Output/eventi: esegue le azioni e chiude il menu.
+- Comportamento normale:
+  - Appare al tasto destro su un blocco nel documento.
+  - Sezioni: Clipboard, Ordine/Posizione, Merge, Allineamento, Struttura.
+  - **Sezione "Lista"** (visibile solo se la pagina contiene `<ol>` o `<ul>`):
+    - 🔧 Correggi Bullet → apre il BulletOverlay interattivo.
+    - 🔄 Cambia tipo (•/1.) → converte tutte le `<ol>` della pagina in `<ul>` (numeri → pallini).
+  - Menu si riposiziona automaticamente se esce dallo schermo.
+- Edge case e limiti: le opzioni Lista compaiono solo se ci sono liste nella pagina.
+- Persistenza/stato: nessuna (UI temporanea).
+- Dipendenze: Editor.tsx passa i callback; BulletOverlay per la modalità edit.
+- Cose da non rompere: il menu non deve rubare il focus al testo; chiudersi su click fuori.
+- Checklist rapida: tasto destro, opzioni Lista, conversione OL→UL.
+
+### BulletOverlay (components/BulletOverlay.tsx)
+- Scopo: overlay interattivo per gestire bullet/numeri direttamente sugli elementi lista.
+- Input/props: containerRef (ref all'editor), onContentChange, onClose.
+- Output/eventi: modifica direttamente il DOM dei `<li>`, chiama onContentChange per salvare.
+- Comportamento normale:
+  - Si attiva da BlockContextMenu → "🔧 Correggi Bullet".
+  - Scansiona tutti i `<li>` nel workspace e mostra controlli inline a sinistra di ciascuno.
+  - **Controlli per ogni `<li>`:**
+    - ✕ (rosso): nasconde il bullet (`list-style-type: none`), mantiene il rientro.
+    - + (verde): ripristina un bullet nascosto (`list-style-type: disc/decimal !important`). Rimuove anche `data-list-continuation` dal parent.
+    - ✏️ (blu, solo OL): apre editor inline per cambiare il numero (`value` attribute), conferma con Enter.
+  - **Auto-rinumerazione:** dopo ogni azione (nascondi/ripristina), rinumera tutte le `<ol>` nel workspace contando solo gli items visibili.
+  - **Pattern recognition:** dopo 3 azioni consecutive dello stesso tipo (es. 3x nascondi su voci minuscola):
+    - Mostra pannello laterale "🔍 Pattern riconosciuto!" con tutti i candidati rimanenti.
+    - Ogni candidato ha checkbox (on di default), anteprima testo, e 👁 per scrollare all'elemento.
+    - "Applica a N selezionati" → batch apply. "Ignora" → chiude il pannello.
+  - Barra info in alto con legenda colori.
+  - Click sullo sfondo o ✕ nella barra → chiude l'overlay.
+- Edge case e limiti: i bullet nascosti da CSS (`data-list-continuation`) vengono rilevati tramite computed style.
+- Persistenza/stato: locale (action history per pattern detection, editing index).
+- Dipendenze: Editor.tsx monta il componente; pagination.ts per la regola automatica.
+- Cose da non rompere: nascondere un bullet non deve cambiare il rientro del testo; rinumerazione deve saltare gli hidden.
+- Checklist rapida: ✕ nascondi, + ripristina, ✏️ modifica numero, pattern 3 azioni, batch apply.
 
 ### DragHandle (components/DragHandle.tsx)
 - Scopo: TODO
@@ -215,11 +245,17 @@ Per ogni elemento compilare:
 - Scopo: mantenere pagine fisse e spostare contenuti senza cambiare markup.
 - Comportamento normale:
   - Margini e altezza pagina fissi (nessun auto-resize).
-  - Overflow calcolato sul fondo dell’ultimo elemento in flow.
+  - Overflow calcolato sul fondo dell'ultimo elemento in flow.
   - Move: sposta interi blocchi; tabelle intere alla pagina successiva.
   - Split: contenitori neutri si dividono per figli; testo può continuare per righe se necessario.
-  - Pull-up: se c’è spazio reale, elementi risalgono dalla pagina sotto.
-- Cose da non rompere: niente splitting su tabelle, nessuna modifica stile originale.
+  - Pull-up: se c'è spazio reale, elementi risalgono dalla pagina sotto.
+  - **Regola bullet automatica (post-reflow):** dopo ogni reflow con modifiche:
+    - Scansiona tutti i `<li>` nel documento.
+    - Se il testo inizia con **lettera minuscola** → nasconde il bullet (`list-style-type: none`). Il `<li>` resta nel DOM per mantenere il rientro.
+    - Rinumera tutte le `<ol>`: ogni OL parte da 1 a meno che non sia una continuazione split (stesso `data-split-source`). Le OL split concatenano il conteggio.
+    - Solo i `<li>` visibili (senza `list-style-type: none`) vengono contati nella numerazione.
+  - **Calcolo attributo `start` per OL split:** in tutti e 3 i punti dove si calcola `start` (splitContainerByRange, splitContainerAtChild, pullUp), conta solo i `<li>` visibili, non quelli nascosti.
+- Cose da non rompere: niente splitting su tabelle, nessuna modifica stile originale, la regola bullet non deve cambiare il contenuto ma solo la visibilità del marker.
 
 ### TableTocModal (components/TableTocModal.tsx)
 - Scopo: TODO
