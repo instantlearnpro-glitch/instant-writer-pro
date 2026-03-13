@@ -1723,11 +1723,15 @@ export const reflowPagesUntilStable = (
  * as separate elements. This heals documents where a <p> was split across pages
  * into two <p> elements, creating spurious line breaks and spacing changes.
  *
+ * Works CROSS-PAGE: checks the last child of page N against the first child
+ * of page N+1. Also merges within the same page.
+ *
  * Rules:
- * - Merges consecutive elements with the same tag (p, h1-h6, blockquote)
+ * - Merges elements with the same tag (p, h1-h6, blockquote)
  * - Same className and similar computed font-size / font-weight
  * - First element does NOT end with terminal punctuation (. ! ? :)
- * - Second element does NOT start with a number (avoids merging numbered entries)
+ * - Second element does NOT start with a capital letter after whitespace that
+ *   follows terminal punctuation (avoids merging intentional paragraph breaks)
  * - Also merges via data-split-source markers if present
  *
  * Should be called AFTER ensureContentIsPaginated and BEFORE reflowPagesUntilStable.
@@ -1737,6 +1741,109 @@ export const rejoinSplitParagraphs = (editor: HTMLElement): number => {
     const textTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE']);
     let totalMerged = 0;
 
+    const shouldMergeElements = (a: HTMLElement, b: HTMLElement): boolean => {
+        if (!textTags.has(a.tagName)) return false;
+        if (a.tagName !== b.tagName) return false;
+        if (a.className !== b.className) return false;
+
+        // Check via split markers first (highest confidence)
+        const splitA = a.getAttribute('data-split-source');
+        const splitB = b.getAttribute('data-split-source');
+        if (splitA && splitB && splitA === splitB) return true;
+
+        // Heuristic merge: same tag, same class, compatible text styles,
+        // and first block doesn't end with terminal punctuation
+        const csA = window.getComputedStyle(a);
+        const csB = window.getComputedStyle(b);
+
+        if (csA.fontSize !== csB.fontSize || csA.fontWeight !== csB.fontWeight) return false;
+
+        const aText = (a.textContent || '').trimEnd();
+        const bText = (b.textContent || '').trimStart();
+        const lastChar = aText.slice(-1);
+        const startsWithNumber = /^\d/.test(bText);
+
+        // Only merge if the first block clearly ends mid-sentence
+        if (!lastChar || '.!?:'.includes(lastChar) || startsWithNumber || bText.length === 0) return false;
+
+        return true;
+    };
+
+    const doMerge = (a: HTMLElement, b: HTMLElement) => {
+        // Move all child nodes from b into a
+        while (b.firstChild) {
+            a.appendChild(b.firstChild);
+        }
+        b.remove();
+        totalMerged++;
+
+        // Remove reflow-stamped inline styles
+        const reflowStyles = a.getAttribute('data-reflow-styles');
+        if (reflowStyles) {
+            for (const prop of reflowStyles.split(',')) {
+                a.style.removeProperty(prop.trim());
+            }
+            a.removeAttribute('data-reflow-styles');
+        }
+
+        // Clean up split markers
+        const splitA = a.getAttribute('data-split-source');
+        if (splitA) {
+            a.removeAttribute('data-split-source');
+        }
+
+        // Clean empty style attribute
+        if (a.style.length === 0) {
+            a.removeAttribute('style');
+        }
+
+        // Normalize to join adjacent text nodes
+        a.normalize();
+    };
+
+    // --- Pass 1: Cross-page merge ---
+    // Check the last child of page N against the first child of page N+1.
+    // This is the core fix: split paragraphs land on different pages.
+    for (let p = 0; p < pages.length - 1; p++) {
+        const pageCurr = pages[p];
+        const pageNext = pages[p + 1];
+
+        // Find last flow element on current page (skip footers, page-break markers)
+        const currKids = Array.from(pageCurr.children) as HTMLElement[];
+        let lastEl: HTMLElement | null = null;
+        for (let k = currKids.length - 1; k >= 0; k--) {
+            const kid = currKids[k];
+            if (kid.classList.contains('page-footer') ||
+                kid.classList.contains('page-ruler') ||
+                kid.classList.contains('margin-guides') ||
+                kid.hasAttribute('data-user-page-break')) continue;
+            lastEl = kid;
+            break;
+        }
+        if (!lastEl) continue;
+
+        // Find first flow element on next page (skip headers, page-break markers)
+        const nextKids = Array.from(pageNext.children) as HTMLElement[];
+        let firstEl: HTMLElement | null = null;
+        for (const kid of nextKids) {
+            if (kid.classList.contains('page-footer') ||
+                kid.classList.contains('page-ruler') ||
+                kid.classList.contains('margin-guides') ||
+                kid.hasAttribute('data-user-page-break')) continue;
+            firstEl = kid;
+            break;
+        }
+        if (!firstEl) continue;
+
+        // Try to merge: move firstEl's content into lastEl
+        if (shouldMergeElements(lastEl, firstEl)) {
+            doMerge(lastEl, firstEl);
+            // After merging, re-check this page boundary (firstEl changed)
+            p--;
+        }
+    }
+
+    // --- Pass 2: Intra-page merge (same page siblings) ---
     for (const page of pages) {
         const kids = Array.from(page.children) as HTMLElement[];
         let i = 0;
@@ -1746,72 +1853,10 @@ export const rejoinSplitParagraphs = (editor: HTMLElement): number => {
             const b = kids[i + 1];
 
             if (!a.isConnected || !b.isConnected) { i++; continue; }
-            if (!textTags.has(a.tagName)) { i++; continue; }
-            if (a.tagName !== b.tagName) { i++; continue; }
-            if (a.className !== b.className) { i++; continue; }
 
-            // Check via split markers first (highest confidence)
-            const splitA = a.getAttribute('data-split-source');
-            const splitB = b.getAttribute('data-split-source');
-            let shouldMerge = false;
-
-            if (splitA && splitB && splitA === splitB) {
-                shouldMerge = true;
-            }
-
-            // Heuristic merge: same tag, same class, compatible text styles,
-            // and first block doesn't end with terminal punctuation
-            if (!shouldMerge) {
-                const csA = window.getComputedStyle(a);
-                const csB = window.getComputedStyle(b);
-
-                if (csA.fontSize === csB.fontSize && csA.fontWeight === csB.fontWeight) {
-                    const aText = (a.textContent || '').trimEnd();
-                    const bText = (b.textContent || '').trimStart();
-                    const lastChar = aText.slice(-1);
-                    const startsWithNumber = /^\d/.test(bText);
-
-                    // Only merge if the first block clearly ends mid-sentence
-                    if (lastChar && !'.!?:'.includes(lastChar) && !startsWithNumber && bText.length > 0) {
-                        shouldMerge = true;
-                    }
-                }
-            }
-
-            if (shouldMerge) {
-                // Move all child nodes from b into a
-                while (b.firstChild) {
-                    a.appendChild(b.firstChild);
-                }
-                b.remove();
+            if (shouldMergeElements(a, b)) {
+                doMerge(a, b);
                 kids.splice(i + 1, 1);
-                totalMerged++;
-
-                // Remove reflow-stamped inline styles
-                const reflowStyles = a.getAttribute('data-reflow-styles');
-                if (reflowStyles) {
-                    for (const prop of reflowStyles.split(',')) {
-                        a.style.removeProperty(prop.trim());
-                    }
-                    a.removeAttribute('data-reflow-styles');
-                }
-
-                // Clean up split markers if no more fragments remain
-                if (splitA) {
-                    const nextKid = kids[i + 1];
-                    if (!nextKid || nextKid.getAttribute('data-split-source') !== splitA) {
-                        a.removeAttribute('data-split-source');
-                    }
-                }
-
-                // Clean empty style attribute
-                if (a.style.length === 0) {
-                    a.removeAttribute('style');
-                }
-
-                // Normalize to join adjacent text nodes
-                a.normalize();
-
                 // Don't advance i — check if the NEXT element also merges
             } else {
                 i++;
