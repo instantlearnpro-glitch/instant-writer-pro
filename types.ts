@@ -98,3 +98,21 @@ export interface StructureEntry {
   context?: string; // Snippet of text for context
   hasCustomStyle?: boolean; // True if it has the data-custom-styled attribute
 }
+
+/** A heading found in the document, used for TOC mapping */
+export interface DocumentHeading {
+  id: string;
+  text: string;
+  level: string; // 'h1' | 'h2' | 'h3' | 'h4' | 'h5'
+  page: number;
+}
+
+/** A row in the TOC mapping modal – links a TOC line to a document heading */
+export interface TOCMappingRow {
+  lineIndex: number;
+  lineText: string;
+  matchedHeadingId: string | null;
+  matchedHeadingText: string | null;
+  isTitle: boolean; // True = section header, no page number
+  confidence: number; // 0-1 auto-match confidence
+}

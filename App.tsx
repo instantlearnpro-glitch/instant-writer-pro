@@ -4,8 +4,9 @@ import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
 const TOCModal = lazy(() => import('./components/TOCModal'));
 const PageNumberModal = lazy(() => import('./components/PageNumberModal'));
+const TOCMappingModal = lazy(() => import('./components/TOCMappingModal'));
 import ZoomControls from './components/ZoomControls';
-import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry } from './types';
+import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry, TOCMappingRow, DocumentHeading } from './types';
 import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
 import { FontDefinition } from './utils/fontUtils';
 import { useFontManager } from './hooks/useFontManager';
@@ -536,6 +537,10 @@ const App: React.FC = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
     const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
+    const [isTOCMappingModalOpen, setIsTOCMappingModalOpen] = useState(false);
+    const [tocMappingRows, setTocMappingRows] = useState<TOCMappingRow[]>([]);
+    const [tocMappingHeadings, setTocMappingHeadings] = useState<DocumentHeading[]>([]);
+    const tocMappingContainerRef = useRef<HTMLElement | null>(null);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isAutoLogModalOpen, setIsAutoLogModalOpen] = useState(false);
     const [isPageNumberModalOpen, setIsPageNumberModalOpen] = useState(false);
@@ -3305,6 +3310,276 @@ const App: React.FC = () => {
     };
 
 
+    // --- Feature: Convert Existing Text to Dynamic TOC ---
+
+    /** Fuzzy match: returns a 0-1 score for how similar two strings are */
+    const fuzzyMatch = (a: string, b: string): number => {
+        const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+        const na = normalize(a);
+        const nb = normalize(b);
+        if (na === nb) return 1;
+        if (nb.includes(na) || na.includes(nb)) return 0.9;
+        // Token overlap
+        const tokensA = na.split(' ').filter(t => t.length > 2);
+        const tokensB = nb.split(' ').filter(t => t.length > 2);
+        if (tokensA.length === 0 || tokensB.length === 0) return 0;
+        const matches = tokensA.filter(t => tokensB.some(tb => tb.includes(t) || t.includes(tb)));
+        return matches.length / Math.max(tokensA.length, tokensB.length);
+    };
+
+    /** Scan all headings in the document (H1-H5) and return them with page numbers */
+    const scanDocumentHeadings = (): DocumentHeading[] => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return [];
+        const pages = workspace.querySelectorAll('.page');
+        const headings: DocumentHeading[] = [];
+        pages.forEach((page, pageIdx) => {
+            page.querySelectorAll('h1, h2, h3, h4, h5').forEach(el => {
+                const htmlEl = el as HTMLElement;
+                if (!htmlEl.id) htmlEl.id = `heading-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                headings.push({
+                    id: htmlEl.id,
+                    text: htmlEl.textContent?.trim() || '',
+                    level: htmlEl.tagName.toLowerCase(),
+                    page: pageIdx + 1
+                });
+            });
+        });
+        return headings;
+    };
+
+    /** User clicks "Convert to TOC" — extract lines from selected block and fuzzy-match */
+    const handleConvertToTOC = () => {
+        const selection = window.getSelection();
+        let container: HTMLElement | null = null;
+
+        if (selection && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            const startEl = range.startContainer.nodeType === 1
+                ? range.startContainer as HTMLElement
+                : range.startContainer.parentElement;
+            // Walk up to find a containing block (div, section, etc.) within the page
+            container = startEl?.closest('.page > div, .page > section, .page > blockquote') as HTMLElement || startEl?.closest('.page') as HTMLElement;
+        }
+
+        if (!container) {
+            alert('Please place your cursor inside the TOC text block first.');
+            return;
+        }
+
+        // Extract child lines — each direct child block element is a "line"
+        const lineElements: HTMLElement[] = [];
+        container.querySelectorAll(':scope > *').forEach(child => {
+            const el = child as HTMLElement;
+            const text = el.textContent?.trim();
+            if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT') {
+                lineElements.push(el);
+            }
+        });
+
+        // If container itself has no block children with text, treat each line of text content as a line
+        if (lineElements.length === 0) {
+            // The container itself might be the TOC — check if parent has siblings
+            const parent = container.parentElement;
+            if (parent) {
+                const siblings = Array.from(parent.children) as HTMLElement[];
+                siblings.forEach(el => {
+                    const text = el.textContent?.trim();
+                    if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT') {
+                        lineElements.push(el);
+                    }
+                });
+                container = parent;
+            }
+        }
+
+        if (lineElements.length === 0) {
+            alert('Could not find any TOC lines in the selected block.');
+            return;
+        }
+
+        // Scan all headings in the document
+        const headings = scanDocumentHeadings();
+
+        // Auto-match each line to the best heading
+        const rows: TOCMappingRow[] = lineElements.map((el, idx) => {
+            const text = el.textContent?.trim() || '';
+            // Strip leading numbers like "1.1  " or "0.3  "
+            const cleanText = text.replace(/^\d+\.?\d*\s+/, '');
+
+            let bestMatch: DocumentHeading | null = null;
+            let bestScore = 0;
+            headings.forEach(h => {
+                const score = Math.max(fuzzyMatch(cleanText, h.text), fuzzyMatch(text, h.text));
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMatch = h;
+                }
+            });
+
+            // If no good match and text looks like a bold title ("PART 1:", "Introduction:", chapter header)
+            const looksLikeTitle = /^(part|chapter|introduction|conclusion|appendix|section)/i.test(cleanText)
+                || el.tagName === 'H1' || el.tagName === 'H2'
+                || (el.querySelector('strong, b') !== null && el.children.length <= 2);
+
+            if (bestScore >= 0.4 && bestMatch) {
+                return {
+                    lineIndex: idx,
+                    lineText: text,
+                    matchedHeadingId: bestMatch.id,
+                    matchedHeadingText: bestMatch.text,
+                    isTitle: false,
+                    confidence: bestScore
+                };
+            } else if (looksLikeTitle) {
+                return {
+                    lineIndex: idx,
+                    lineText: text,
+                    matchedHeadingId: bestMatch && bestScore >= 0.25 ? bestMatch.id : null,
+                    matchedHeadingText: bestMatch && bestScore >= 0.25 ? bestMatch.text : null,
+                    isTitle: bestScore < 0.25,
+                    confidence: bestScore
+                };
+            } else {
+                return {
+                    lineIndex: idx,
+                    lineText: text,
+                    matchedHeadingId: bestMatch && bestScore >= 0.3 ? bestMatch.id : null,
+                    matchedHeadingText: bestMatch && bestScore >= 0.3 ? bestMatch.text : null,
+                    isTitle: false,
+                    confidence: bestScore
+                };
+            }
+        });
+
+        tocMappingContainerRef.current = container;
+        setTocMappingRows(rows);
+        setTocMappingHeadings(headings);
+        setIsTOCMappingModalOpen(true);
+    };
+
+    /** After user confirms the mapping — inject dot leaders + page numbers preserving styles */
+    const handleConfirmTOCMapping = (mappings: TOCMappingRow[]) => {
+        const container = tocMappingContainerRef.current;
+        if (!container) return;
+
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return;
+
+        // Mark the container as a dynamic TOC
+        container.setAttribute('data-dynamic-toc', 'true');
+
+        // Get all line elements again
+        const lineElements: HTMLElement[] = [];
+        container.querySelectorAll(':scope > *').forEach(child => {
+            const el = child as HTMLElement;
+            const text = el.textContent?.trim();
+            if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT') {
+                lineElements.push(el);
+            }
+        });
+
+        const pages = workspace.querySelectorAll('.page');
+
+        mappings.forEach((mapping, idx) => {
+            if (idx >= lineElements.length) return;
+            const el = lineElements[idx];
+
+            // Skip lines already converted
+            if (el.getAttribute('data-toc-row') === 'true') return;
+
+            if (mapping.matchedHeadingId) {
+                // Find page number for the target heading
+                const targetEl = document.getElementById(mapping.matchedHeadingId);
+                let pageNum = 0;
+                if (targetEl) {
+                    const targetPage = targetEl.closest('.page');
+                    pages.forEach((p, pIdx) => { if (p === targetPage) pageNum = pIdx + 1; });
+                }
+
+                el.setAttribute('data-toc-row', 'true');
+                el.setAttribute('data-toc-target', mapping.matchedHeadingId);
+
+                // Make the line a flex row: [original text] [dot leader] [page number]
+                el.style.display = 'flex';
+                el.style.alignItems = 'baseline';
+                el.style.gap = '4px';
+                el.style.width = '100%';
+
+                // Wrap existing content in a span to preserve styling
+                const originalContent = el.innerHTML;
+                const textSpan = document.createElement('span');
+                textSpan.className = 'toc-dyn-text';
+                textSpan.style.cssText = 'flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+                textSpan.innerHTML = originalContent;
+
+                // Dot leader
+                const leaderSpan = document.createElement('span');
+                leaderSpan.className = 'toc-dyn-leader';
+                leaderSpan.setAttribute('aria-hidden', 'true');
+                leaderSpan.style.cssText = 'flex: 1 1 auto; height: 2px; min-height: 2px; display: block; align-self: center; background-image: radial-gradient(circle at 1px 1px, #9ca3af 1px, transparent 1.5px); background-size: 6px 2px; background-repeat: repeat-x; background-position: left center;';
+
+                // Page number — inherit font from the line
+                const pageSpan = document.createElement('span');
+                pageSpan.className = 'toc-dyn-page';
+                pageSpan.style.cssText = 'flex: 0 0 auto; min-width: 3ch; text-align: right; white-space: nowrap; padding-left: 4px;';
+                pageSpan.textContent = pageNum > 0 ? String(pageNum) : '?';
+
+                el.innerHTML = '';
+                el.appendChild(textSpan);
+                el.appendChild(leaderSpan);
+                el.appendChild(pageSpan);
+            } else if (mapping.isTitle) {
+                // Mark as title row — no page number, but still mark for identification
+                el.setAttribute('data-toc-row', 'true');
+                el.setAttribute('data-toc-title', 'true');
+            }
+        });
+
+        // Reflow and save
+        reflowPages(workspace, { pullUp: true });
+        updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+        setIsTOCMappingModalOpen(false);
+    };
+
+    /** Refresh all dynamic TOCs — update page numbers based on current heading positions */
+    const refreshDynamicTOC = useCallback(() => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return;
+
+        const tocContainers = workspace.querySelectorAll('[data-dynamic-toc="true"]');
+        if (tocContainers.length === 0) return;
+
+        const pages = workspace.querySelectorAll('.page');
+
+        tocContainers.forEach(container => {
+            const rows = container.querySelectorAll('[data-toc-target]');
+            rows.forEach(row => {
+                const targetId = row.getAttribute('data-toc-target');
+                if (!targetId) return;
+                const targetEl = document.getElementById(targetId);
+                if (!targetEl) return;
+
+                const targetPage = targetEl.closest('.page');
+                let pageNum = 0;
+                pages.forEach((p, pIdx) => { if (p === targetPage) pageNum = pIdx + 1; });
+
+                const pageSpan = row.querySelector('.toc-dyn-page') as HTMLElement | null;
+                if (pageSpan && pageNum > 0) {
+                    pageSpan.textContent = String(pageNum);
+                }
+            });
+        });
+    }, []);
+
+    // Auto-refresh dynamic TOC every 10 minutes
+    useEffect(() => {
+        const interval = setInterval(() => {
+            refreshDynamicTOC();
+        }, 10 * 60 * 1000); // 10 minutes
+        return () => clearInterval(interval);
+    }, [refreshDynamicTOC]);
+
     const handleInsertTOC = (settings: TOCSettings) => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (!workspace) return;
@@ -3961,6 +4236,8 @@ const App: React.FC = () => {
     };
 
     const handleExportHTML = (fileName: string) => {
+        // Refresh dynamic TOC page numbers before export
+        refreshDynamicTOC();
         // Use the actual document state, not the live DOM
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = docState.htmlContent;
@@ -4006,6 +4283,8 @@ ${workspace.innerHTML}
     };
 
     const handleExportPDF = async (fileName: string, onProgress?: (percent: number) => void) => {
+        // Refresh dynamic TOC page numbers before export
+        refreshDynamicTOC();
         await exportPdf({
             fileName,
             pageFormatId,
@@ -4018,6 +4297,8 @@ ${workspace.innerHTML}
     };
 
     const handleExportDOCX = async (fileName: string, onProgress?: (percent: number) => void) => {
+        // Refresh dynamic TOC page numbers before export
+        refreshDynamicTOC();
         await exportDOCX(fileName, onProgress);
     };
 
@@ -4361,6 +4642,7 @@ ${workspace.innerHTML}
                 onCustomPageSizeChange={handleCustomPageSizeChange}
                 onUpdateStyle={handleUpdateStyle}
                 onOpenTOCModal={() => setIsTOCModalOpen(true)}
+                onConvertToTOC={handleConvertToTOC}
                 onOpenPageNumberModal={preparePageAnchors}
                 onInsertHorizontalRule={handleInsertHorizontalRule}
                 onInsertTextLayer={handleInsertTextLayerMode}
@@ -4490,6 +4772,14 @@ ${workspace.innerHTML}
                     onClose={() => setIsTOCModalOpen(false)}
                     onInsert={handleInsertTOC}
                     onRemove={handleRemoveTOC}
+                />
+
+                <TOCMappingModal
+                    isOpen={isTOCMappingModalOpen}
+                    onClose={() => setIsTOCMappingModalOpen(false)}
+                    onConfirm={handleConfirmTOCMapping}
+                    rows={tocMappingRows}
+                    headings={tocMappingHeadings}
                 />
 
                 <SettingsModal

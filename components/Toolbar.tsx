@@ -25,6 +25,7 @@ interface ToolbarProps {
     onCustomPageSizeChange: (width: string, height: string) => void;
     onUpdateStyle: (targetTagName?: string) => void;
     onOpenTOCModal: () => void;
+    onConvertToTOC: () => void;
     onOpenPageNumberModal: () => void;
     onInsertHorizontalRule: () => void;
     onInsertTextLayer: () => void;
@@ -72,6 +73,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
     onCustomPageSizeChange,
     onUpdateStyle,
     onOpenTOCModal,
+    onConvertToTOC,
     onOpenPageNumberModal,
     onInsertHorizontalRule,
     onInsertTextLayer,
@@ -455,6 +457,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             </button>
                             <button onClick={onOpenTOCModal} className={ButtonClass(false)} title="Insert Table of Contents">
                                 <TableOfContents size={18} />
+                            </button>
+                            <button onClick={onConvertToTOC} className={ButtonClass(false)} title="Convert Selected Text to Dynamic TOC">
+                                <ListOrdered size={18} />
                             </button>
                             <button onClick={onOpenPageNumberModal} className={ButtonClass(false)} title="Insert Page Numbers">
                                 <Hash size={18} />
