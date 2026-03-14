@@ -124,12 +124,22 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
     multiSelectedEls.forEach(el => el.removeAttribute('data-multi-selected'));
 
     // Save and override overflow styles to prevent text clipping in PDF
-    // Only target pages and known containers (avoid expensive getComputedStyle on every element)
+    // Only target pages and known clipping elements (avoid expensive getComputedStyle on every element)
     const overflowFixedElements: { el: HTMLElement; originalOverflow: string; originalBoxShadow?: string }[] = [];
+    const tocTextBackups: { el: HTMLElement; origStyle: string }[] = [];
     pages.forEach(page => {
         overflowFixedElements.push({ el: page, originalOverflow: page.style.overflow, originalBoxShadow: page.style.boxShadow });
         page.style.overflow = 'visible';
         page.style.boxShadow = 'none';
+
+        // Fix TOC text spans that have overflow:hidden + text-overflow:ellipsis (causes text clipping in PDF)
+        page.querySelectorAll('.toc-dyn-text').forEach(textNode => {
+            const textEl = textNode as HTMLElement;
+            tocTextBackups.push({ el: textEl, origStyle: textEl.getAttribute('style') || '' });
+            textEl.style.overflow = 'visible';
+            textEl.style.whiteSpace = 'normal';
+            textEl.style.textOverflow = 'clip';
+        });
     });
 
     // --- Pre-process TOC leader dots: html2canvas can't render CSS radial-gradient,
@@ -237,6 +247,11 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             if (originalAriaHidden !== null) {
                 el.setAttribute('aria-hidden', originalAriaHidden);
             }
+        });
+
+        // Restore TOC text spans (revert overflow:visible → original hidden+ellipsis)
+        tocTextBackups.forEach(({ el, origStyle }) => {
+            el.setAttribute('style', origStyle);
         });
 
         overflowFixedElements.forEach(({ el, originalOverflow, originalBoxShadow }) => {
