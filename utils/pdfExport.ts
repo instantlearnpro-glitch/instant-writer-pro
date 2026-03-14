@@ -137,55 +137,6 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         });
     });
 
-    // --- Pre-process TOC leader dots: html2canvas can't render CSS radial-gradient,
-    // so we temporarily replace gradient-based leaders with actual text dots ---
-    const tocLeaderBackups: { el: HTMLElement; originalStyle: string; originalContent: string }[] = [];
-    pages.forEach(page => {
-        // Read the leader style from page-level data attributes (set during TOC conversion)
-        const leaderStyle = page.getAttribute('data-toc-leader-style') || 'dots';
-        const leaderColor = page.getAttribute('data-toc-leader-color') || '#9ca3af';
-        const leaderSpacing = parseInt(page.getAttribute('data-toc-leader-spacing') || '8', 10) || 8;
-
-        page.querySelectorAll('.toc-dyn-leader').forEach(leaderNode => {
-            const leader = leaderNode as HTMLElement;
-            const leaderWidth = leader.offsetWidth;
-
-            // Save original state for restoration after rendering
-            tocLeaderBackups.push({
-                el: leader,
-                originalStyle: leader.getAttribute('style') || '',
-                originalContent: leader.textContent || ''
-            });
-
-            if (leaderStyle === 'dots') {
-                const dotCount = Math.max(3, Math.floor(leaderWidth / Math.max(4, leaderSpacing)));
-                leader.setAttribute('style',
-                    `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; ` +
-                    `overflow: hidden; white-space: nowrap; ` +
-                    `letter-spacing: ${Math.max(1, leaderSpacing - 4)}px; ` +
-                    `color: ${leaderColor}; font-size: 10px; line-height: 1;`
-                );
-                leader.textContent = '·'.repeat(dotCount);
-            } else if (leaderStyle === 'dashes') {
-                const dashCount = Math.max(3, Math.floor(leaderWidth / 12));
-                leader.setAttribute('style',
-                    `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; ` +
-                    `overflow: hidden; white-space: nowrap; ` +
-                    `letter-spacing: 2px; ` +
-                    `color: ${leaderColor}; font-size: 10px; line-height: 1;`
-                );
-                leader.textContent = '–'.repeat(dashCount);
-            } else if (leaderStyle === 'line') {
-                // Solid line — use a visible border that html2canvas can render
-                leader.setAttribute('style',
-                    `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; ` +
-                    `height: 0; border-bottom: 1px solid ${leaderColor};`
-                );
-            }
-            // 'none' style — leave as is
-        });
-    });
-
     try {
         // --- 4. Render each page with html2canvas ---
         const pdf = new JsPDF({
@@ -248,13 +199,6 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         alert('An error occurred during PDF export. Please try again.');
     } finally {
         // --- 6. Restore removed editor UI elements & styles ---
-
-        // Restore TOC leader dots (revert text→gradient conversion)
-        tocLeaderBackups.forEach(({ el, originalStyle, originalContent }) => {
-            el.setAttribute('style', originalStyle);
-            el.textContent = originalContent;
-        });
-
         overflowFixedElements.forEach(({ el, originalOverflow }) => {
             el.style.overflow = originalOverflow;
         });
