@@ -119,7 +119,7 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
 
         const formatOption = (h: DocumentHeading) => (
             <option key={h.id} value={h.id}>
-                [{h.level.toUpperCase()}] p.{h.page} — {h.text.substring(0, 45)}{h.text.length > 45 ? '…' : ''}
+                [{h.level.toUpperCase()}] {h.text.substring(0, 45)}{h.text.length > 45 ? '…' : ''} ··· p.{h.page}
             </option>
         );
 
@@ -135,9 +135,16 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                 {['h1', 'h2', 'h3', 'h4', 'h5'].map(level => {
                     const items = byLevel[level];
                     if (!items || items.length === 0) return null;
+                    // Sort by numeric prefix (1.1, 2.2...) then by page order
+                    const sortedItems = [...items].sort((a, b) => {
+                        const na = numPrefix(a.text);
+                        const nb = numPrefix(b.text);
+                        if (na !== nb) return na - nb;
+                        return a.page - b.page;
+                    });
                     return (
                         <optgroup key={level} label={`${level.toUpperCase()} Headings`}>
-                            {items.map(formatOption)}
+                            {sortedItems.map(formatOption)}
                         </optgroup>
                     );
                 })}
