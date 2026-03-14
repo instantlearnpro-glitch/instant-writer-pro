@@ -137,6 +137,63 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         });
     });
 
+    // --- Pre-process TOC leader dots: html2canvas can't render CSS radial-gradient,
+    // so we temporarily replace gradient-based leaders with actual text dots ---
+    const tocLeaderBackups: { el: HTMLElement; originalStyle: string; originalContent: string }[] = [];
+    pages.forEach(page => {
+        page.querySelectorAll('.toc-dyn-leader').forEach(leaderNode => {
+            const leader = leaderNode as HTMLElement;
+            const computed = window.getComputedStyle(leader);
+            const bg = computed.backgroundImage || '';
+            const hasBorder = computed.borderBottomWidth && parseFloat(computed.borderBottomWidth) > 0;
+            const leaderWidth = leader.offsetWidth;
+
+            // Save original state
+            tocLeaderBackups.push({
+                el: leader,
+                originalStyle: leader.getAttribute('style') || '',
+                originalContent: leader.textContent || ''
+            });
+
+            if (bg.includes('radial-gradient')) {
+                // Dots style — replace with actual dot characters
+                const spacing = parseInt(leader.getAttribute('data-spacing') || '8', 10) || 8;
+                const dotCount = Math.max(3, Math.floor(leaderWidth / spacing));
+                const color = leader.style.backgroundImage?.match(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\))/)?.[1] || '#9ca3af';
+                leader.style.backgroundImage = 'none';
+                leader.style.background = 'none';
+                leader.style.height = 'auto';
+                leader.style.minHeight = '0';
+                leader.style.overflow = 'hidden';
+                leader.style.whiteSpace = 'nowrap';
+                leader.style.letterSpacing = `${Math.max(1, spacing - 4)}px`;
+                leader.style.color = color;
+                leader.style.fontSize = '10px';
+                leader.style.lineHeight = '1';
+                leader.textContent = '·'.repeat(dotCount);
+            } else if (bg.includes('repeating-linear-gradient')) {
+                // Dashes style — replace with dash characters
+                const color = leader.style.backgroundImage?.match(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\))/)?.[1] || '#9ca3af';
+                const dashCount = Math.max(3, Math.floor(leaderWidth / 12));
+                leader.style.backgroundImage = 'none';
+                leader.style.background = 'none';
+                leader.style.height = 'auto';
+                leader.style.minHeight = '0';
+                leader.style.overflow = 'hidden';
+                leader.style.whiteSpace = 'nowrap';
+                leader.style.letterSpacing = '2px';
+                leader.style.color = color;
+                leader.style.fontSize = '10px';
+                leader.style.lineHeight = '1';
+                leader.textContent = '–'.repeat(dashCount);
+            } else if (hasBorder) {
+                // Line style — border should render OK, but ensure visibility
+                leader.style.display = 'block';
+            }
+            // 'none' style — leave as is
+        });
+    });
+
     try {
         // --- 4. Render each page with html2canvas ---
         const pdf = new JsPDF({
@@ -199,6 +256,13 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         alert('An error occurred during PDF export. Please try again.');
     } finally {
         // --- 6. Restore removed editor UI elements & styles ---
+
+        // Restore TOC leader dots (revert text→gradient conversion)
+        tocLeaderBackups.forEach(({ el, originalStyle, originalContent }) => {
+            el.setAttribute('style', originalStyle);
+            el.textContent = originalContent;
+        });
+
         overflowFixedElements.forEach(({ el, originalOverflow }) => {
             el.style.overflow = originalOverflow;
         });

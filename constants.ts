@@ -45,6 +45,12 @@ img:not([src]), img[src=""], img.broken-image {
     font-family: sans-serif;
 }
 
+h1, h2, h3, h4, h5 {
+    overflow-wrap: break-word;
+    word-break: break-word;
+    max-width: 100%;
+}
+
 h1, .book-title {
     font-family: 'Black Ops One', cursive;
     font-size: 28pt;
