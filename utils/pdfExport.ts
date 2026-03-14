@@ -101,7 +101,7 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
 
     // --- 3. Temporarily clean up editor UI elements ---
     const removedElements: { parent: Node; element: Node; nextSibling: Node | null }[] = [];
-    const editorSelectors = '.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides';
+    const editorSelectors = '.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides, .toc-refresh-btn';
 
     workspace.querySelectorAll(editorSelectors).forEach(el => {
         if (el.parentNode) {
