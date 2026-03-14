@@ -669,10 +669,10 @@ const App: React.FC = () => {
 
     // Page layout management (page size, margins, CSS)
     const {
-        pageFormatId, customPageSize, pageMargins, pageCount: expectedPageCount,
+        pageFormatId, customPageSize, pageMargins,
         showMarginGuides, setShowMarginGuides,
         showSmartGuides, setShowSmartGuides,
-        handlePageSizeChange, handlePageCountChange: handleExpectedPageCountChange, handleCustomPageSizeChange, handleMarginChange,
+        handlePageSizeChange, updateGutterForPageCount, handleCustomPageSizeChange, handleMarginChange,
         updatePageCSS
     } = usePageLayout({
         applyLayoutOverride,
@@ -681,6 +681,12 @@ const App: React.FC = () => {
         pushHistoryState,
         debounceTimeoutRef
     });
+
+    // Auto-adjust gutter when DOM page count changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    React.useEffect(() => {
+        if (pageCount > 0) updateGutterForPageCount(pageCount);
+    }, [pageCount]);
 
 
     const handleUndo = () => {
@@ -4876,8 +4882,6 @@ ${workspace.innerHTML}
                 onExport={() => setIsExportModalOpen(true)}
                 onPageSizeChange={handlePageSizeChange}
                 pageFormatId={pageFormatId}
-                pageCount={expectedPageCount}
-                onPageCountChange={handleExpectedPageCountChange}
                 customPageSize={customPageSize}
                 onCustomPageSizeChange={handleCustomPageSizeChange}
                 onUpdateStyle={handleUpdateStyle}

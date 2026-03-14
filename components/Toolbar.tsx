@@ -21,8 +21,6 @@ interface ToolbarProps {
     onExport: () => void;
     onPageSizeChange: (formatId: string) => void;
     pageFormatId: string;
-    pageCount: number;
-    onPageCountChange: (count: number) => void;
     customPageSize: { width: string, height: string };
     onCustomPageSizeChange: (width: string, height: string) => void;
     onUpdateStyle: (targetTagName?: string) => void;
@@ -71,8 +69,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
     onExport,
     onPageSizeChange,
     pageFormatId,
-    pageCount,
-    onPageCountChange,
     customPageSize,
     onCustomPageSizeChange,
     onUpdateStyle,
@@ -515,21 +511,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 <option value={PAGE_FORMATS.TRADE_BLEED.id}>6×9 Bleed</option>
                                 <option value={PAGE_FORMATS.CUSTOM.id}>Custom</option>
                             </select>
-
-                            {pageFormatId !== 'custom' && (
-                                <div className="flex items-center gap-1" title={`Gutter adjusts based on page count (KDP)`}>
-                                    <span className="text-[8px] text-gray-400">pp:</span>
-                                    <input
-                                        type="number"
-                                        min={24}
-                                        max={828}
-                                        value={pageCount}
-                                        onChange={(e) => onPageCountChange(parseInt(e.target.value, 10) || 150)}
-                                        className="w-10 h-5 border border-gray-300 rounded px-1 text-[9px] text-center"
-                                        title="Expected page count — adjusts inner (gutter) margin per KDP rules"
-                                    />
-                                </div>
-                            )}
 
                             {pageFormatId === 'custom' && (
                                 <div className="flex items-center gap-1">

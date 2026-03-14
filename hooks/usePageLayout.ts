@@ -2,9 +2,6 @@ import React, { useState, useRef } from 'react';
 import { PAGE_FORMATS, getGutterByPageCount } from '../constants';
 import { DocumentState } from '../types';
 
-// applyLayoutOverride is defined in App.tsx as a top-level function, we import it via parameter
-// reflowPagesUntilStable is imported from pagination.ts in App.tsx, passed as a parameter
-
 interface UsePageLayoutParams {
     applyLayoutOverride: (css: string, width: string, height: string, margins: { top: number; bottom: number; left: number; right: number }) => string;
     reflowPagesUntilStable: (workspace: HTMLElement, options?: { pullUp?: boolean }) => void;
@@ -25,12 +22,10 @@ export const usePageLayout = ({
     const [pageMargins, setPageMargins] = useState<{ top: number; bottom: number; left: number; right: number }>({ top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 });
     const [showMarginGuides, setShowMarginGuides] = useState(false);
     const [showSmartGuides, setShowSmartGuides] = useState(false);
-    const [pageCount, setPageCount] = useState<number>(150);
 
     const marginReflowTimeoutRef = useRef<number | null>(null);
 
     const updatePageCSS = (width: string, height: string, margins: { top: number; bottom: number; left: number; right: number }) => {
-        // Use functional update so rapid dragging always has the latest CSS content
         setDocState(prev => {
             const updatedCss = applyLayoutOverride(prev.cssContent, width, height, margins);
             return { ...prev, cssContent: updatedCss };
@@ -44,7 +39,6 @@ export const usePageLayout = ({
             if (workspace) {
                 reflowPagesUntilStable(workspace as HTMLElement, { pullUp: true });
             }
-            // Save to history once drag is completed
             setDocState(prev => {
                 if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
                 pushHistoryState(prev);
@@ -59,10 +53,8 @@ export const usePageLayout = ({
         const format = Object.values(PAGE_FORMATS).find(f => f.id === formatId);
         if (!format) return;
 
-        // Calculate gutter from current page count
-        const gutter = getGutterByPageCount(pageCount);
-        const margins = { ...format.margins, left: gutter };
-
+        // Use current margins but keep the gutter as-is (auto-managed by pageCount effect)
+        const margins = { ...format.margins, left: pageMargins.left };
         setPageMargins(margins);
 
         if (formatId === 'custom') {
@@ -72,16 +64,14 @@ export const usePageLayout = ({
         }
     };
 
-    const handlePageCountChange = (count: number) => {
-        const clampedCount = Math.max(24, Math.min(828, count));
-        setPageCount(clampedCount);
+    /** Called by App.tsx when DOM pageCount changes — auto-recalculate gutter */
+    const updateGutterForPageCount = (domPageCount: number) => {
+        const gutter = getGutterByPageCount(domPageCount);
+        if (Math.abs(gutter - pageMargins.left) < 0.001) return; // No change needed
 
-        // Recalculate gutter and update margins
-        const gutter = getGutterByPageCount(clampedCount);
         const newMargins = { ...pageMargins, left: gutter };
         setPageMargins(newMargins);
 
-        // Update CSS with new gutter
         const format = Object.values(PAGE_FORMATS).find(f => f.id === pageFormatId);
         const width = pageFormatId === 'custom' ? customPageSize.width : (format?.width || '8.5in');
         const height = pageFormatId === 'custom' ? customPageSize.height : (format?.height || '11in');
@@ -115,13 +105,12 @@ export const usePageLayout = ({
         pageFormatId,
         customPageSize,
         pageMargins,
-        pageCount,
         showMarginGuides,
         setShowMarginGuides,
         showSmartGuides,
         setShowSmartGuides,
         handlePageSizeChange,
-        handlePageCountChange,
+        updateGutterForPageCount,
         handleCustomPageSizeChange,
         handleMarginChange,
         updatePageCSS
