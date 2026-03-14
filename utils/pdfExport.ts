@@ -129,12 +129,22 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
 
         page.querySelectorAll('*').forEach(child => {
             const el = child as HTMLElement;
+            // Skip TOC leader/text elements — they NEED overflow:hidden to clip properly
+            if (el.classList.contains('toc-dyn-leader') || el.classList.contains('toc-dyn-text')) return;
             const computed = window.getComputedStyle(el);
             if (computed.overflow === 'hidden' || computed.overflowX === 'hidden' || computed.overflowY === 'hidden') {
                 overflowFixedElements.push({ el, originalOverflow: el.style.overflow });
                 el.style.overflow = 'visible';
             }
         });
+    });
+
+    // Debug: log TOC leader presence
+    const tocLeaders = workspace.querySelectorAll('.toc-dyn-leader');
+    console.log(`[PDF Export] Found ${tocLeaders.length} TOC leader elements`);
+    tocLeaders.forEach((l, i) => {
+        const el = l as HTMLElement;
+        console.log(`[PDF Export] Leader ${i}: text="${el.textContent?.substring(0, 20)}", overflow=${el.style.overflow}, color=${el.style.color}`);
     });
 
     try {
