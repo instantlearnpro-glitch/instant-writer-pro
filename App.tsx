@@ -3385,7 +3385,9 @@ const App: React.FC = () => {
         pages.forEach(page => {
             page.querySelectorAll(':scope > *').forEach(child => {
                 const el = child as HTMLElement;
-                const text = el.textContent?.trim();
+                // For already-converted rows, get text from the .toc-dyn-text span
+                const dynText = el.querySelector('.toc-dyn-text');
+                const text = dynText ? (dynText.textContent?.trim() || '') : (el.textContent?.trim() || '');
                 if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
                     && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
                     lineElements.push(el);
@@ -3403,8 +3405,14 @@ const App: React.FC = () => {
 
         // Auto-match each line to the best heading
         const rows: TOCMappingRow[] = lineElements.map((el, idx) => {
-            const text = el.textContent?.trim() || '';
+            // For already-converted rows, get text from .toc-dyn-text span
+            const dynText = el.querySelector('.toc-dyn-text');
+            const text = dynText ? (dynText.textContent?.trim() || '') : (el.textContent?.trim() || '');
             const cleanText = text.replace(/^\d+\.?\d*\s+/, '');
+
+            // Check if this row already has a mapping from a previous TOC conversion
+            const existingTarget = el.getAttribute('data-toc-target');
+            const existingIsTitle = el.getAttribute('data-toc-title') === 'true';
 
             // Auto-detect "Table of Contents" title line — mark as section title
             const isTOCTitle = /^(table\s+of\s+contents?|contents?|toc|indice|sommario)$/i.test(cleanText);
@@ -3429,6 +3437,24 @@ const App: React.FC = () => {
             const looksLikeTitle = /^(part|chapter|introduction|conclusion|appendix|section)/i.test(cleanText)
                 || el.tagName === 'H1' || el.tagName === 'H2'
                 || (el.querySelector('strong, b') !== null && el.children.length <= 2);
+
+            if (existingTarget) {
+                // Pre-populate with existing mapping
+                const existingHeading = headings.find(h => h.id === existingTarget);
+                return {
+                    lineIndex: idx, lineText: text,
+                    matchedHeadingId: existingTarget,
+                    matchedHeadingText: existingHeading?.text || null,
+                    isTitle: false, confidence: 1
+                };
+            }
+            if (existingIsTitle) {
+                return {
+                    lineIndex: idx, lineText: text,
+                    matchedHeadingId: null, matchedHeadingText: null,
+                    isTitle: true, confidence: 1
+                };
+            }
 
             if (bestScore >= 0.4 && bestMatch) {
                 return {
@@ -3579,8 +3605,21 @@ const App: React.FC = () => {
             if (idx >= lineElements.length) return;
             const el = lineElements[idx];
 
-            // Skip lines already converted
-            if (el.getAttribute('data-toc-row') === 'true') return;
+            // Strip existing TOC formatting if re-editing
+            if (el.getAttribute('data-toc-row') === 'true') {
+                const existingTextSpan = el.querySelector('.toc-dyn-text');
+                if (existingTextSpan) {
+                    const originalHTML = existingTextSpan.innerHTML;
+                    el.innerHTML = originalHTML;
+                }
+                el.removeAttribute('data-toc-row');
+                el.removeAttribute('data-toc-target');
+                el.removeAttribute('data-toc-title');
+                el.style.display = '';
+                el.style.alignItems = '';
+                el.style.gap = '';
+                el.style.width = '';
+            }
 
             if (mapping.matchedHeadingId) {
                 // Find page number for the target heading
