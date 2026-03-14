@@ -203,7 +203,7 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
                 logging: false,
                 width: pageWidthPx,
                 height: pageHeightPx,
-                backgroundColor: '#ffffff',
+                backgroundColor: null,  // Use the page's actual background (pattern, color, etc.)
                 imageTimeout: 5000,
                 removeContainer: true
             });
