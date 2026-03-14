@@ -123,11 +123,9 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
     const multiSelectedEls = workspace.querySelectorAll('[data-multi-selected]');
     multiSelectedEls.forEach(el => el.removeAttribute('data-multi-selected'));
 
-    // Save and override overflow styles to prevent text clipping in PDF
-    // Only target pages and known clipping elements (avoid expensive getComputedStyle on every element)
     const overflowFixedElements: { el: HTMLElement; originalOverflow: string; originalBoxShadow?: string }[] = [];
     const tocTextBackups: { el: HTMLElement; origStyle: string }[] = [];
-    const pageBgBackups: { el: HTMLElement; origBgImage: string; origBgSize: string; origBgColor: string }[] = [];
+    const pageBgBackups: { el: HTMLElement; origBgImage: string; origBgSize: string; origBgColor: string; origBg: string }[] = [];
 
     pages.forEach(page => {
         overflowFixedElements.push({ el: page, originalOverflow: page.style.overflow, originalBoxShadow: page.style.boxShadow });
@@ -143,69 +141,67 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             textEl.style.textOverflow = 'clip';
         });
 
-        // Convert gradient backgrounds to SVG data URLs on ALL elements (html2canvas can't render CSS gradients)
-        // Scan the page itself + all children for gradient backgrounds
-        const elementsToCheck = [page, ...Array.from(page.querySelectorAll('*'))];
-        for (const node of elementsToCheck) {
-            const el = node as HTMLElement;
-            if (!el.style && !el.getAttribute) continue;
-            const computedBg = window.getComputedStyle(el).backgroundImage;
-            if (!computedBg || computedBg === 'none') continue;
+        // Convert CSS gradient backgrounds to Canvas-drawn PNG tiles
+        // Only check page and its direct children (not ALL elements — that breaks tables)
+        const bgTargets = [page, ...Array.from(page.children)] as HTMLElement[];
+        for (const el of bgTargets) {
+            if (!el.style) continue;
+            const computed = window.getComputedStyle(el);
+            const bgImage = computed.backgroundImage;
+            if (!bgImage || bgImage === 'none' || !bgImage.includes('gradient')) continue;
 
-            if (computedBg.includes('radial-gradient')) {
-                pageBgBackups.push({
-                    el,
-                    origBgImage: el.style.backgroundImage,
-                    origBgSize: el.style.backgroundSize,
-                    origBgColor: el.style.backgroundColor
-                });
+            pageBgBackups.push({
+                el,
+                origBgImage: el.style.backgroundImage,
+                origBgSize: el.style.backgroundSize,
+                origBgColor: el.style.backgroundColor,
+                origBg: el.style.background
+            });
 
-                // Extract dot color
-                const colorMatch = computedBg.match(/rgb\([^)]+\)|rgba\([^)]+\)|#[0-9a-fA-F]{3,8}/);
-                const dotColor = colorMatch ? colorMatch[0] : '#cccccc';
+            // Get pattern dimensions
+            const bgSize = computed.backgroundSize;
+            const sizeMatch = bgSize.match(/(\d+(?:\.\d+)?)px[\s,]+(\d+(?:\.\d+)?)px/);
+            const tileW = sizeMatch ? Math.ceil(parseFloat(sizeMatch[1])) : 20;
+            const tileH = sizeMatch ? Math.ceil(parseFloat(sizeMatch[2])) : 20;
+            const bgColor = computed.backgroundColor || 'rgba(0,0,0,0)';
 
-                // Extract background-size for spacing
-                const computedBgSize = window.getComputedStyle(el).backgroundSize;
-                const sizeMatch = computedBgSize.match(/(\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px/);
-                const spacingX = sizeMatch ? parseFloat(sizeMatch[1]) : 20;
-                const spacingY = sizeMatch ? parseFloat(sizeMatch[2]) : 20;
+            // Draw the pattern tile using a temporary canvas
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = tileW;
+            tempCanvas.height = tileH;
+            const ctx = tempCanvas.getContext('2d');
+            if (!ctx) continue;
 
-                // Get background-color
-                const computedBgColor = window.getComputedStyle(el).backgroundColor;
+            // Fill background
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, tileW, tileH);
 
-                // Create SVG dot pattern
-                const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${spacingX}" height="${spacingY}"><rect width="${spacingX}" height="${spacingY}" fill="${computedBgColor}"/><circle cx="1" cy="1" r="0.8" fill="${dotColor}"/></svg>`;
-                const svgDataUrl = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-                el.style.backgroundImage = svgDataUrl;
-                el.style.backgroundSize = `${spacingX}px ${spacingY}px`;
-
-            } else if (computedBg.includes('linear-gradient')) {
-                pageBgBackups.push({
-                    el,
-                    origBgImage: el.style.backgroundImage,
-                    origBgSize: el.style.backgroundSize,
-                    origBgColor: el.style.backgroundColor
-                });
-
-                // Extract line color
-                const colorMatch = computedBg.match(/rgb\([^)]+\)|rgba\([^)]+\)|#[0-9a-fA-F]{3,8}/);
-                const lineColor = colorMatch ? colorMatch[0] : '#cccccc';
-
-                // Extract background-size for spacing
-                const computedBgSize = window.getComputedStyle(el).backgroundSize;
-                const sizeMatch = computedBgSize.match(/(\d+(?:\.\d+)?)px\s*(?:(\d+(?:\.\d+)?)px)?/);
-                const sizeW = sizeMatch ? parseFloat(sizeMatch[1]) : 100;
-                const sizeH = sizeMatch && sizeMatch[2] ? parseFloat(sizeMatch[2]) : sizeW;
-
-                // Get background-color
-                const computedBgColor = window.getComputedStyle(el).backgroundColor;
-
-                // Create SVG with horizontal line
-                const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${sizeW}" height="${sizeH}"><rect width="${sizeW}" height="${sizeH}" fill="${computedBgColor}"/><line x1="0" y1="${sizeH - 1}" x2="${sizeW}" y2="${sizeH - 1}" stroke="${lineColor}" stroke-width="1"/></svg>`;
-                const svgDataUrl = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-                el.style.backgroundImage = svgDataUrl;
-                el.style.backgroundSize = `${sizeW}px ${sizeH}px`;
+            if (bgImage.includes('radial-gradient')) {
+                // Dot pattern: extract color, draw a small circle
+                const colorMatch = bgImage.match(/rgb\([^)]+\)|rgba\([^)]+\)|#[0-9a-fA-F]{3,8}/);
+                const dotColor = colorMatch ? colorMatch[0] : '#ccc';
+                ctx.fillStyle = dotColor;
+                ctx.beginPath();
+                ctx.arc(1, 1, 0.8, 0, Math.PI * 2);
+                ctx.fill();
+            } else if (bgImage.includes('linear-gradient')) {
+                // Line pattern: extract color, draw a horizontal line at bottom
+                const colorMatch = bgImage.match(/rgb\([^)]+\)|rgba\([^)]+\)|#[0-9a-fA-F]{3,8}/);
+                const lineColor = colorMatch ? colorMatch[0] : '#ccc';
+                ctx.strokeStyle = lineColor;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, tileH - 0.5);
+                ctx.lineTo(tileW, tileH - 0.5);
+                ctx.stroke();
             }
+
+            // Set the canvas tile as background image
+            const pngDataUrl = tempCanvas.toDataURL('image/png');
+            el.style.background = 'none';
+            el.style.backgroundImage = `url("${pngDataUrl}")`;
+            el.style.backgroundSize = `${tileW}px ${tileH}px`;
+            el.style.backgroundRepeat = 'repeat';
         }
     });
 
@@ -312,8 +308,9 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
     } finally {
         // --- 6. Restore removed editor UI elements & styles ---
 
-        // Restore page backgrounds (revert SVG→gradient conversion)
-        pageBgBackups.forEach(({ el, origBgImage, origBgSize, origBgColor }) => {
+        // Restore page backgrounds (revert PNG→gradient conversion)
+        pageBgBackups.forEach(({ el, origBgImage, origBgSize, origBgColor, origBg }) => {
+            el.style.background = origBg;
             el.style.backgroundImage = origBgImage;
             el.style.backgroundSize = origBgSize;
             el.style.backgroundColor = origBgColor;
