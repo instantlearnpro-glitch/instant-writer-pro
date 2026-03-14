@@ -3622,12 +3622,22 @@ const App: React.FC = () => {
             }
 
             if (mapping.matchedHeadingId) {
-                // Find page number for the target heading
+                // Find page number for the target heading using FOOTER number (not DOM index)
                 const targetEl = document.getElementById(mapping.matchedHeadingId);
                 let pageNum = 0;
                 if (targetEl) {
-                    const targetPage = targetEl.closest('.page');
-                    pages.forEach((p, pIdx) => { if (p === targetPage) pageNum = pIdx + 1; });
+                    const targetPage = targetEl.closest('.page') as HTMLElement | null;
+                    if (targetPage) {
+                        const footer = targetPage.querySelector('.page-footer') as HTMLElement | null;
+                        const footerText = footer?.textContent?.trim() || '';
+                        const footerNum = parseInt(footerText, 10);
+                        if (!isNaN(footerNum) && footerNum > 0) {
+                            pageNum = footerNum;
+                        } else {
+                            // Fallback to DOM index if no footer number
+                            pages.forEach((p, pIdx) => { if (p === targetPage) pageNum = pIdx + 1; });
+                        }
+                    }
                 }
 
                 el.setAttribute('data-toc-row', 'true');
@@ -3683,19 +3693,39 @@ const App: React.FC = () => {
         const tocContainers = workspace.querySelectorAll('[data-dynamic-toc="true"]');
         if (tocContainers.length === 0) return;
 
-        const pages = workspace.querySelectorAll('.page');
+        const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
 
         tocContainers.forEach(container => {
-            const rows = container.querySelectorAll('[data-toc-target]');
+            const rows = Array.from(container.querySelectorAll('[data-toc-target]'));
+            let lastPageNum = 0; // For monotonic enforcement
+
             rows.forEach(row => {
                 const targetId = row.getAttribute('data-toc-target');
                 if (!targetId) return;
                 const targetEl = document.getElementById(targetId);
                 if (!targetEl) return;
 
-                const targetPage = targetEl.closest('.page');
+                const targetPage = targetEl.closest('.page') as HTMLElement | null;
                 let pageNum = 0;
-                pages.forEach((p, pIdx) => { if (p === targetPage) pageNum = pIdx + 1; });
+                if (targetPage) {
+                    // Use footer number (visible to user)
+                    const footer = targetPage.querySelector('.page-footer') as HTMLElement | null;
+                    const footerText = footer?.textContent?.trim() || '';
+                    const footerNum = parseInt(footerText, 10);
+                    if (!isNaN(footerNum) && footerNum > 0) {
+                        pageNum = footerNum;
+                    } else {
+                        // Fallback to DOM index
+                        const pIdx = pages.indexOf(targetPage);
+                        pageNum = pIdx >= 0 ? pIdx + 1 : 0;
+                    }
+                }
+
+                // Enforce monotonic non-decreasing: page number can never be less than previous
+                if (pageNum > 0 && pageNum < lastPageNum) {
+                    pageNum = lastPageNum;
+                }
+                if (pageNum > 0) lastPageNum = pageNum;
 
                 const pageSpan = row.querySelector('.toc-dyn-page') as HTMLElement | null;
                 if (pageSpan && pageNum > 0) {
