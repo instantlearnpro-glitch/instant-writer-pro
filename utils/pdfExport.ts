@@ -141,54 +141,46 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
     // so we temporarily replace gradient-based leaders with actual text dots ---
     const tocLeaderBackups: { el: HTMLElement; originalStyle: string; originalContent: string }[] = [];
     pages.forEach(page => {
+        // Read the leader style from page-level data attributes (set during TOC conversion)
+        const leaderStyle = page.getAttribute('data-toc-leader-style') || 'dots';
+        const leaderColor = page.getAttribute('data-toc-leader-color') || '#9ca3af';
+        const leaderSpacing = parseInt(page.getAttribute('data-toc-leader-spacing') || '8', 10) || 8;
+
         page.querySelectorAll('.toc-dyn-leader').forEach(leaderNode => {
             const leader = leaderNode as HTMLElement;
-            const computed = window.getComputedStyle(leader);
-            const bg = computed.backgroundImage || '';
-            const hasBorder = computed.borderBottomWidth && parseFloat(computed.borderBottomWidth) > 0;
             const leaderWidth = leader.offsetWidth;
 
-            // Save original state
+            // Save original state for restoration after rendering
             tocLeaderBackups.push({
                 el: leader,
                 originalStyle: leader.getAttribute('style') || '',
                 originalContent: leader.textContent || ''
             });
 
-            if (bg.includes('radial-gradient')) {
-                // Dots style — replace with actual dot characters
-                const spacing = parseInt(leader.getAttribute('data-spacing') || '8', 10) || 8;
-                const dotCount = Math.max(3, Math.floor(leaderWidth / spacing));
-                const color = leader.style.backgroundImage?.match(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\))/)?.[1] || '#9ca3af';
-                leader.style.backgroundImage = 'none';
-                leader.style.background = 'none';
-                leader.style.height = 'auto';
-                leader.style.minHeight = '0';
-                leader.style.overflow = 'hidden';
-                leader.style.whiteSpace = 'nowrap';
-                leader.style.letterSpacing = `${Math.max(1, spacing - 4)}px`;
-                leader.style.color = color;
-                leader.style.fontSize = '10px';
-                leader.style.lineHeight = '1';
+            if (leaderStyle === 'dots') {
+                const dotCount = Math.max(3, Math.floor(leaderWidth / Math.max(4, leaderSpacing)));
+                leader.setAttribute('style',
+                    `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; ` +
+                    `overflow: hidden; white-space: nowrap; ` +
+                    `letter-spacing: ${Math.max(1, leaderSpacing - 4)}px; ` +
+                    `color: ${leaderColor}; font-size: 10px; line-height: 1;`
+                );
                 leader.textContent = '·'.repeat(dotCount);
-            } else if (bg.includes('repeating-linear-gradient')) {
-                // Dashes style — replace with dash characters
-                const color = leader.style.backgroundImage?.match(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\))/)?.[1] || '#9ca3af';
+            } else if (leaderStyle === 'dashes') {
                 const dashCount = Math.max(3, Math.floor(leaderWidth / 12));
-                leader.style.backgroundImage = 'none';
-                leader.style.background = 'none';
-                leader.style.height = 'auto';
-                leader.style.minHeight = '0';
-                leader.style.overflow = 'hidden';
-                leader.style.whiteSpace = 'nowrap';
-                leader.style.letterSpacing = '2px';
-                leader.style.color = color;
-                leader.style.fontSize = '10px';
-                leader.style.lineHeight = '1';
+                leader.setAttribute('style',
+                    `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; ` +
+                    `overflow: hidden; white-space: nowrap; ` +
+                    `letter-spacing: 2px; ` +
+                    `color: ${leaderColor}; font-size: 10px; line-height: 1;`
+                );
                 leader.textContent = '–'.repeat(dashCount);
-            } else if (hasBorder) {
-                // Line style — border should render OK, but ensure visibility
-                leader.style.display = 'block';
+            } else if (leaderStyle === 'line') {
+                // Solid line — use a visible border that html2canvas can render
+                leader.setAttribute('style',
+                    `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; ` +
+                    `height: 0; border-bottom: 1px solid ${leaderColor};`
+                );
             }
             // 'none' style — leave as is
         });
