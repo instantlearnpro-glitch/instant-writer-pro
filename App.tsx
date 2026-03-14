@@ -669,10 +669,10 @@ const App: React.FC = () => {
 
     // Page layout management (page size, margins, CSS)
     const {
-        pageFormatId, customPageSize, pageMargins, pageCount,
+        pageFormatId, customPageSize, pageMargins, pageCount: expectedPageCount,
         showMarginGuides, setShowMarginGuides,
         showSmartGuides, setShowSmartGuides,
-        handlePageSizeChange, handlePageCountChange, handleCustomPageSizeChange, handleMarginChange,
+        handlePageSizeChange, handlePageCountChange: handleExpectedPageCountChange, handleCustomPageSizeChange, handleMarginChange,
         updatePageCSS
     } = usePageLayout({
         applyLayoutOverride,
@@ -4876,8 +4876,8 @@ ${workspace.innerHTML}
                 onExport={() => setIsExportModalOpen(true)}
                 onPageSizeChange={handlePageSizeChange}
                 pageFormatId={pageFormatId}
-                pageCount={pageCount}
-                onPageCountChange={handlePageCountChange}
+                pageCount={expectedPageCount}
+                onPageCountChange={handleExpectedPageCountChange}
                 customPageSize={customPageSize}
                 onCustomPageSizeChange={handleCustomPageSizeChange}
                 onUpdateStyle={handleUpdateStyle}
