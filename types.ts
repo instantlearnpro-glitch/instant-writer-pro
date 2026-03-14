@@ -119,6 +119,7 @@ export interface TOCMappingRow {
 
 /** Styling options for the dynamic TOC */
 export interface TOCStyleOptions {
+  textFontSize: number;             // px, font size of the TOC text lines
   pageNumberFontSize: number;       // px, font size of the page numbers
   leaderStyle: 'dots' | 'dashes' | 'line' | 'none';  // style of the filler between text and number
   leaderSpacing: number;            // px, gap between text end and leader start / leader end and number

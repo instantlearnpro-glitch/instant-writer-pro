@@ -21,6 +21,7 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
 }) => {
     const [rows, setRows] = useState<TOCMappingRow[]>(initialRows);
     const [styleOptions, setStyleOptions] = useState<TOCStyleOptions>({
+        textFontSize: 12,
         pageNumberFontSize: 12,
         leaderStyle: 'dots',
         leaderSpacing: 8,
@@ -85,7 +86,7 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                 </div>
 
                 {/* Styling Options Panel */}
-                <div className="px-6 py-3 border-b bg-gray-50 grid grid-cols-4 gap-4 items-end">
+                <div className="px-6 py-3 border-b bg-gray-50 grid grid-cols-5 gap-3 items-end">
                     {/* Leader Style */}
                     <div>
                         <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">Leader Style</label>
@@ -105,7 +106,7 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                     {/* Leader Spacing */}
                     <div>
                         <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">
-                            Dot Spacing: {styleOptions.leaderSpacing}px
+                            Dot Gap: {styleOptions.leaderSpacing}px
                         </label>
                         <input
                             type="range"
@@ -114,6 +115,22 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                             step={1}
                             value={styleOptions.leaderSpacing}
                             onChange={(e) => setStyleOptions({ ...styleOptions, leaderSpacing: Number(e.target.value) })}
+                            className="w-full"
+                        />
+                    </div>
+
+                    {/* Text Font Size */}
+                    <div>
+                        <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">
+                            Text Size: {styleOptions.textFontSize}px
+                        </label>
+                        <input
+                            type="range"
+                            min={8}
+                            max={24}
+                            step={1}
+                            value={styleOptions.textFontSize}
+                            onChange={(e) => setStyleOptions({ ...styleOptions, textFontSize: Number(e.target.value) })}
                             className="w-full"
                         />
                     </div>
@@ -136,7 +153,7 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
 
                     {/* Leader Color */}
                     <div>
-                        <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">Leader Color</label>
+                        <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">Color</label>
                         <div className="flex items-center gap-2">
                             <input
                                 type="color"
@@ -152,7 +169,7 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                 {/* Live Preview */}
                 <div className="px-6 py-2 border-b bg-white">
                     <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Preview</div>
-                    <div className="flex items-baseline gap-2 py-1" style={{ fontSize: '13px', ...FONT }}>
+                    <div className="flex items-baseline gap-2 py-1" style={{ fontSize: `${styleOptions.textFontSize}px`, ...FONT }}>
                         <span className="flex-shrink-0">Chapter 1: Example Title</span>
                         {styleOptions.leaderStyle !== 'none' && (
                             <span

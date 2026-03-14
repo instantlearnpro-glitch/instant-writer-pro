@@ -3564,7 +3564,7 @@ const App: React.FC = () => {
                 const originalContent = el.innerHTML;
                 const textSpan = document.createElement('span');
                 textSpan.className = 'toc-dyn-text';
-                textSpan.style.cssText = 'flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+                textSpan.style.cssText = `flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: ${styleOpts.textFontSize}px;`;
                 textSpan.innerHTML = originalContent;
 
                 // Leader
