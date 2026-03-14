@@ -191,24 +191,28 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             onProgress?.(pct);
             console.log(`[PDF Export] Rendering page ${i + 1}/${pages.length}... (${pct}%)`);
 
-            // Small yield to let React update the progress bar
-            await new Promise(resolve => setTimeout(resolve, 10));
+            // Yield to UI every 5 pages (less often = faster overall)
+            if (i % 5 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
 
             const canvas = await window.html2canvas(pages[i], {
-                scale: 2,
+                scale: 1.5,       // 144 DPI — great for print, 44% faster than scale:2
                 useCORS: true,
                 allowTaint: true,
                 logging: false,
                 width: pageWidthPx,
                 height: pageHeightPx,
-                backgroundColor: '#ffffff'
+                backgroundColor: '#ffffff',
+                imageTimeout: 5000,
+                removeContainer: true
             });
 
             if (i > 0) {
                 pdf.addPage([pageWidthIn, pageHeightIn], orientation);
             }
 
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
+            const imgData = canvas.toDataURL('image/jpeg', 0.85);
             pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthIn, pageHeightIn, undefined, 'FAST');
         }
 
