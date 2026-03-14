@@ -416,48 +416,68 @@ export const DEFAULT_HTML = `
 </div>
 `;
 
-// Official margin values based on page count
-// Pages 110-150: gutter (inside) values
-// Pages 151-200: larger gutter values
-// Format: { top, bottom, left (gutter/inside), right (outside) }
+// --- KDP Gutter (Inside Margin) by Page Count ---
+// Source: https://kdp.amazon.com/help/topic/GVBQ3CMEQW3W2VL6
+export const getGutterByPageCount = (pageCount: number): number => {
+    if (pageCount <= 150) return 0.375;
+    if (pageCount <= 300) return 0.5;
+    if (pageCount <= 500) return 0.625;
+    if (pageCount <= 700) return 0.75;
+    return 0.875; // 701–828
+};
+
+// Official KDP page formats
+// Margins: { top, bottom, left (gutter/inside), right (outside) }
+// Gutter is set to default for 24-150 pages; recalculated dynamically by usePageLayout
 export const PAGE_FORMATS = {
-    LETTER: {
-        id: 'letter',
-        name: 'US Letter (8.5" x 11")',
-        width: '8.5in',
-        height: '11in',
-        // 110-150 pages: gutter 0.45", outside 0.5", top/bottom 0.5"
-        margins: { top: 0.5, bottom: 0.5, left: 0.45, right: 0.5 }
-    },
-    LETTER_THICK: {
-        id: 'letter-thick',
-        name: 'US Letter 151-200pp (8.5" x 11")',
-        width: '8.5in',
-        height: '11in',
-        // 151-200 pages: gutter 0.5", outside 0.5", top/bottom 0.5"
-        margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
-    },
-    TRADE: {
+    TRADE_NO_BLEED: {
         id: '6x9',
-        name: 'Trade 110-150pp (6" x 9")',
+        name: 'Trade 6×9 — No Bleed',
+        trimWidth: '6in',
+        trimHeight: '9in',
         width: '6in',
         height: '9in',
-        // 110-150 pages: gutter 0.375", outside 0.25", top/bottom 0.5"
-        margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.25 }
+        bleed: false,
+        margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 }
     },
-    TRADE_THICK: {
-        id: '6x9-thick',
-        name: 'Trade 151-200pp (6" x 9")',
-        width: '6in',
-        height: '9in',
-        // 151-200 pages: gutter 0.5", outside 0.25", top/bottom 0.5"
-        margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.25 }
+    TRADE_BLEED: {
+        id: '6x9-bleed',
+        name: 'Trade 6×9 — Bleed',
+        trimWidth: '6in',
+        trimHeight: '9in',
+        width: '6.125in',
+        height: '9.25in',
+        bleed: true,
+        margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 }
+    },
+    LETTER_NO_BLEED: {
+        id: 'letter',
+        name: '8.5×11 — No Bleed',
+        trimWidth: '8.5in',
+        trimHeight: '11in',
+        width: '8.5in',
+        height: '11in',
+        bleed: false,
+        margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 }
+    },
+    LETTER_BLEED: {
+        id: 'letter-bleed',
+        name: '8.5×11 — Bleed',
+        trimWidth: '8.5in',
+        trimHeight: '11in',
+        width: '8.625in',
+        height: '11.25in',
+        bleed: true,
+        margins: { top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 }
     },
     CUSTOM: {
         id: 'custom',
         name: 'Custom Size',
+        trimWidth: '8.5in',
+        trimHeight: '11in',
         width: '8.5in',
         height: '11in',
+        bleed: false,
         margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
     }
 };

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { PAGE_FORMATS } from '../constants';
+import { PAGE_FORMATS, getGutterByPageCount } from '../constants';
 import { DocumentState } from '../types';
 
 // applyLayoutOverride is defined in App.tsx as a top-level function, we import it via parameter
@@ -22,9 +22,10 @@ export const usePageLayout = ({
 }: UsePageLayoutParams) => {
     const [pageFormatId, setPageFormatId] = useState<string>('letter');
     const [customPageSize, setCustomPageSize] = useState<{ width: string; height: string }>({ width: '8.5in', height: '11in' });
-    const [pageMargins, setPageMargins] = useState<{ top: number; bottom: number; left: number; right: number }>({ top: 0.5, bottom: 0.5, left: 0.45, right: 0.5 });
+    const [pageMargins, setPageMargins] = useState<{ top: number; bottom: number; left: number; right: number }>({ top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 });
     const [showMarginGuides, setShowMarginGuides] = useState(false);
     const [showSmartGuides, setShowSmartGuides] = useState(false);
+    const [pageCount, setPageCount] = useState<number>(150);
 
     const marginReflowTimeoutRef = useRef<number | null>(null);
 
@@ -58,13 +59,33 @@ export const usePageLayout = ({
         const format = Object.values(PAGE_FORMATS).find(f => f.id === formatId);
         if (!format) return;
 
-        setPageMargins(format.margins);
+        // Calculate gutter from current page count
+        const gutter = getGutterByPageCount(pageCount);
+        const margins = { ...format.margins, left: gutter };
+
+        setPageMargins(margins);
 
         if (formatId === 'custom') {
-            updatePageCSS(customPageSize.width, customPageSize.height, format.margins);
+            updatePageCSS(customPageSize.width, customPageSize.height, margins);
         } else {
-            updatePageCSS(format.width, format.height, format.margins);
+            updatePageCSS(format.width, format.height, margins);
         }
+    };
+
+    const handlePageCountChange = (count: number) => {
+        const clampedCount = Math.max(24, Math.min(828, count));
+        setPageCount(clampedCount);
+
+        // Recalculate gutter and update margins
+        const gutter = getGutterByPageCount(clampedCount);
+        const newMargins = { ...pageMargins, left: gutter };
+        setPageMargins(newMargins);
+
+        // Update CSS with new gutter
+        const format = Object.values(PAGE_FORMATS).find(f => f.id === pageFormatId);
+        const width = pageFormatId === 'custom' ? customPageSize.width : (format?.width || '8.5in');
+        const height = pageFormatId === 'custom' ? customPageSize.height : (format?.height || '11in');
+        updatePageCSS(width, height, newMargins);
     };
 
     const handleCustomPageSizeChange = (width: string, height: string) => {
@@ -94,11 +115,13 @@ export const usePageLayout = ({
         pageFormatId,
         customPageSize,
         pageMargins,
+        pageCount,
         showMarginGuides,
         setShowMarginGuides,
         showSmartGuides,
         setShowSmartGuides,
         handlePageSizeChange,
+        handlePageCountChange,
         handleCustomPageSizeChange,
         handleMarginChange,
         updatePageCSS
