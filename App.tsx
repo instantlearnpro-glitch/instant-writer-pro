@@ -2702,6 +2702,29 @@ const App: React.FC = () => {
                 addHeadingToStructure(appliedTagStr as 'h1' | 'h2' | 'h3', formatBlockSignature || undefined);
             }
 
+            // If targetBlock is still null, try finding it from activeBlockRef or by re-querying selection
+            if (!targetBlock) {
+                // Try activeBlockRef (always fresh)
+                const currentActive = activeBlockRef.current;
+                if (currentActive) {
+                    const closestHeading = currentActive.closest(appliedTagStr) as HTMLElement | null;
+                    if (closestHeading) {
+                        targetBlock = closestHeading;
+                    } else if (currentActive.tagName.toLowerCase() === appliedTagStr) {
+                        targetBlock = currentActive;
+                    }
+                }
+                // Final fallback: re-query selection
+                if (!targetBlock) {
+                    const sel2 = window.getSelection();
+                    if (sel2 && sel2.rangeCount > 0) {
+                        const n2 = sel2.getRangeAt(0).commonAncestorContainer;
+                        const e2 = n2.nodeType === 1 ? (n2 as HTMLElement) : n2.parentElement;
+                        targetBlock = e2?.closest(appliedTagStr) as HTMLElement | null;
+                    }
+                }
+            }
+
             // Apply saved styles (Word-like behavior)
             const stylesToApply = savedHeadingStylesRef.current[appliedTagStr as keyof typeof savedHeadingStyles];
 
