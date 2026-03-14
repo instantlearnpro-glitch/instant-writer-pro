@@ -127,6 +127,8 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
     // Only target pages and known clipping elements (avoid expensive getComputedStyle on every element)
     const overflowFixedElements: { el: HTMLElement; originalOverflow: string; originalBoxShadow?: string }[] = [];
     const tocTextBackups: { el: HTMLElement; origStyle: string }[] = [];
+    const pageBgBackups: { el: HTMLElement; origBgImage: string; origBgSize: string; origBgColor: string }[] = [];
+
     pages.forEach(page => {
         overflowFixedElements.push({ el: page, originalOverflow: page.style.overflow, originalBoxShadow: page.style.boxShadow });
         page.style.overflow = 'visible';
@@ -140,6 +142,37 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             textEl.style.whiteSpace = 'normal';
             textEl.style.textOverflow = 'clip';
         });
+
+        // Convert radial-gradient backgrounds to SVG data URLs (html2canvas can't render CSS gradients)
+        const computedBg = window.getComputedStyle(page).backgroundImage;
+        if (computedBg && computedBg.includes('radial-gradient')) {
+            pageBgBackups.push({
+                el: page,
+                origBgImage: page.style.backgroundImage,
+                origBgSize: page.style.backgroundSize,
+                origBgColor: page.style.backgroundColor
+            });
+
+            // Extract dot color and size from radial-gradient
+            const colorMatch = computedBg.match(/rgb\([^)]+\)|rgba\([^)]+\)|#[0-9a-fA-F]{3,8}/);
+            const dotColor = colorMatch ? colorMatch[0] : '#cccccc';
+
+            // Extract background-size for spacing
+            const computedBgSize = window.getComputedStyle(page).backgroundSize;
+            const sizeMatch = computedBgSize.match(/(\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px/);
+            const spacingX = sizeMatch ? parseFloat(sizeMatch[1]) : 20;
+            const spacingY = sizeMatch ? parseFloat(sizeMatch[2]) : 20;
+
+            // Get background-color
+            const computedBgColor = window.getComputedStyle(page).backgroundColor;
+
+            // Create SVG dot pattern
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${spacingX}" height="${spacingY}"><rect width="${spacingX}" height="${spacingY}" fill="${computedBgColor}"/><circle cx="1" cy="1" r="0.8" fill="${dotColor}"/></svg>`;
+            const svgDataUrl = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+
+            page.style.backgroundImage = svgDataUrl;
+            page.style.backgroundSize = `${spacingX}px ${spacingY}px`;
+        }
     });
 
     // --- Pre-process TOC leader dots: html2canvas can't render CSS radial-gradient,
@@ -244,6 +277,13 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         alert('An error occurred during PDF export. Please try again.');
     } finally {
         // --- 6. Restore removed editor UI elements & styles ---
+
+        // Restore page backgrounds (revert SVG→gradient conversion)
+        pageBgBackups.forEach(({ el, origBgImage, origBgSize, origBgColor }) => {
+            el.style.backgroundImage = origBgImage;
+            el.style.backgroundSize = origBgSize;
+            el.style.backgroundColor = origBgColor;
+        });
 
         // Restore TOC leader dots (revert border→gradient conversion)
         tocLeaderBackups.forEach(({ el, originalStyle, originalAriaHidden }) => {
