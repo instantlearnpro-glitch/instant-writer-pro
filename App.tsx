@@ -539,9 +539,10 @@ const App: React.FC = () => {
     const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
     const [isTOCMappingModalOpen, setIsTOCMappingModalOpen] = useState(false);
     const [isTOCSelectionMode, setIsTOCSelectionMode] = useState(false);
+    const [tocSelectedPages, setTocSelectedPages] = useState<HTMLElement[]>([]);
     const [tocMappingRows, setTocMappingRows] = useState<TOCMappingRow[]>([]);
     const [tocMappingHeadings, setTocMappingHeadings] = useState<DocumentHeading[]>([]);
-    const tocMappingContainerRef = useRef<HTMLElement | null>(null);
+    const tocSelectedPagesRef = useRef<HTMLElement[]>([]);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isAutoLogModalOpen, setIsAutoLogModalOpen] = useState(false);
     const [isPageNumberModalOpen, setIsPageNumberModalOpen] = useState(false);
@@ -3355,35 +3356,22 @@ const App: React.FC = () => {
     };
 
     /** Process a clicked block as the TOC container — fuzzy-match lines to headings */
-    const processTOCBlock = (container: HTMLElement) => {
-        // Extract child lines — each direct child block element is a "line"
+    const processSelectedTOCPages = (pages: HTMLElement[]) => {
+        // Extract lines from ALL selected pages
         const lineElements: HTMLElement[] = [];
-        container.querySelectorAll(':scope > *').forEach(child => {
-            const el = child as HTMLElement;
-            const text = el.textContent?.trim();
-            if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT') {
-                lineElements.push(el);
-            }
+        pages.forEach(page => {
+            page.querySelectorAll(':scope > *').forEach(child => {
+                const el = child as HTMLElement;
+                const text = el.textContent?.trim();
+                if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
+                    && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
+                    lineElements.push(el);
+                }
+            });
         });
 
-        // If container itself has no block children with text, it might be a single line —
-        // check parent for siblings to use as lines
         if (lineElements.length === 0) {
-            const parent = container.parentElement;
-            if (parent) {
-                const siblings = Array.from(parent.children) as HTMLElement[];
-                siblings.forEach(el => {
-                    const text = el.textContent?.trim();
-                    if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT') {
-                        lineElements.push(el);
-                    }
-                });
-                container = parent;
-            }
-        }
-
-        if (lineElements.length === 0) {
-            alert('Could not find any TOC lines in this block.');
+            alert('Could not find any TOC lines in the selected pages.');
             return;
         }
 
@@ -3432,13 +3420,26 @@ const App: React.FC = () => {
             }
         });
 
-        tocMappingContainerRef.current = container;
+        tocSelectedPagesRef.current = pages;
         setTocMappingRows(rows);
         setTocMappingHeadings(headings);
         setIsTOCMappingModalOpen(true);
     };
 
-    // Click interceptor: when TOC selection mode is active, capture clicks on the workspace
+    /** User clicks Done after selecting pages — process all selected pages */
+    const confirmTOCPageSelection = () => {
+        if (tocSelectedPages.length === 0) {
+            alert('Please click on at least one page first.');
+            return;
+        }
+        // Remove visual highlights
+        tocSelectedPages.forEach(p => { p.style.outline = ''; p.style.outlineOffset = ''; });
+        processSelectedTOCPages(tocSelectedPages);
+        setIsTOCSelectionMode(false);
+        setTocSelectedPages([]);
+    };
+
+    // Click interceptor: when TOC selection mode is active, toggle-select pages
     useEffect(() => {
         if (!isTOCSelectionMode) return;
 
@@ -3453,30 +3454,31 @@ const App: React.FC = () => {
             e.stopPropagation();
 
             const target = e.target as HTMLElement;
-            // Walk up to find the nearest block-level child of a .page
-            let container = target.closest('.page > div, .page > p, .page > h1, .page > h2, .page > h3, .page > h4, .page > h5, .page > section, .page > blockquote') as HTMLElement;
-            if (!container) {
-                container = target.closest('.page') as HTMLElement;
-            }
+            const page = target.closest('.page') as HTMLElement;
+            if (!page) return;
 
-            if (container) {
-                // If the user clicked on a single line, use the parent page as the container
-                // to capture all sibling lines as TOC entries
-                const page = container.closest('.page') as HTMLElement;
-                if (page) {
-                    processTOCBlock(page);
+            setTocSelectedPages(prev => {
+                const isSelected = prev.includes(page);
+                if (isSelected) {
+                    // Deselect
+                    page.style.outline = '';
+                    page.style.outlineOffset = '';
+                    return prev.filter(p => p !== page);
                 } else {
-                    processTOCBlock(container);
+                    // Select — add purple outline
+                    page.style.outline = '3px solid #8d55f1';
+                    page.style.outlineOffset = '-3px';
+                    return [...prev, page];
                 }
-            }
-
-            // Exit selection mode
-            setIsTOCSelectionMode(false);
+            });
         };
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
+                // Clean up outlines
+                tocSelectedPages.forEach(p => { p.style.outline = ''; p.style.outlineOffset = ''; });
                 setIsTOCSelectionMode(false);
+                setTocSelectedPages([]);
             }
         };
 
@@ -3488,22 +3490,24 @@ const App: React.FC = () => {
             workspace.removeEventListener('click', handleClick, true);
             document.removeEventListener('keydown', handleKeyDown);
         };
-    }, [isTOCSelectionMode]);
+    }, [isTOCSelectionMode, tocSelectedPages]);
 
     /** After user confirms the mapping — inject dot leaders + page numbers preserving styles */
     const handleConfirmTOCMapping = (mappings: TOCMappingRow[], styleOpts: TOCStyleOptions) => {
-        const container = tocMappingContainerRef.current;
-        if (!container) return;
+        const selectedPages = tocSelectedPagesRef.current;
+        if (selectedPages.length === 0) return;
 
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (!workspace) return;
 
-        // Mark the container as a dynamic TOC and store style options
-        container.setAttribute('data-dynamic-toc', 'true');
-        container.setAttribute('data-toc-leader-style', styleOpts.leaderStyle);
-        container.setAttribute('data-toc-leader-spacing', String(styleOpts.leaderSpacing));
-        container.setAttribute('data-toc-leader-color', styleOpts.leaderColor);
-        container.setAttribute('data-toc-page-font-size', String(styleOpts.pageNumberFontSize));
+        // Mark each selected page as containing a dynamic TOC
+        selectedPages.forEach(page => {
+            page.setAttribute('data-dynamic-toc', 'true');
+            page.setAttribute('data-toc-leader-style', styleOpts.leaderStyle);
+            page.setAttribute('data-toc-leader-spacing', String(styleOpts.leaderSpacing));
+            page.setAttribute('data-toc-leader-color', styleOpts.leaderColor);
+            page.setAttribute('data-toc-page-font-size', String(styleOpts.pageNumberFontSize));
+        });
 
         // Build leader CSS based on style options
         const buildLeaderCss = (): string => {
@@ -3523,14 +3527,17 @@ const App: React.FC = () => {
 
         const leaderCss = buildLeaderCss();
 
-        // Get all line elements again
+        // Get all line elements from ALL selected pages
         const lineElements: HTMLElement[] = [];
-        container.querySelectorAll(':scope > *').forEach(child => {
-            const el = child as HTMLElement;
-            const text = el.textContent?.trim();
-            if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT') {
-                lineElements.push(el);
-            }
+        selectedPages.forEach(page => {
+            page.querySelectorAll(':scope > *').forEach(child => {
+                const el = child as HTMLElement;
+                const text = el.textContent?.trim();
+                if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
+                    && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
+                    lineElements.push(el);
+                }
+            });
         });
 
         const pages = workspace.querySelectorAll('.page');
@@ -4767,9 +4774,23 @@ ${workspace.innerHTML}
                     {/* TOC Selection Mode Banner */}
                     {isTOCSelectionMode && (
                         <div className="absolute top-0 left-0 right-0 z-40 bg-purple-600 text-white text-center py-2 px-4 text-sm font-medium shadow-lg flex items-center justify-center gap-4" style={{ fontFamily: 'system-ui, sans-serif' }}>
-                            <span>👆 Click on the page containing your Table of Contents text</span>
+                            <span>👆 Click on the pages containing your TOC (you can select multiple)</span>
+                            <span className="bg-white/20 rounded px-2 py-0.5 text-xs">
+                                {tocSelectedPages.length} page{tocSelectedPages.length !== 1 ? 's' : ''} selected
+                            </span>
                             <button
-                                onClick={() => setIsTOCSelectionMode(false)}
+                                onClick={confirmTOCPageSelection}
+                                disabled={tocSelectedPages.length === 0}
+                                className={`px-4 py-1 rounded text-xs font-bold ${tocSelectedPages.length > 0 ? 'bg-green-500 hover:bg-green-400 text-white' : 'bg-white/10 text-white/50 cursor-not-allowed'}`}
+                            >
+                                ✓ Done
+                            </button>
+                            <button
+                                onClick={() => {
+                                    tocSelectedPages.forEach(p => { p.style.outline = ''; p.style.outlineOffset = ''; });
+                                    setIsTOCSelectionMode(false);
+                                    setTocSelectedPages([]);
+                                }}
                                 className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded text-xs font-medium"
                             >
                                 Cancel (Esc)
