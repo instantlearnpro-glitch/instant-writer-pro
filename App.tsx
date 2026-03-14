@@ -3743,64 +3743,75 @@ const App: React.FC = () => {
         return () => clearInterval(interval);
     }, [refreshDynamicTOC]);
 
-    // Auto-refresh TOC on file open / content load (1s delay for DOM to settle)
+    // Auto-refresh TOC once on file open (triggered by fileName change, not htmlContent)
     useEffect(() => {
         const timer = setTimeout(() => {
             refreshDynamicTOC();
-        }, 1000);
+        }, 1500);
         return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [docState.htmlContent]);
+    }, [docState.fileName]);
 
-    // Inject floating refresh buttons on TOC pages
+    // Inject floating refresh buttons on TOC pages (uses MutationObserver, not htmlContent)
     useEffect(() => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (!workspace) return;
 
-        // Clean up any existing buttons first
-        workspace.querySelectorAll('.toc-refresh-btn').forEach(b => b.remove());
+        const injectButtons = () => {
+            // Clean up existing buttons
+            workspace.querySelectorAll('.toc-refresh-btn').forEach(b => b.remove());
 
-        const tocPages = workspace.querySelectorAll('[data-dynamic-toc="true"]');
-        tocPages.forEach(page => {
-            const btn = document.createElement('button');
-            btn.className = 'toc-refresh-btn';
-            btn.innerHTML = '↻';
-            btn.title = 'Refresh TOC page numbers';
-            btn.style.cssText = `
-                position: absolute; top: 6px; right: 6px; z-index: 30;
-                width: 28px; height: 28px; border-radius: 50%;
-                background: #8d55f1; color: white; border: none; cursor: pointer;
-                font-size: 16px; font-weight: bold; line-height: 28px; text-align: center;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.2); transition: all 0.2s;
-                font-family: system-ui, sans-serif;
-            `;
-            btn.onmouseenter = () => { btn.style.background = '#7539d3'; btn.style.transform = 'scale(1.1)'; };
-            btn.onmouseleave = () => { btn.style.background = '#8d55f1'; btn.style.transform = 'scale(1)'; };
-            btn.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                refreshDynamicTOC();
-                // Visual feedback
-                btn.innerHTML = '✓';
-                btn.style.background = '#22c55e';
-                setTimeout(() => {
-                    btn.innerHTML = '↻';
-                    btn.style.background = '#8d55f1';
-                }, 1200);
-                // Save updated state
-                const ws = document.querySelector('.editor-workspace');
-                if (ws) {
-                    updateDocState({ ...docState, htmlContent: ws.innerHTML }, true);
-                }
-            };
-            (page as HTMLElement).appendChild(btn);
+            const tocPages = workspace.querySelectorAll('[data-dynamic-toc="true"]');
+            tocPages.forEach(page => {
+                // Don't inject if already has one
+                if (page.querySelector('.toc-refresh-btn')) return;
+
+                const btn = document.createElement('button');
+                btn.className = 'toc-refresh-btn';
+                btn.innerHTML = '↻';
+                btn.title = 'Refresh TOC page numbers';
+                btn.style.cssText = `
+                    position: absolute; top: 6px; right: 6px; z-index: 30;
+                    width: 28px; height: 28px; border-radius: 50%;
+                    background: #8d55f1; color: white; border: none; cursor: pointer;
+                    font-size: 16px; font-weight: bold; line-height: 28px; text-align: center;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.2); transition: all 0.2s;
+                    font-family: system-ui, sans-serif;
+                `;
+                btn.onmouseenter = () => { btn.style.background = '#7539d3'; btn.style.transform = 'scale(1.1)'; };
+                btn.onmouseleave = () => { btn.style.background = '#8d55f1'; btn.style.transform = 'scale(1)'; };
+                btn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    refreshDynamicTOC();
+                    // Visual feedback only — do NOT call updateDocState to avoid loop
+                    btn.innerHTML = '✓';
+                    btn.style.background = '#22c55e';
+                    setTimeout(() => {
+                        btn.innerHTML = '↻';
+                        btn.style.background = '#8d55f1';
+                    }, 1200);
+                };
+                (page as HTMLElement).appendChild(btn);
+            });
+        };
+
+        // Inject on mount + observe for DOM changes (new pages, TOC conversions)
+        const timer = setTimeout(injectButtons, 500);
+        const observer = new MutationObserver(() => {
+            // Debounce: only re-inject if TOC pages exist without buttons
+            const tocPages = workspace.querySelectorAll('[data-dynamic-toc="true"]');
+            const needsButtons = Array.from(tocPages).some(p => !p.querySelector('.toc-refresh-btn'));
+            if (needsButtons) injectButtons();
         });
+        observer.observe(workspace, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-dynamic-toc'] });
 
         return () => {
+            clearTimeout(timer);
+            observer.disconnect();
             workspace.querySelectorAll('.toc-refresh-btn').forEach(b => b.remove());
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [docState.htmlContent, refreshDynamicTOC]);
+    }, [refreshDynamicTOC]);
 
     const handleInsertTOC = (settings: TOCSettings) => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
