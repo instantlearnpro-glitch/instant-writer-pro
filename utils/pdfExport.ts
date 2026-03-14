@@ -126,23 +126,7 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
     const overflowFixedElements: { el: HTMLElement; originalOverflow: string; originalBoxShadow?: string }[] = [];
     const tocTextBackups: { el: HTMLElement; origStyle: string }[] = [];
 
-    // Collect gradient background info from ALL elements BEFORE rendering
-    // We'll draw these patterns directly onto the canvas AFTER html2canvas renders
-    interface GradientInfo {
-        type: 'radial' | 'linear';
-        color: string;
-        bgColor: string;
-        tileW: number;
-        tileH: number;
-        // Position relative to page (for elements that aren't full-page)
-        left: number;
-        top: number;
-        width: number;
-        height: number;
-    }
-    const pageGradients: Map<number, GradientInfo[]> = new Map();
-
-    pages.forEach((page, pageIndex) => {
+    pages.forEach(page => {
         overflowFixedElements.push({ el: page, originalOverflow: page.style.overflow, originalBoxShadow: page.style.boxShadow });
         page.style.overflow = 'visible';
         page.style.boxShadow = 'none';
@@ -155,45 +139,6 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             textEl.style.whiteSpace = 'normal';
             textEl.style.textOverflow = 'clip';
         });
-
-        // Scan ALL elements for gradient backgrounds (read-only, no modifications)
-        const gradients: GradientInfo[] = [];
-        const allEls = [page, ...Array.from(page.querySelectorAll('*'))] as HTMLElement[];
-        for (const el of allEls) {
-            try {
-                const computed = window.getComputedStyle(el);
-                const bgImage = computed.backgroundImage;
-                if (!bgImage || bgImage === 'none' || !bgImage.includes('gradient')) continue;
-
-                const pageRect = page.getBoundingClientRect();
-                const elRect = el.getBoundingClientRect();
-
-                const bgSize = computed.backgroundSize;
-                const sizeMatch = bgSize.match(/(\d+(?:\.\d+)?)px[\s,]+(\d+(?:\.\d+)?)px/);
-                const tileW = sizeMatch ? Math.ceil(parseFloat(sizeMatch[1])) : 20;
-                const tileH = sizeMatch ? Math.ceil(parseFloat(sizeMatch[2])) : 20;
-
-                const colorMatch = bgImage.match(/rgb\([^)]+\)|rgba\([^)]+\)|#[0-9a-fA-F]{3,8}/);
-                const color = colorMatch ? colorMatch[0] : '#ccc';
-
-                const bgColor = computed.backgroundColor || 'rgba(0,0,0,0)';
-
-                gradients.push({
-                    type: bgImage.includes('radial-gradient') ? 'radial' : 'linear',
-                    color,
-                    bgColor,
-                    tileW,
-                    tileH,
-                    left: elRect.left - pageRect.left,
-                    top: elRect.top - pageRect.top,
-                    width: elRect.width,
-                    height: elRect.height
-                });
-            } catch { /* skip */ }
-        }
-        if (gradients.length > 0) {
-            pageGradients.set(pageIndex, gradients);
-        }
     });
 
     // --- Pre-process TOC leader dots: html2canvas can't render CSS radial-gradient,
@@ -204,31 +149,24 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             const leader = leaderNode as HTMLElement;
             const inlineStyle = leader.getAttribute('style') || '';
 
-            // Save original state
             tocLeaderBackups.push({
                 el: leader,
                 originalStyle: inlineStyle,
                 originalAriaHidden: leader.getAttribute('aria-hidden')
             });
 
-            // Remove aria-hidden so html2canvas doesn't skip it
             leader.removeAttribute('aria-hidden');
 
-            // Extract color from the inline style
             const colorMatch = inlineStyle.match(/(#[0-9a-fA-F]{3,8})/);
             const color = colorMatch ? colorMatch[1] : '#9ca3af';
 
             if (inlineStyle.includes('radial-gradient')) {
-                // Dots → border-bottom: dotted
                 leader.style.cssText = `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; height: 0px; border-bottom: 2px dotted ${color}; background: none;`;
             } else if (inlineStyle.includes('repeating-linear-gradient')) {
-                // Dashes → border-bottom: dashed
                 leader.style.cssText = `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; height: 0px; border-bottom: 2px dashed ${color}; background: none;`;
             } else if (inlineStyle.includes('border-bottom')) {
-                // Solid line — border already there, just ensure it's visible
                 leader.style.background = 'none';
             }
-            // 'none' style — leave as is
         });
     });
 
@@ -240,92 +178,26 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             orientation: orientation
         });
 
-        const scale = 1.5;
-
         for (let i = 0; i < pages.length; i++) {
             const pct = Math.round(((i) / pages.length) * 90);
             onProgress?.(pct);
             console.log(`[PDF Export] Rendering page ${i + 1}/${pages.length}... (${pct}%)`);
 
-            // Yield to UI every 5 pages
             if (i % 5 === 0) {
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
 
             const canvas = await window.html2canvas(pages[i], {
-                scale,
+                scale: 1.5,
                 useCORS: true,
                 allowTaint: true,
                 logging: false,
                 width: pageWidthPx,
                 height: pageHeightPx,
-                backgroundColor: null,
+                backgroundColor: '#ffffff',
                 imageTimeout: 5000,
                 removeContainer: true
             });
-
-            // --- POST-RENDER: Draw gradient patterns directly on the canvas ---
-            const gradients = pageGradients.get(i);
-            if (gradients && gradients.length > 0) {
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                    // Save current canvas content
-                    const contentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-                    for (const g of gradients) {
-                        // Calculate scaled positions
-                        const sx = g.left * scale;
-                        const sy = g.top * scale;
-                        const sw = g.width * scale;
-                        const sh = g.height * scale;
-
-                        // Draw background color first
-                        ctx.fillStyle = g.bgColor;
-                        ctx.fillRect(sx, sy, sw, sh);
-
-                        // Draw pattern
-                        const scaledTileW = g.tileW * scale;
-                        const scaledTileH = g.tileH * scale;
-
-                        if (g.type === 'radial') {
-                            // Dot pattern
-                            ctx.fillStyle = g.color;
-                            for (let py = sy; py < sy + sh; py += scaledTileH) {
-                                for (let px = sx; px < sx + sw; px += scaledTileW) {
-                                    ctx.beginPath();
-                                    ctx.arc(px + 1 * scale, py + 1 * scale, 0.8 * scale, 0, Math.PI * 2);
-                                    ctx.fill();
-                                }
-                            }
-                        } else {
-                            // Line pattern
-                            ctx.strokeStyle = g.color;
-                            ctx.lineWidth = 1 * scale;
-                            for (let py = sy; py < sy + sh; py += scaledTileH) {
-                                ctx.beginPath();
-                                ctx.moveTo(sx, py + scaledTileH - 0.5 * scale);
-                                ctx.lineTo(sx + sw, py + scaledTileH - 0.5 * scale);
-                                ctx.stroke();
-                            }
-                        }
-                    }
-
-                    // Restore content ON TOP of the patterns
-                    // Use 'source-over' compositing — we need content to be drawn over patterns
-                    // But we need to preserve transparency where the original content was transparent
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = canvas.width;
-                    tempCanvas.height = canvas.height;
-                    const tempCtx = tempCanvas.getContext('2d');
-                    if (tempCtx) {
-                        tempCtx.putImageData(contentImageData, 0, 0);
-                        // Now draw original content back, but only non-white pixels
-                        // Actually, just draw content on top — white areas from html2canvas
-                        // will cover the pattern, but that's fine since content sits in front
-                        ctx.drawImage(tempCanvas, 0, 0);
-                    }
-                }
-            }
 
             if (i > 0) {
                 pdf.addPage([pageWidthIn, pageHeightIn], orientation);
