@@ -129,8 +129,6 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
 
         page.querySelectorAll('*').forEach(child => {
             const el = child as HTMLElement;
-            // Skip TOC leader/text elements — they NEED overflow:hidden to clip properly
-            if (el.classList.contains('toc-dyn-leader') || el.classList.contains('toc-dyn-text')) return;
             const computed = window.getComputedStyle(el);
             if (computed.overflow === 'hidden' || computed.overflowX === 'hidden' || computed.overflowY === 'hidden') {
                 overflowFixedElements.push({ el, originalOverflow: el.style.overflow });
@@ -139,12 +137,40 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         });
     });
 
-    // Debug: log TOC leader presence
-    const tocLeaders = workspace.querySelectorAll('.toc-dyn-leader');
-    console.log(`[PDF Export] Found ${tocLeaders.length} TOC leader elements`);
-    tocLeaders.forEach((l, i) => {
-        const el = l as HTMLElement;
-        console.log(`[PDF Export] Leader ${i}: text="${el.textContent?.substring(0, 20)}", overflow=${el.style.overflow}, color=${el.style.color}`);
+    // --- Pre-process TOC leader dots: html2canvas can't render CSS radial-gradient,
+    // so we temporarily replace gradient-based leaders with border-bottom styles ---
+    const tocLeaderBackups: { el: HTMLElement; originalStyle: string; originalAriaHidden: string | null }[] = [];
+    pages.forEach(page => {
+        page.querySelectorAll('.toc-dyn-leader').forEach(leaderNode => {
+            const leader = leaderNode as HTMLElement;
+            const inlineStyle = leader.getAttribute('style') || '';
+
+            // Save original state
+            tocLeaderBackups.push({
+                el: leader,
+                originalStyle: inlineStyle,
+                originalAriaHidden: leader.getAttribute('aria-hidden')
+            });
+
+            // Remove aria-hidden so html2canvas doesn't skip it
+            leader.removeAttribute('aria-hidden');
+
+            // Extract color from the inline style
+            const colorMatch = inlineStyle.match(/(#[0-9a-fA-F]{3,8})/);
+            const color = colorMatch ? colorMatch[1] : '#9ca3af';
+
+            if (inlineStyle.includes('radial-gradient')) {
+                // Dots → border-bottom: dotted
+                leader.style.cssText = `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; height: 0px; border-bottom: 2px dotted ${color}; background: none;`;
+            } else if (inlineStyle.includes('repeating-linear-gradient')) {
+                // Dashes → border-bottom: dashed
+                leader.style.cssText = `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; height: 0px; border-bottom: 2px dashed ${color}; background: none;`;
+            } else if (inlineStyle.includes('border-bottom')) {
+                // Solid line — border already there, just ensure it's visible
+                leader.style.background = 'none';
+            }
+            // 'none' style — leave as is
+        });
     });
 
     try {
@@ -209,6 +235,15 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         alert('An error occurred during PDF export. Please try again.');
     } finally {
         // --- 6. Restore removed editor UI elements & styles ---
+
+        // Restore TOC leader dots (revert border→gradient conversion)
+        tocLeaderBackups.forEach(({ el, originalStyle, originalAriaHidden }) => {
+            el.setAttribute('style', originalStyle);
+            if (originalAriaHidden !== null) {
+                el.setAttribute('aria-hidden', originalAriaHidden);
+            }
+        });
+
         overflowFixedElements.forEach(({ el, originalOverflow }) => {
             el.style.overflow = originalOverflow;
         });

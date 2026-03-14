@@ -3542,28 +3542,23 @@ const App: React.FC = () => {
             page.setAttribute('data-toc-page-font-size', String(styleOpts.pageNumberFontSize));
         });
 
-        // Build leader content — use actual text characters instead of CSS gradients
-        // so they render correctly in PDF/DOCX export (html2canvas can't render gradients)
-        const buildLeaderContent = (leaderSpan: HTMLElement) => {
-            const base = 'flex: 1 1 auto; align-self: center; min-width: 20px; overflow: hidden; white-space: nowrap;';
+        // Build leader CSS based on style options
+        const buildLeaderCss = (): string => {
+            const base = 'flex: 1 1 auto; display: block; align-self: center; min-width: 20px;';
             switch (styleOpts.leaderStyle) {
                 case 'dots':
-                    leaderSpan.style.cssText = `${base} color: ${styleOpts.leaderColor}; font-size: ${Math.max(8, styleOpts.textFontSize - 2)}px; letter-spacing: ${Math.max(1, styleOpts.leaderSpacing - 3)}px; line-height: 1;`;
-                    leaderSpan.textContent = ' · '.repeat(80); // overflow:hidden will clip to the right width
-                    break;
+                    return `${base} height: 2px; min-height: 2px; background-image: radial-gradient(circle at 1px 1px, ${styleOpts.leaderColor} 1px, transparent 1.5px); background-size: ${styleOpts.leaderSpacing}px 2px; background-repeat: repeat-x; background-position: left center;`;
                 case 'dashes':
-                    leaderSpan.style.cssText = `${base} color: ${styleOpts.leaderColor}; font-size: ${Math.max(8, styleOpts.textFontSize - 2)}px; letter-spacing: ${Math.max(1, styleOpts.leaderSpacing - 2)}px; line-height: 1;`;
-                    leaderSpan.textContent = ' – '.repeat(60);
-                    break;
+                    return `${base} height: 1px; min-height: 1px; background-image: repeating-linear-gradient(90deg, ${styleOpts.leaderColor} 0, ${styleOpts.leaderColor} 6px, transparent 6px, transparent ${styleOpts.leaderSpacing + 6}px); background-repeat: repeat-x;`;
                 case 'line':
-                    leaderSpan.style.cssText = `${base} height: 0; border-bottom: 1px solid ${styleOpts.leaderColor};`;
-                    break;
+                    return `${base} height: 0; border-bottom: 1px solid ${styleOpts.leaderColor};`;
                 case 'none':
                 default:
-                    leaderSpan.style.cssText = `${base} height: 0; border: none; background: none;`;
-                    break;
+                    return `${base} height: 0; border: none; background: none;`;
             }
         };
+
+        const leaderCss = buildLeaderCss();
 
         // Get all line elements from ALL selected pages
         const lineElements: HTMLElement[] = [];
@@ -3602,7 +3597,7 @@ const App: React.FC = () => {
                 // Make the line a flex row: [original text] [dot leader] [page number]
                 el.style.display = 'flex';
                 el.style.alignItems = 'baseline';
-                el.style.gap = '4px';
+                el.style.gap = `${styleOpts.leaderSpacing}px`;
                 el.style.width = '100%';
 
                 // Wrap existing content in a span to preserve styling
@@ -3612,11 +3607,11 @@ const App: React.FC = () => {
                 textSpan.style.cssText = `flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: ${styleOpts.textFontSize}px;`;
                 textSpan.innerHTML = originalContent;
 
-                // Leader — text-based characters, NOT CSS gradients
+                // Leader
                 const leaderSpan = document.createElement('span');
                 leaderSpan.className = 'toc-dyn-leader';
                 leaderSpan.setAttribute('aria-hidden', 'true');
-                buildLeaderContent(leaderSpan);
+                leaderSpan.style.cssText = leaderCss;
 
                 // Page number
                 const pageSpan = document.createElement('span');
