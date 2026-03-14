@@ -6,7 +6,7 @@ const TOCModal = lazy(() => import('./components/TOCModal'));
 const PageNumberModal = lazy(() => import('./components/PageNumberModal'));
 const TOCMappingModal = lazy(() => import('./components/TOCMappingModal'));
 import ZoomControls from './components/ZoomControls';
-import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry, TOCMappingRow, DocumentHeading } from './types';
+import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry, TOCMappingRow, DocumentHeading, TOCStyleOptions } from './types';
 import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
 import { FontDefinition } from './utils/fontUtils';
 import { useFontManager } from './hooks/useFontManager';
@@ -3491,15 +3491,37 @@ const App: React.FC = () => {
     }, [isTOCSelectionMode]);
 
     /** After user confirms the mapping — inject dot leaders + page numbers preserving styles */
-    const handleConfirmTOCMapping = (mappings: TOCMappingRow[]) => {
+    const handleConfirmTOCMapping = (mappings: TOCMappingRow[], styleOpts: TOCStyleOptions) => {
         const container = tocMappingContainerRef.current;
         if (!container) return;
 
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (!workspace) return;
 
-        // Mark the container as a dynamic TOC
+        // Mark the container as a dynamic TOC and store style options
         container.setAttribute('data-dynamic-toc', 'true');
+        container.setAttribute('data-toc-leader-style', styleOpts.leaderStyle);
+        container.setAttribute('data-toc-leader-spacing', String(styleOpts.leaderSpacing));
+        container.setAttribute('data-toc-leader-color', styleOpts.leaderColor);
+        container.setAttribute('data-toc-page-font-size', String(styleOpts.pageNumberFontSize));
+
+        // Build leader CSS based on style options
+        const buildLeaderCss = (): string => {
+            const base = 'flex: 1 1 auto; display: block; align-self: center; min-width: 20px;';
+            switch (styleOpts.leaderStyle) {
+                case 'dots':
+                    return `${base} height: 2px; min-height: 2px; background-image: radial-gradient(circle at 1px 1px, ${styleOpts.leaderColor} 1px, transparent 1.5px); background-size: ${styleOpts.leaderSpacing}px 2px; background-repeat: repeat-x; background-position: left center;`;
+                case 'dashes':
+                    return `${base} height: 1px; min-height: 1px; background-image: repeating-linear-gradient(90deg, ${styleOpts.leaderColor} 0, ${styleOpts.leaderColor} 6px, transparent 6px, transparent ${styleOpts.leaderSpacing + 6}px); background-repeat: repeat-x;`;
+                case 'line':
+                    return `${base} height: 0; border-bottom: 1px solid ${styleOpts.leaderColor};`;
+                case 'none':
+                default:
+                    return `${base} height: 0; border: none; background: none;`;
+            }
+        };
+
+        const leaderCss = buildLeaderCss();
 
         // Get all line elements again
         const lineElements: HTMLElement[] = [];
@@ -3535,7 +3557,7 @@ const App: React.FC = () => {
                 // Make the line a flex row: [original text] [dot leader] [page number]
                 el.style.display = 'flex';
                 el.style.alignItems = 'baseline';
-                el.style.gap = '4px';
+                el.style.gap = `${styleOpts.leaderSpacing}px`;
                 el.style.width = '100%';
 
                 // Wrap existing content in a span to preserve styling
@@ -3545,16 +3567,16 @@ const App: React.FC = () => {
                 textSpan.style.cssText = 'flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
                 textSpan.innerHTML = originalContent;
 
-                // Dot leader
+                // Leader
                 const leaderSpan = document.createElement('span');
                 leaderSpan.className = 'toc-dyn-leader';
                 leaderSpan.setAttribute('aria-hidden', 'true');
-                leaderSpan.style.cssText = 'flex: 1 1 auto; height: 2px; min-height: 2px; display: block; align-self: center; background-image: radial-gradient(circle at 1px 1px, #9ca3af 1px, transparent 1.5px); background-size: 6px 2px; background-repeat: repeat-x; background-position: left center;';
+                leaderSpan.style.cssText = leaderCss;
 
-                // Page number — inherit font from the line
+                // Page number
                 const pageSpan = document.createElement('span');
                 pageSpan.className = 'toc-dyn-page';
-                pageSpan.style.cssText = 'flex: 0 0 auto; min-width: 3ch; text-align: right; white-space: nowrap; padding-left: 4px;';
+                pageSpan.style.cssText = `flex: 0 0 auto; min-width: 3ch; text-align: right; white-space: nowrap; font-size: ${styleOpts.pageNumberFontSize}px;`;
                 pageSpan.textContent = pageNum > 0 ? String(pageNum) : '?';
 
                 el.innerHTML = '';

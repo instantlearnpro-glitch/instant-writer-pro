@@ -116,3 +116,11 @@ export interface TOCMappingRow {
   isTitle: boolean; // True = section header, no page number
   confidence: number; // 0-1 auto-match confidence
 }
+
+/** Styling options for the dynamic TOC */
+export interface TOCStyleOptions {
+  pageNumberFontSize: number;       // px, font size of the page numbers
+  leaderStyle: 'dots' | 'dashes' | 'line' | 'none';  // style of the filler between text and number
+  leaderSpacing: number;            // px, gap between text end and leader start / leader end and number
+  leaderColor: string;              // color of the dots/dashes/line
+}
