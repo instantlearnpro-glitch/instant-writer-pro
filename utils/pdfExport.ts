@@ -143,35 +143,69 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             textEl.style.textOverflow = 'clip';
         });
 
-        // Convert radial-gradient backgrounds to SVG data URLs (html2canvas can't render CSS gradients)
-        const computedBg = window.getComputedStyle(page).backgroundImage;
-        if (computedBg && computedBg.includes('radial-gradient')) {
-            pageBgBackups.push({
-                el: page,
-                origBgImage: page.style.backgroundImage,
-                origBgSize: page.style.backgroundSize,
-                origBgColor: page.style.backgroundColor
-            });
+        // Convert gradient backgrounds to SVG data URLs on ALL elements (html2canvas can't render CSS gradients)
+        // Scan the page itself + all children for gradient backgrounds
+        const elementsToCheck = [page, ...Array.from(page.querySelectorAll('*'))];
+        for (const node of elementsToCheck) {
+            const el = node as HTMLElement;
+            if (!el.style && !el.getAttribute) continue;
+            const computedBg = window.getComputedStyle(el).backgroundImage;
+            if (!computedBg || computedBg === 'none') continue;
 
-            // Extract dot color and size from radial-gradient
-            const colorMatch = computedBg.match(/rgb\([^)]+\)|rgba\([^)]+\)|#[0-9a-fA-F]{3,8}/);
-            const dotColor = colorMatch ? colorMatch[0] : '#cccccc';
+            if (computedBg.includes('radial-gradient')) {
+                pageBgBackups.push({
+                    el,
+                    origBgImage: el.style.backgroundImage,
+                    origBgSize: el.style.backgroundSize,
+                    origBgColor: el.style.backgroundColor
+                });
 
-            // Extract background-size for spacing
-            const computedBgSize = window.getComputedStyle(page).backgroundSize;
-            const sizeMatch = computedBgSize.match(/(\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px/);
-            const spacingX = sizeMatch ? parseFloat(sizeMatch[1]) : 20;
-            const spacingY = sizeMatch ? parseFloat(sizeMatch[2]) : 20;
+                // Extract dot color
+                const colorMatch = computedBg.match(/rgb\([^)]+\)|rgba\([^)]+\)|#[0-9a-fA-F]{3,8}/);
+                const dotColor = colorMatch ? colorMatch[0] : '#cccccc';
 
-            // Get background-color
-            const computedBgColor = window.getComputedStyle(page).backgroundColor;
+                // Extract background-size for spacing
+                const computedBgSize = window.getComputedStyle(el).backgroundSize;
+                const sizeMatch = computedBgSize.match(/(\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px/);
+                const spacingX = sizeMatch ? parseFloat(sizeMatch[1]) : 20;
+                const spacingY = sizeMatch ? parseFloat(sizeMatch[2]) : 20;
 
-            // Create SVG dot pattern
-            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${spacingX}" height="${spacingY}"><rect width="${spacingX}" height="${spacingY}" fill="${computedBgColor}"/><circle cx="1" cy="1" r="0.8" fill="${dotColor}"/></svg>`;
-            const svgDataUrl = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+                // Get background-color
+                const computedBgColor = window.getComputedStyle(el).backgroundColor;
 
-            page.style.backgroundImage = svgDataUrl;
-            page.style.backgroundSize = `${spacingX}px ${spacingY}px`;
+                // Create SVG dot pattern
+                const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${spacingX}" height="${spacingY}"><rect width="${spacingX}" height="${spacingY}" fill="${computedBgColor}"/><circle cx="1" cy="1" r="0.8" fill="${dotColor}"/></svg>`;
+                const svgDataUrl = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+                el.style.backgroundImage = svgDataUrl;
+                el.style.backgroundSize = `${spacingX}px ${spacingY}px`;
+
+            } else if (computedBg.includes('linear-gradient')) {
+                pageBgBackups.push({
+                    el,
+                    origBgImage: el.style.backgroundImage,
+                    origBgSize: el.style.backgroundSize,
+                    origBgColor: el.style.backgroundColor
+                });
+
+                // Extract line color
+                const colorMatch = computedBg.match(/rgb\([^)]+\)|rgba\([^)]+\)|#[0-9a-fA-F]{3,8}/);
+                const lineColor = colorMatch ? colorMatch[0] : '#cccccc';
+
+                // Extract background-size for spacing
+                const computedBgSize = window.getComputedStyle(el).backgroundSize;
+                const sizeMatch = computedBgSize.match(/(\d+(?:\.\d+)?)px\s*(?:(\d+(?:\.\d+)?)px)?/);
+                const sizeW = sizeMatch ? parseFloat(sizeMatch[1]) : 100;
+                const sizeH = sizeMatch && sizeMatch[2] ? parseFloat(sizeMatch[2]) : sizeW;
+
+                // Get background-color
+                const computedBgColor = window.getComputedStyle(el).backgroundColor;
+
+                // Create SVG with horizontal line
+                const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${sizeW}" height="${sizeH}"><rect width="${sizeW}" height="${sizeH}" fill="${computedBgColor}"/><line x1="0" y1="${sizeH - 1}" x2="${sizeW}" y2="${sizeH - 1}" stroke="${lineColor}" stroke-width="1"/></svg>`;
+                const svgDataUrl = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+                el.style.backgroundImage = svgDataUrl;
+                el.style.backgroundSize = `${sizeW}px ${sizeH}px`;
+            }
         }
     });
 
