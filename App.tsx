@@ -3383,15 +3383,25 @@ const App: React.FC = () => {
             const text = el.textContent?.trim() || '';
             const cleanText = text.replace(/^\d+\.?\d*\s+/, '');
 
-            let bestMatch: DocumentHeading | null = null;
-            let bestScore = 0;
-            headings.forEach(h => {
-                const score = Math.max(fuzzyMatch(cleanText, h.text), fuzzyMatch(text, h.text));
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMatch = h;
-                }
-            });
+            // Auto-detect "Table of Contents" title line — mark as section title
+            const isTOCTitle = /^(table\s+of\s+contents?|contents?|toc|indice|sommario)$/i.test(cleanText);
+            if (isTOCTitle) {
+                return {
+                    lineIndex: idx, lineText: text,
+                    matchedHeadingId: null, matchedHeadingText: null,
+                    isTitle: true, confidence: 1
+                };
+            }
+
+            // Compute scores for ALL headings so we can pass them to the modal for sorting
+            const scored = headings.map(h => ({
+                heading: h,
+                score: Math.max(fuzzyMatch(cleanText, h.text), fuzzyMatch(text, h.text))
+            }));
+            scored.sort((a, b) => b.score - a.score);
+
+            const bestMatch = scored[0]?.heading || null;
+            const bestScore = scored[0]?.score || 0;
 
             const looksLikeTitle = /^(part|chapter|introduction|conclusion|appendix|section)/i.test(cleanText)
                 || el.tagName === 'H1' || el.tagName === 'H2'

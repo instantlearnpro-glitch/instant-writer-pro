@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { X, Check, AlertTriangle, Minus } from 'lucide-react';
 import { TOCMappingRow, DocumentHeading, TOCStyleOptions } from '../types';
 
@@ -11,6 +11,23 @@ interface TOCMappingModalProps {
 }
 
 const FONT = { fontFamily: 'system-ui, -apple-system, sans-serif' };
+
+/** Simple token overlap for sorting headings by relevance to a line */
+const quickScore = (lineText: string, headingText: string): number => {
+    const a = lineText.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean);
+    const b = headingText.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean);
+    if (a.length === 0 || b.length === 0) return 0;
+    const bSet = new Set(b);
+    const shared = a.filter(w => bSet.has(w)).length;
+    return shared / Math.max(a.length, b.length);
+};
+
+/** Extract a numeric prefix like "2.2" from text for sorting */
+const numPrefix = (text: string): number => {
+    const m = text.match(/^(\d+(?:\.\d+)*)/);
+    if (!m) return Infinity;
+    return parseFloat(m[1].replace(/\.(\d)$/g, '.$1')); // 2.2 → 2.2
+};
 
 const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
     isOpen,
@@ -69,6 +86,65 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
         return 'height: 0;';
     };
 
+    /** Get headings sorted by relevance to a specific row's text, then by number prefix */
+    const getSortedHeadings = (lineText: string): DocumentHeading[] => {
+        const scored = headings.map(h => ({
+            heading: h,
+            score: quickScore(lineText, h.text),
+            num: numPrefix(h.text)
+        }));
+        // Sort: best score first, then by number prefix, then by page
+        scored.sort((a, b) => {
+            if (Math.abs(a.score - b.score) > 0.05) return b.score - a.score;
+            if (a.num !== b.num) return a.num - b.num;
+            return a.heading.page - b.heading.page;
+        });
+        return scored.map(s => s.heading);
+    };
+
+    /** Build dropdown options for a specific row */
+    const renderHeadingOptions = (lineText: string) => {
+        const sorted = getSortedHeadings(lineText);
+        // Top 5 as "⭐ Suggested" 
+        const suggested = sorted.slice(0, 5);
+        const remaining = sorted.slice(5);
+
+        // Group remaining by level
+        const byLevel: Record<string, DocumentHeading[]> = {};
+        remaining.forEach(h => {
+            const key = h.level;
+            if (!byLevel[key]) byLevel[key] = [];
+            byLevel[key].push(h);
+        });
+
+        const formatOption = (h: DocumentHeading) => (
+            <option key={h.id} value={h.id}>
+                [{h.level.toUpperCase()}] p.{h.page} — {h.text.substring(0, 45)}{h.text.length > 45 ? '…' : ''}
+            </option>
+        );
+
+        return (
+            <>
+                <option value="__none__">— Not mapped (skip) —</option>
+                <option value="__title__">📌 Section Title (no page #)</option>
+                {suggested.length > 0 && (
+                    <optgroup label="⭐ Best Matches">
+                        {suggested.map(formatOption)}
+                    </optgroup>
+                )}
+                {['h1', 'h2', 'h3', 'h4', 'h5'].map(level => {
+                    const items = byLevel[level];
+                    if (!items || items.length === 0) return null;
+                    return (
+                        <optgroup key={level} label={`${level.toUpperCase()} Headings`}>
+                            {items.map(formatOption)}
+                        </optgroup>
+                    );
+                })}
+            </>
+        );
+    };
+
     return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" style={FONT}>
             <div className="bg-white rounded-lg shadow-xl w-[780px] max-h-[90vh] flex flex-col" style={FONT}>
@@ -77,7 +153,7 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                     <div>
                         <h3 className="font-bold text-lg text-gray-800" style={FONT}>Convert to Dynamic TOC</h3>
                         <p className="text-xs text-gray-500 mt-1">
-                            Match each line to a heading. Choose styling for dots and page numbers.
+                            Match each line to a heading. Best matches appear first in each dropdown.
                         </p>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -211,50 +287,14 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                                 </div>
                             </div>
 
-                            {/* Heading selector */}
+                            {/* Heading selector — sorted by relevance per row */}
                             <select
                                 value={row.isTitle ? '__title__' : (row.matchedHeadingId || '__none__')}
                                 onChange={(e) => handleHeadingChange(idx, e.target.value)}
                                 className="flex-shrink-0 w-[280px] text-[11px] border border-gray-300 rounded px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-purple-400"
                                 style={FONT}
                             >
-                                <option value="__none__">— Not mapped (skip) —</option>
-                                <option value="__title__">📌 Section Title (no page #)</option>
-                                <optgroup label="H1 Headings">
-                                    {headings.filter(h => h.level === 'h1').map(h => (
-                                        <option key={h.id} value={h.id}>
-                                            [H1] p.{h.page} — {h.text.substring(0, 45)}{h.text.length > 45 ? '…' : ''}
-                                        </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="H2 Headings">
-                                    {headings.filter(h => h.level === 'h2').map(h => (
-                                        <option key={h.id} value={h.id}>
-                                            [H2] p.{h.page} — {h.text.substring(0, 45)}{h.text.length > 45 ? '…' : ''}
-                                        </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="H3 Headings">
-                                    {headings.filter(h => h.level === 'h3').map(h => (
-                                        <option key={h.id} value={h.id}>
-                                            [H3] p.{h.page} — {h.text.substring(0, 45)}{h.text.length > 45 ? '…' : ''}
-                                        </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="H4 Headings">
-                                    {headings.filter(h => h.level === 'h4').map(h => (
-                                        <option key={h.id} value={h.id}>
-                                            [H4] p.{h.page} — {h.text.substring(0, 45)}{h.text.length > 45 ? '…' : ''}
-                                        </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="H5 Headings">
-                                    {headings.filter(h => h.level === 'h5').map(h => (
-                                        <option key={h.id} value={h.id}>
-                                            [H5] p.{h.page} — {h.text.substring(0, 45)}{h.text.length > 45 ? '…' : ''}
-                                        </option>
-                                    ))}
-                                </optgroup>
+                                {renderHeadingOptions(row.lineText)}
                             </select>
                         </div>
                     ))}
