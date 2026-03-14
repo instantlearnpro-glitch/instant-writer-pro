@@ -4700,6 +4700,7 @@ ${workspace.innerHTML}
                     onUpdateEntryStatus={handleUpdateEntryStatus}
                     onClearStructure={handleClearStructure}
                     onAutoFillStructure={handleAutoFillStructure}
+                    onConvertToTOC={handleConvertToTOC}
                     autoStructureEnabled={autoStructureEnabled}
                     onToggleAutoStructure={handleToggleAutoStructure}
                     autoStructureSuggested={autoStructureSuggested}

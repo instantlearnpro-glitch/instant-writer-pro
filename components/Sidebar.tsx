@@ -26,6 +26,7 @@ interface SidebarProps {
     onUpdateEntryStatus: (id: string, status: 'approved' | 'rejected') => void;
     onClearStructure: () => void;
     onAutoFillStructure: () => void;
+    onConvertToTOC: () => void;
     autoStructureEnabled: boolean;
     onToggleAutoStructure: () => void;
     autoStructureSuggested: boolean;
@@ -49,6 +50,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     onUpdateEntryStatus,
     onClearStructure,
     onAutoFillStructure,
+    onConvertToTOC,
     autoStructureEnabled,
     onToggleAutoStructure,
     autoStructureSuggested,
@@ -201,6 +203,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     </button>
                                 </div>
                             </div>
+                            <button
+                                onClick={onConvertToTOC}
+                                type="button"
+                                className="w-full text-[11px] px-3 py-1.5 mb-2 rounded bg-purple-100 text-purple-700 hover:bg-purple-200 font-medium border border-purple-200"
+                                title="Select your TOC text, then click to add dot leaders and page numbers"
+                            >
+                                📋 Convert Selection to Dynamic TOC
+                            </button>
 
                             {structureEntries.filter(e => e.status !== 'rejected').length === 0 ? (
                                 <div className="text-center text-gray-400 py-8 text-xs italic">
