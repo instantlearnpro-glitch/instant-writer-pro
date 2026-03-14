@@ -99,6 +99,9 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
 
     console.log('[PDF Export] Found', pages.length, 'pages');
 
+    // Signal to MutationObservers that we're exporting (prevents button re-injection loop)
+    workspace.setAttribute('data-pdf-exporting', 'true');
+
     // --- 3. Temporarily clean up editor UI elements ---
     const removedElements: { parent: Node; element: Node; nextSibling: Node | null }[] = [];
     const editorSelectors = '.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides, .toc-refresh-btn';
@@ -121,20 +124,12 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
     multiSelectedEls.forEach(el => el.removeAttribute('data-multi-selected'));
 
     // Save and override overflow styles to prevent text clipping in PDF
-    const overflowFixedElements: { el: HTMLElement; originalOverflow: string }[] = [];
+    // Only target pages and known containers (avoid expensive getComputedStyle on every element)
+    const overflowFixedElements: { el: HTMLElement; originalOverflow: string; originalBoxShadow?: string }[] = [];
     pages.forEach(page => {
-        overflowFixedElements.push({ el: page, originalOverflow: page.style.overflow });
+        overflowFixedElements.push({ el: page, originalOverflow: page.style.overflow, originalBoxShadow: page.style.boxShadow });
         page.style.overflow = 'visible';
         page.style.boxShadow = 'none';
-
-        page.querySelectorAll('*').forEach(child => {
-            const el = child as HTMLElement;
-            const computed = window.getComputedStyle(el);
-            if (computed.overflow === 'hidden' || computed.overflowX === 'hidden' || computed.overflowY === 'hidden') {
-                overflowFixedElements.push({ el, originalOverflow: el.style.overflow });
-                el.style.overflow = 'visible';
-            }
-        });
     });
 
     // --- Pre-process TOC leader dots: html2canvas can't render CSS radial-gradient,
@@ -244,8 +239,9 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             }
         });
 
-        overflowFixedElements.forEach(({ el, originalOverflow }) => {
+        overflowFixedElements.forEach(({ el, originalOverflow, originalBoxShadow }) => {
             el.style.overflow = originalOverflow;
+            if (originalBoxShadow !== undefined) el.style.boxShadow = originalBoxShadow;
         });
         removedElements.forEach(({ parent, element, nextSibling }) => {
             if (nextSibling) {
@@ -255,5 +251,8 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             }
         });
         console.log('[PDF Export] Cleanup complete');
+
+        // Remove export flag
+        workspace.removeAttribute('data-pdf-exporting');
     }
 };

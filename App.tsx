@@ -3758,6 +3758,9 @@ const App: React.FC = () => {
         if (!workspace) return;
 
         const injectButtons = () => {
+            // Skip during PDF export to avoid remove/inject loop
+            if (workspace.hasAttribute('data-pdf-exporting')) return;
+
             // Clean up existing buttons
             workspace.querySelectorAll('.toc-refresh-btn').forEach(b => b.remove());
 
@@ -3799,6 +3802,8 @@ const App: React.FC = () => {
         // Inject on mount + observe for DOM changes (new pages, TOC conversions)
         const timer = setTimeout(injectButtons, 500);
         const observer = new MutationObserver(() => {
+            // Skip during PDF export
+            if (workspace.hasAttribute('data-pdf-exporting')) return;
             // Debounce: only re-inject if TOC pages exist without buttons
             const tocPages = workspace.querySelectorAll('[data-dynamic-toc="true"]');
             const needsButtons = Array.from(tocPages).some(p => !p.querySelector('.toc-refresh-btn'));
