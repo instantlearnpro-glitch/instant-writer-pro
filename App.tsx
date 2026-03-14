@@ -538,6 +538,7 @@ const App: React.FC = () => {
 
     const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
     const [isTOCMappingModalOpen, setIsTOCMappingModalOpen] = useState(false);
+    const [isTOCSelectionMode, setIsTOCSelectionMode] = useState(false);
     const [tocMappingRows, setTocMappingRows] = useState<TOCMappingRow[]>([]);
     const [tocMappingHeadings, setTocMappingHeadings] = useState<DocumentHeading[]>([]);
     const tocMappingContainerRef = useRef<HTMLElement | null>(null);
@@ -3348,25 +3349,13 @@ const App: React.FC = () => {
         return headings;
     };
 
-    /** User clicks "Convert to TOC" — extract lines from selected block and fuzzy-match */
+    /** Toggle TOC selection mode — user clicks on a block to select it */
     const handleConvertToTOC = () => {
-        const selection = window.getSelection();
-        let container: HTMLElement | null = null;
+        setIsTOCSelectionMode(prev => !prev);
+    };
 
-        if (selection && selection.rangeCount > 0) {
-            const range = selection.getRangeAt(0);
-            const startEl = range.startContainer.nodeType === 1
-                ? range.startContainer as HTMLElement
-                : range.startContainer.parentElement;
-            // Walk up to find a containing block (div, section, etc.) within the page
-            container = startEl?.closest('.page > div, .page > section, .page > blockquote') as HTMLElement || startEl?.closest('.page') as HTMLElement;
-        }
-
-        if (!container) {
-            alert('Please place your cursor inside the TOC text block first.');
-            return;
-        }
-
+    /** Process a clicked block as the TOC container — fuzzy-match lines to headings */
+    const processTOCBlock = (container: HTMLElement) => {
         // Extract child lines — each direct child block element is a "line"
         const lineElements: HTMLElement[] = [];
         container.querySelectorAll(':scope > *').forEach(child => {
@@ -3377,9 +3366,9 @@ const App: React.FC = () => {
             }
         });
 
-        // If container itself has no block children with text, treat each line of text content as a line
+        // If container itself has no block children with text, it might be a single line —
+        // check parent for siblings to use as lines
         if (lineElements.length === 0) {
-            // The container itself might be the TOC — check if parent has siblings
             const parent = container.parentElement;
             if (parent) {
                 const siblings = Array.from(parent.children) as HTMLElement[];
@@ -3394,7 +3383,7 @@ const App: React.FC = () => {
         }
 
         if (lineElements.length === 0) {
-            alert('Could not find any TOC lines in the selected block.');
+            alert('Could not find any TOC lines in this block.');
             return;
         }
 
@@ -3404,7 +3393,6 @@ const App: React.FC = () => {
         // Auto-match each line to the best heading
         const rows: TOCMappingRow[] = lineElements.map((el, idx) => {
             const text = el.textContent?.trim() || '';
-            // Strip leading numbers like "1.1  " or "0.3  "
             const cleanText = text.replace(/^\d+\.?\d*\s+/, '');
 
             let bestMatch: DocumentHeading | null = null;
@@ -3417,37 +3405,29 @@ const App: React.FC = () => {
                 }
             });
 
-            // If no good match and text looks like a bold title ("PART 1:", "Introduction:", chapter header)
             const looksLikeTitle = /^(part|chapter|introduction|conclusion|appendix|section)/i.test(cleanText)
                 || el.tagName === 'H1' || el.tagName === 'H2'
                 || (el.querySelector('strong, b') !== null && el.children.length <= 2);
 
             if (bestScore >= 0.4 && bestMatch) {
                 return {
-                    lineIndex: idx,
-                    lineText: text,
-                    matchedHeadingId: bestMatch.id,
-                    matchedHeadingText: bestMatch.text,
-                    isTitle: false,
-                    confidence: bestScore
+                    lineIndex: idx, lineText: text,
+                    matchedHeadingId: bestMatch.id, matchedHeadingText: bestMatch.text,
+                    isTitle: false, confidence: bestScore
                 };
             } else if (looksLikeTitle) {
                 return {
-                    lineIndex: idx,
-                    lineText: text,
+                    lineIndex: idx, lineText: text,
                     matchedHeadingId: bestMatch && bestScore >= 0.25 ? bestMatch.id : null,
                     matchedHeadingText: bestMatch && bestScore >= 0.25 ? bestMatch.text : null,
-                    isTitle: bestScore < 0.25,
-                    confidence: bestScore
+                    isTitle: bestScore < 0.25, confidence: bestScore
                 };
             } else {
                 return {
-                    lineIndex: idx,
-                    lineText: text,
+                    lineIndex: idx, lineText: text,
                     matchedHeadingId: bestMatch && bestScore >= 0.3 ? bestMatch.id : null,
                     matchedHeadingText: bestMatch && bestScore >= 0.3 ? bestMatch.text : null,
-                    isTitle: false,
-                    confidence: bestScore
+                    isTitle: false, confidence: bestScore
                 };
             }
         });
@@ -3457,6 +3437,58 @@ const App: React.FC = () => {
         setTocMappingHeadings(headings);
         setIsTOCMappingModalOpen(true);
     };
+
+    // Click interceptor: when TOC selection mode is active, capture clicks on the workspace
+    useEffect(() => {
+        if (!isTOCSelectionMode) return;
+
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return;
+
+        // Apply crosshair cursor
+        workspace.style.cursor = 'crosshair';
+
+        const handleClick = (e: MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const target = e.target as HTMLElement;
+            // Walk up to find the nearest block-level child of a .page
+            let container = target.closest('.page > div, .page > p, .page > h1, .page > h2, .page > h3, .page > h4, .page > h5, .page > section, .page > blockquote') as HTMLElement;
+            if (!container) {
+                container = target.closest('.page') as HTMLElement;
+            }
+
+            if (container) {
+                // If the user clicked on a single line, use the parent page as the container
+                // to capture all sibling lines as TOC entries
+                const page = container.closest('.page') as HTMLElement;
+                if (page) {
+                    processTOCBlock(page);
+                } else {
+                    processTOCBlock(container);
+                }
+            }
+
+            // Exit selection mode
+            setIsTOCSelectionMode(false);
+        };
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setIsTOCSelectionMode(false);
+            }
+        };
+
+        workspace.addEventListener('click', handleClick, true);
+        document.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+            workspace.style.cursor = '';
+            workspace.removeEventListener('click', handleClick, true);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isTOCSelectionMode]);
 
     /** After user confirms the mapping — inject dot leaders + page numbers preserving styles */
     const handleConfirmTOCMapping = (mappings: TOCMappingRow[]) => {
@@ -4710,6 +4742,18 @@ ${workspace.innerHTML}
                 />
 
                 <div className="flex-1 relative" onScroll={handleScroll}>
+                    {/* TOC Selection Mode Banner */}
+                    {isTOCSelectionMode && (
+                        <div className="absolute top-0 left-0 right-0 z-40 bg-purple-600 text-white text-center py-2 px-4 text-sm font-medium shadow-lg flex items-center justify-center gap-4" style={{ fontFamily: 'system-ui, sans-serif' }}>
+                            <span>👆 Click on the page containing your Table of Contents text</span>
+                            <button
+                                onClick={() => setIsTOCSelectionMode(false)}
+                                className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded text-xs font-medium"
+                            >
+                                Cancel (Esc)
+                            </button>
+                        </div>
+                    )}
                     <Editor
                         htmlContent={docState.htmlContent}
                         cssContent={docState.cssContent}
