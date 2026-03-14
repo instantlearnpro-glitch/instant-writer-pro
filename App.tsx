@@ -7,8 +7,12 @@ const PageNumberModal = lazy(() => import('./components/PageNumberModal'));
 import ZoomControls from './components/ZoomControls';
 import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry } from './types';
 import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
-import { getSystemFonts, FontDefinition } from './utils/fontUtils';
+import { FontDefinition } from './utils/fontUtils';
+import { useFontManager } from './hooks/useFontManager';
+import { usePageLayout } from './hooks/usePageLayout';
 import { scanStructure } from './utils/structureScanner';
+import { exportDOCX } from './utils/docxExport';
+import { insertPageBreak } from './utils/pageBreak';
 import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from './utils/patternDetector';
 const PatternModal = lazy(() => import('./components/PatternModal'));
 const ExportModal = lazy(() => import('./components/ExportModal'));
@@ -422,7 +426,8 @@ const App: React.FC = () => {
         fileName: 'untitled_mission.html'
     });
 
-    const [availableFonts, setAvailableFonts] = useState<FontDefinition[]>(FONTS.map(f => ({ ...f, available: true })));
+    const { availableFonts, fontUploadMessage, handleReloadFonts, handleAddFont } = useFontManager();
+
     const [structureEntries, setStructureEntries] = useState<StructureEntry[]>([]);
 
     // Manual Structure Selection State
@@ -444,154 +449,13 @@ const App: React.FC = () => {
         h1?: Record<string, string>;
         h2?: Record<string, string>;
         h3?: Record<string, string>;
+        h4?: Record<string, string>;
+        h5?: Record<string, string>;
         p?: Record<string, string>;
         blockquote?: Record<string, string>;
         pre?: Record<string, string>;
     }>({});
     const savedHeadingStylesRef = useRef(savedHeadingStyles);
-
-    // Load available system fonts on mount and when web fonts are ready
-    useEffect(() => {
-        const openFontDb = () => new Promise<IDBDatabase>((resolve, reject) => {
-            const request = indexedDB.open('spywriter-fonts', 1);
-            request.onupgradeneeded = () => {
-                const db = request.result;
-                if (!db.objectStoreNames.contains('fonts')) {
-                    db.createObjectStore('fonts', { keyPath: 'name' });
-                }
-            };
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-
-        const loadFontsFromDb = async () => {
-            try {
-                const db = await openFontDb();
-                const tx = db.transaction('fonts', 'readonly');
-                const store = tx.objectStore('fonts');
-                const getAll = store.getAll();
-                return await new Promise<Array<{ name: string; dataUrl: string }>>((resolve) => {
-                    getAll.onsuccess = () => resolve(getAll.result || []);
-                    getAll.onerror = () => resolve([]);
-                });
-            } catch {
-                return [];
-            }
-        };
-
-        const loadFonts = async () => {
-            const fonts = await getSystemFonts();
-            setAvailableFonts(fonts);
-        };
-
-        loadFonts();
-
-        // Re-check when document fonts are fully loaded (handles web font latency)
-        document.fonts.ready.then(() => {
-            loadFonts();
-        });
-
-        // Restore custom fonts (localStorage + IndexedDB)
-        const storedFonts = localStorage.getItem('custom_fonts');
-        if (storedFonts) {
-            try {
-                const fonts = JSON.parse(storedFonts) as Array<{ name: string; dataUrl: string; }>
-                fonts.forEach(font => {
-                    const fontFace = new FontFace(font.name, `url(${font.dataUrl})`);
-                    fontFace.load().then(() => {
-                        document.fonts.add(fontFace);
-                        setAvailableFonts(prev => {
-                            const exists = prev.some(f => f.name.toLowerCase() === font.name.toLowerCase());
-                            if (exists) return prev;
-                            return [{ name: font.name, value: `'${font.name}', sans-serif`, available: true }, ...prev];
-                        });
-                    });
-                });
-            } catch (e) {
-                // ignore invalid storage
-            }
-        }
-
-        loadFontsFromDb().then(fonts => {
-            fonts.forEach(font => {
-                const fontFace = new FontFace(font.name, `url(${font.dataUrl})`);
-                fontFace.load().then(() => {
-                    document.fonts.add(fontFace);
-                    setAvailableFonts(prev => {
-                        const exists = prev.some(f => f.name.toLowerCase() === font.name.toLowerCase());
-                        if (exists) return prev;
-                        return [{ name: font.name, value: `'${font.name}', sans-serif`, available: true }, ...prev];
-                    });
-                });
-            });
-        });
-    }, []);
-
-
-    const handleReloadFonts = async () => {
-        const fonts = await getSystemFonts();
-        setAvailableFonts(fonts);
-    };
-
-    const handleAddFont = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const fontName = file.name.replace(/\.(ttf|otf|woff2?|)$/i, '').trim() || 'Custom Font';
-        try {
-            const buffer = await file.arrayBuffer();
-            const fontFace = new FontFace(fontName, buffer);
-            await fontFace.load();
-            document.fonts.add(fontFace);
-            setAvailableFonts(prev => {
-                const exists = prev.some(font => font.name.toLowerCase() === fontName.toLowerCase());
-                if (exists) return prev;
-                return [{ name: fontName, value: `'${fontName}', sans-serif`, available: true }, ...prev];
-            });
-
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result as string);
-                reader.onerror = () => reject(new Error('Failed to read font file'));
-                reader.readAsDataURL(file);
-            });
-
-            let savedToStorage = false;
-            try {
-                const storedFonts = localStorage.getItem('custom_fonts');
-                const list = storedFonts ? (JSON.parse(storedFonts) as Array<{ name: string; dataUrl: string }>) : [];
-                const filtered = list.filter(font => font.name.toLowerCase() !== fontName.toLowerCase());
-                filtered.unshift({ name: fontName, dataUrl });
-                localStorage.setItem('custom_fonts', JSON.stringify(filtered.slice(0, 20)));
-                savedToStorage = true;
-            } catch {
-                savedToStorage = false;
-            }
-
-            try {
-                const dbRequest = indexedDB.open('spywriter-fonts', 1);
-                dbRequest.onupgradeneeded = () => {
-                    const db = dbRequest.result;
-                    if (!db.objectStoreNames.contains('fonts')) {
-                        db.createObjectStore('fonts', { keyPath: 'name' });
-                    }
-                };
-                dbRequest.onsuccess = () => {
-                    const db = dbRequest.result;
-                    const tx = db.transaction('fonts', 'readwrite');
-                    tx.objectStore('fonts').put({ name: fontName, dataUrl });
-                };
-            } catch {
-                // ignore db errors
-            }
-
-            setFontUploadMessage(savedToStorage ? `Font loaded: ${fontName}` : `Font loaded (stored in DB): ${fontName}`);
-            window.setTimeout(() => setFontUploadMessage(''), 2500);
-        } catch (err) {
-            alert('Failed to load font file. Please try a .ttf, .otf, .woff, or .woff2 file.');
-        } finally {
-            e.target.value = '';
-        }
-    };
 
     // History State
     const [history, setHistory] = useState<DocumentState[]>([{
@@ -603,7 +467,6 @@ const App: React.FC = () => {
     const historyRef = useRef(history);
     const historyIndexRef = useRef(historyIndex);
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const marginReflowTimeoutRef = useRef<number | null>(null);
     const structureScanTimeoutRef = useRef<number | null>(null);
 
     const [selectionState, setSelectionState] = useState<SelectionState>({
@@ -666,11 +529,7 @@ const App: React.FC = () => {
 
     const [selectedFooter, setSelectedFooter] = useState<HTMLElement | null>(null);
 
-    const [pageFormatId, setPageFormatId] = useState<string>('letter');
-    const [customPageSize, setCustomPageSize] = useState<{ width: string, height: string }>({ width: '8.5in', height: '11in' });
-    const [pageMargins, setPageMargins] = useState<{ top: number, bottom: number, left: number, right: number }>({ top: 0.5, bottom: 0.5, left: 0.45, right: 0.5 });
-    const [showMarginGuides, setShowMarginGuides] = useState(false);
-    const [showSmartGuides, setShowSmartGuides] = useState(false);
+
 
     const [pageCount, setPageCount] = useState(0);
     const [currentPage, setCurrentPage] = useState(0);
@@ -679,7 +538,6 @@ const App: React.FC = () => {
     const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isAutoLogModalOpen, setIsAutoLogModalOpen] = useState(false);
-    const [fontUploadMessage, setFontUploadMessage] = useState('');
     const [isPageNumberModalOpen, setIsPageNumberModalOpen] = useState(false);
     const [pageAnchors, setPageAnchors] = useState<PageAnchor[]>([]);
 
@@ -801,6 +659,21 @@ const App: React.FC = () => {
             pushHistoryState(newState);
         }
     };
+
+    // Page layout management (page size, margins, CSS)
+    const {
+        pageFormatId, customPageSize, pageMargins,
+        showMarginGuides, setShowMarginGuides,
+        showSmartGuides, setShowSmartGuides,
+        handlePageSizeChange, handleCustomPageSizeChange, handleMarginChange,
+        updatePageCSS
+    } = usePageLayout({
+        applyLayoutOverride,
+        reflowPagesUntilStable,
+        setDocState,
+        pushHistoryState,
+        debounceTimeoutRef
+    });
 
 
     const handleUndo = () => {
@@ -1167,12 +1040,10 @@ const App: React.FC = () => {
                         });
 
                         if (matchedFormat) {
-                            setPageFormatId(matchedFormat.id);
-                            setPageMargins(matchedFormat.margins);
+                            handlePageSizeChange(matchedFormat.id);
                             importMargins = matchedFormat.margins;
                         } else {
-                            setPageFormatId('custom');
-                            setCustomPageSize({ width: targetSize.width, height: targetSize.height });
+                            handleCustomPageSizeChange(targetSize.width, targetSize.height);
                         }
                     }
 
@@ -1368,6 +1239,9 @@ const App: React.FC = () => {
         if (!element.style.color) {
             element.style.setProperty('color', '#000', 'important');
         }
+
+        // Mark the element so the Sidebar knows it has a custom synced style
+        element.setAttribute('data-custom-styled', 'true');
     };
 
     const findExistingHeadingStyles = (level: 'h1' | 'h2' | 'h3'): Record<string, string> | null => {
@@ -2613,8 +2487,12 @@ const App: React.FC = () => {
             // Apply size to elements and selection
             if (range && (!range.collapsed || selectedTextLayer)) {
                 const spansWholeBlock = targetBlock && range.toString() === targetBlock.innerText;
+                // Detect cross-block selection (e.g. triple-click on H4 extends to next P)
+                // In this case, apply at block level instead of wrapping a cross-block <span>
+                const crossesBlockBoundary = targetBlock && range.commonAncestorContainer !== targetBlock
+                    && !targetBlock.contains(range.commonAncestorContainer);
 
-                if (spansWholeBlock || selectedTextLayer) {
+                if (spansWholeBlock || selectedTextLayer || crossesBlockBoundary) {
                     if (targetBlock) {
                         lockLineHeightPx(targetBlock);
                         targetBlock.style.setProperty('font-size', sizeFinal, 'important');
@@ -3096,7 +2974,7 @@ const App: React.FC = () => {
         }
 
         // Save captured styles for inline application on future elements.
-        const validStyleTags = ['h1', 'h2', 'h3', 'p', 'blockquote', 'pre'];
+        const validStyleTags = ['h1', 'h2', 'h3', 'h4', 'h5', 'p', 'blockquote', 'pre'];
         if (selector && validStyleTags.includes(selector)) {
             setSavedHeadingStyles(prev => {
                 const next = { ...prev, [selector]: capturedStylesForSave };
@@ -3105,7 +2983,7 @@ const App: React.FC = () => {
             });
 
             // Heading elements will now also update their appearance based on user request.
-            const isTextToSync = ['h1', 'h2', 'h3', 'p', 'blockquote', 'pre'].includes(selector);
+            const isTextToSync = ['h1', 'h2', 'h3', 'h4', 'h5', 'p', 'blockquote', 'pre'].includes(selector);
             if (isTextToSync && workspace) {
                 const existingElements = Array.from(workspace.querySelectorAll(selector)) as HTMLElement[];
                 
@@ -3423,223 +3301,7 @@ const App: React.FC = () => {
 
     // --- Feature: Page Break ---
     const handlePageBreak = () => {
-        const selection = window.getSelection();
-        if (!selection || selection.rangeCount === 0) return;
-        const range = selection.getRangeAt(0);
-
-        const startNode = range.startContainer.nodeType === 1 ? range.startContainer as HTMLElement : range.startContainer.parentElement;
-        const currentPage = startNode?.closest('.page') as HTMLElement | null;
-
-        if (!currentPage) return;
-
-        const newPage = document.createElement('div');
-        newPage.className = 'page';
-        newPage.setAttribute('data-user-page-break', 'true');
-        // Also insert a dedicated child marker so getPageBreakMarker() can find it
-        // via ':scope > [data-user-page-break="true"]'. This distinguishes user-inserted
-        // page breaks from the page div attribute set during HTML import.
-        const breakChildMarker = document.createElement('div');
-        breakChildMarker.setAttribute('data-user-page-break', 'true');
-        breakChildMarker.style.cssText = 'display:none;height:0;overflow:hidden;';
-        newPage.appendChild(breakChildMarker);
-
-        const marker = document.createElement('span');
-        marker.id = 'page-break-marker-' + Date.now();
-        range.collapse(true);
-        range.insertNode(marker);
-
-        let topBlock: HTMLElement | null = marker as unknown as HTMLElement;
-        while (topBlock && topBlock.parentElement !== currentPage) {
-            topBlock = topBlock.parentElement;
-        }
-
-        if (topBlock && topBlock.parentElement === currentPage) {
-            // Edge case: cursor was positioned directly between block-level children of the page
-            // (e.g., between <p>prev</p> and <h2>Chapter 3</h2>). In this case topBlock IS the
-            // marker span itself, so the normal isAtStart/isAtEnd logic fails (no children to iterate).
-            // Fix: simply move everything after the marker to the new page.
-            const markerIsTopBlock = (topBlock as unknown as Node) === marker;
-            if (markerIsTopBlock) {
-                let nextSib: Node | null = marker.nextSibling;
-                const toMove: Node[] = [];
-                while (nextSib) {
-                    if (!(nextSib instanceof HTMLElement && nextSib.classList.contains('page-footer'))) {
-                        toMove.push(nextSib);
-                    }
-                    nextSib = nextSib.nextSibling;
-                }
-                toMove.forEach(n => newPage.appendChild(n));
-                currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
-                marker.remove();
-                const rangeNew = document.createRange();
-                if (newPage.firstChild) {
-                    rangeNew.setStart(newPage.firstChild, 0);
-                } else {
-                    rangeNew.setStart(newPage, 0);
-                }
-                rangeNew.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(rangeNew);
-                const workspace = document.querySelector('.editor-workspace');
-                if (workspace) {
-                    try { reflowPages(workspace as HTMLElement); } catch (e) { /* non-fatal */ }
-                    updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
-                }
-                return;
-            }
-
-            const isAtStart = (() => {
-                let node: Node | null = marker;
-                while (node && node !== topBlock) {
-                    if (node.previousSibling) {
-                        const prev = node.previousSibling;
-                        if (prev.nodeType === Node.TEXT_NODE && !prev.textContent?.trim()) {
-                            node = prev;
-                            continue;
-                        }
-                        return false;
-                    }
-                    node = node.parentElement;
-                }
-                return true;
-            })();
-
-            const isAtEnd = (() => {
-                let node: Node | null = marker;
-                while (node && node !== topBlock) {
-                    if (node.nextSibling) {
-                        const next = node.nextSibling;
-                        if (next.nodeType === Node.TEXT_NODE && !next.textContent?.trim()) {
-                            node = next;
-                            continue;
-                        }
-                        return false;
-                    }
-                    node = node.parentElement;
-                }
-                return true;
-            })();
-
-            if (isAtStart) {
-                let node: Node | null = topBlock;
-                const nodesToMove: Node[] = [];
-                while (node) {
-                    const next = node.nextSibling;
-                    if (node !== marker && !(node instanceof HTMLElement && node.classList.contains('page-footer'))) {
-                        nodesToMove.push(node);
-                    }
-                    node = next;
-                }
-                nodesToMove.forEach(n => newPage.appendChild(n));
-            } else if (isAtEnd) {
-                let nextSibling = topBlock.nextSibling;
-                const nodesToMove: Node[] = [];
-                while (nextSibling) {
-                    if (!(nextSibling instanceof HTMLElement && nextSibling.classList.contains('page-footer'))) {
-                        nodesToMove.push(nextSibling);
-                    }
-                    nextSibling = nextSibling.nextSibling;
-                }
-                nodesToMove.forEach(n => newPage.appendChild(n));
-            } else {
-                const remainder = topBlock.cloneNode(false) as HTMLElement;
-                if (remainder.id) remainder.id = '';
-
-                let moveMode = false;
-                const childNodes = Array.from(topBlock.childNodes);
-                for (const child of childNodes) {
-                    if (child === marker) {
-                        moveMode = true;
-                        continue;
-                    }
-                    if (moveMode) {
-                        remainder.appendChild(child);
-                    }
-                }
-
-                if (!remainder.hasChildNodes()) {
-                    const innerBlock = startNode?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page)') as HTMLElement | null;
-                    if (innerBlock && innerBlock !== topBlock && topBlock.contains(innerBlock)) {
-                        const innerRemainder = innerBlock.cloneNode(false) as HTMLElement;
-                        if (innerRemainder.id) (innerRemainder as HTMLElement).id = '';
-                        let innerMove = false;
-                        const innerNodes = Array.from(innerBlock.childNodes);
-                        for (const child of innerNodes) {
-                            if (child === marker) {
-                                innerMove = true;
-                                continue;
-                            }
-                            if (innerMove) {
-                                innerRemainder.appendChild(child);
-                            }
-                        }
-                        if (innerRemainder.hasChildNodes()) {
-                            let sibling = innerBlock.nextSibling;
-                            const siblings: Node[] = [];
-                            while (sibling) {
-                                if (!(sibling instanceof HTMLElement && sibling.classList.contains('page-footer'))) {
-                                    siblings.push(sibling);
-                                }
-                                sibling = sibling.nextSibling;
-                            }
-
-                            const outerRemainder = topBlock.cloneNode(false) as HTMLElement;
-                            if (outerRemainder.id) outerRemainder.id = '';
-                            outerRemainder.appendChild(innerRemainder);
-                            siblings.forEach(s => outerRemainder.appendChild(s));
-                            newPage.appendChild(outerRemainder);
-
-                            let afterTop = topBlock.nextSibling;
-                            const afterNodes: Node[] = [];
-                            while (afterTop) {
-                                if (!(afterTop instanceof HTMLElement && afterTop.classList.contains('page-footer'))) {
-                                    afterNodes.push(afterTop);
-                                }
-                                afterTop = afterTop.nextSibling;
-                            }
-                            afterNodes.forEach(n => newPage.appendChild(n));
-                        }
-                    }
-                } else {
-                    newPage.appendChild(remainder);
-                    let nextSibling = topBlock.nextSibling;
-                    const nodesToMove: Node[] = [];
-                    while (nextSibling) {
-                        if (!(nextSibling instanceof HTMLElement && nextSibling.classList.contains('page-footer'))) {
-                            nodesToMove.push(nextSibling);
-                        }
-                        nextSibling = nextSibling.nextSibling;
-                    }
-                    nodesToMove.forEach(n => newPage.appendChild(n));
-                }
-            }
-
-            currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
-            marker.remove();
-        } else {
-            currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
-            marker.remove();
-        }
-
-        const rangeNew = document.createRange();
-        if (newPage.firstChild) {
-            rangeNew.setStart(newPage.firstChild, 0);
-        } else {
-            rangeNew.setStart(newPage, 0);
-        }
-        rangeNew.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(rangeNew);
-
-        const workspace = document.querySelector('.editor-workspace');
-        if (workspace) {
-            try {
-                reflowPages(workspace as HTMLElement);
-            } catch (e) {
-                console.warn('[handlePageBreak] reflowPages error (non-fatal):', e);
-            }
-            updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
-        }
+        insertPageBreak({ docState, updateDocState });
     };
 
 
@@ -3987,70 +3649,6 @@ const App: React.FC = () => {
         setIsPageNumberModalOpen(false);
     };
 
-    const updatePageCSS = (width: string, height: string, margins: { top: number, bottom: number, left: number, right: number }) => {
-        // Use functional update so rapid dragging always has the latest CSS content, avoiding stale closure bugs
-        setDocState(prev => {
-            const updatedCss = applyLayoutOverride(prev.cssContent, width, height, margins);
-            return { ...prev, cssContent: updatedCss };
-        });
-
-        if (marginReflowTimeoutRef.current) {
-            clearTimeout(marginReflowTimeoutRef.current);
-        }
-        marginReflowTimeoutRef.current = window.setTimeout(() => {
-            const workspace = document.querySelector('.editor-workspace');
-            if (workspace) {
-                reflowPagesUntilStable(workspace as HTMLElement, { pullUp: true });
-            }
-            // Save to history once drag is completed (or paused) rather than 60 times a second
-            setDocState(prev => {
-                if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
-                pushHistoryState(prev);
-                return prev;
-            });
-        }, 300);
-    };
-
-    const handlePageSizeChange = (formatId: string) => {
-        setPageFormatId(formatId);
-
-        const format = Object.values(PAGE_FORMATS).find(f => f.id === formatId);
-        if (!format) return;
-
-        // Update margins to format defaults
-        setPageMargins(format.margins);
-
-        if (formatId === 'custom') {
-            updatePageCSS(customPageSize.width, customPageSize.height, format.margins);
-        } else {
-            updatePageCSS(format.width, format.height, format.margins);
-        }
-    };
-
-    const handleCustomPageSizeChange = (width: string, height: string) => {
-        setCustomPageSize({ width, height });
-        if (pageFormatId === 'custom') {
-            // Append 'in' if the user types a raw number so CSS doesn't break
-            const validWidth = /^\d+(\.\d+)?$/.test(width) ? `${width}in` : width;
-            const validHeight = /^\d+(\.\d+)?$/.test(height) ? `${height}in` : height;
-            updatePageCSS(validWidth || '8.5in', validHeight || '11in', pageMargins);
-        }
-    };
-
-    const handleMarginChange = (key: keyof typeof pageMargins, value: number) => {
-        // Use functional update so subsequent calls in the same frame don't overwrite each other with stale margins
-        setPageMargins(prev => {
-            const newMargins = { ...prev, [key]: value };
-
-            const format = Object.values(PAGE_FORMATS).find(f => f.id === pageFormatId);
-            const width = pageFormatId === 'custom' ? customPageSize.width : (format?.width || '8.5in');
-            const height = pageFormatId === 'custom' ? customPageSize.height : (format?.height || '11in');
-
-            updatePageCSS(width, height, newMargins);
-
-            return newMargins;
-        });
-    };
 
     // --- HR (Horizontal Rule) Selection & Logic ---
     const handleHRSelect = (hr: HTMLHRElement | null) => {
@@ -4419,408 +4017,10 @@ ${workspace.innerHTML}
         });
     };
 
-    // Helper function to inline computed styles for export
-    const inlineComputedStyles = (element: HTMLElement) => {
-        const allElements = element.querySelectorAll('*');
-
-        allElements.forEach((el) => {
-            if (el instanceof HTMLElement) {
-                const computed = window.getComputedStyle(el);
-                const originalEl = document.querySelector(`.editor-workspace ${el.tagName.toLowerCase()}[class="${el.className}"]`) as HTMLElement;
-
-                // Copy key style properties
-                const propsToInline = [
-                    'font-family', 'font-size', 'font-weight', 'font-style',
-                    'color', 'background-color', 'text-align', 'line-height',
-                    'margin', 'padding', 'border', 'border-radius',
-                    'width', 'height', 'max-width', 'min-width',
-                    'display', 'position', 'top', 'bottom', 'left', 'right',
-                    'text-transform', 'letter-spacing', 'text-decoration'
-                ];
-
-                propsToInline.forEach(prop => {
-                    const value = computed.getPropertyValue(prop);
-                    if (value && value !== 'initial' && value !== 'normal') {
-                        el.style.setProperty(prop, value);
-                    }
-                });
-
-                // Handle images specifically
-                if (el.tagName === 'IMG') {
-                    const img = el as HTMLImageElement;
-                    if (originalEl) {
-                        const origImg = originalEl as HTMLImageElement;
-                        img.style.width = `${origImg.offsetWidth}px`;
-                        img.style.height = `${origImg.offsetHeight}px`;
-                    }
-                    img.style.maxWidth = '100%';
-                    img.style.height = 'auto';
-                }
-            }
-        });
-    };
-
     const handleExportDOCX = async (fileName: string, onProgress?: (percent: number) => void) => {
-        if (!window.html2canvas) {
-            alert('DOCX export requires html2canvas to be loaded.');
-            return;
-        }
-
-        console.log('[DOCX Export] Starting native export for:', fileName);
-        onProgress?.(0);
-
-        // --- Find visible workspace pages ---
-        const workspace = document.querySelector('.editor-workspace');
-        if (!workspace) {
-            alert('Workspace not found.');
-            return;
-        }
-
-        const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
-        if (pages.length === 0) {
-            alert('No pages found to export.');
-            return;
-        }
-
-        console.log('[DOCX Export] Found', pages.length, 'pages');
-
-        // --- Temporarily clean up editor UI elements ---
-        const removedElements: { parent: Node; element: Node; nextSibling: Node | null }[] = [];
-        const editorSelectors = '.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides';
-
-        workspace.querySelectorAll(editorSelectors).forEach(el => {
-            if (el.parentNode) {
-                removedElements.push({ parent: el.parentNode, element: el, nextSibling: el.nextSibling });
-                el.parentNode.removeChild(el);
-            }
-        });
-
-        const selectedEls = workspace.querySelectorAll('[data-selected]');
-        selectedEls.forEach(el => el.removeAttribute('data-selected'));
-        const multiSelectedEls = workspace.querySelectorAll('[data-multi-selected]');
-        multiSelectedEls.forEach(el => el.removeAttribute('data-multi-selected'));
-
-        const overflowFixedElements: { el: HTMLElement; originalOverflow: string }[] = [];
-        pages.forEach(page => {
-            overflowFixedElements.push({ el: page, originalOverflow: page.style.overflow });
-            page.style.overflow = 'visible';
-            page.querySelectorAll('*').forEach(child => {
-                const el = child as HTMLElement;
-                const computed = window.getComputedStyle(el);
-                if (computed.overflow === 'hidden' || computed.overflowX === 'hidden' || computed.overflowY === 'hidden') {
-                    overflowFixedElements.push({ el, originalOverflow: el.style.overflow });
-                    el.style.overflow = 'visible';
-                }
-            });
-        });
-
-        // Convert CSS colors to Hex for DOCX
-        const parseColorToHex = (colorString: string): string | undefined => {
-            if (!colorString || colorString === 'transparent' || colorString === 'rgba(0, 0, 0, 0)') return undefined;
-            if (colorString.startsWith('#')) return colorString.replace('#', '');
-            const rgb = colorString.match(/\d+/g);
-            if (rgb && rgb.length >= 3) {
-                return ((1 << 24) + (parseInt(rgb[0]) << 16) + (parseInt(rgb[1]) << 8) + parseInt(rgb[2])).toString(16).slice(1).toUpperCase();
-            }
-            return undefined;
-        };
-
-        const cssPxToHalfPoint = (px: string): number => {
-            if (!px) return 24; // default 12pt
-            const num = parseFloat(px);
-            if (isNaN(num)) return 24;
-            if (px.includes('pt')) return Math.round(num * 2);
-            return Math.round(num * 0.75 * 2); // px to pt to half-points
-        };
-
-        const cssToTwip = (px: string): number => {
-            if (!px) return 0;
-            const num = parseFloat(px);
-            if (isNaN(num)) return 0;
-            if (px.includes('pt')) return Math.round(num * 20); // 1pt = 20 twips
-            if (px.includes('in')) return Math.round(num * 1440); // 1in = 1440 twips
-            return Math.round(num * 15); // 1px = 15 twips
-        };
-
-        const getSpacingOption = (computed: CSSStyleDeclaration) => {
-            const spacing: { after?: number; line?: number; lineRule?: 'atLeast' | 'exactly' | 'auto' } = {};
-            const mb = cssToTwip(computed.marginBottom);
-            if (mb > 0) spacing.after = mb;
-
-            const lh = computed.lineHeight;
-            if (lh === 'normal') {
-                spacing.line = 240 * 1.5; // Default word normal is often 1.15, but writer app defaults to 1.5
-            } else if (lh.includes('px') || lh.includes('pt')) {
-                spacing.line = cssToTwip(lh);
-            } else if (!isNaN(parseFloat(lh))) {
-                spacing.line = Math.round(parseFloat(lh) * 240); // Multiplier (e.g. 1.5 * 240)
-            }
-            return Object.keys(spacing).length > 0 ? spacing : undefined;
-        };
-
-        const renderElementAsImageRun = async (el: HTMLElement): Promise<Paragraph | null> => {
-            try {
-                const scale = 1.5; // lower scale to save memory for huge books
-                const canvas = await window.html2canvas(el, {
-                    scale, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false,
-                });
-
-                // Get buffer array from canvas
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.85); // jpeg is much smaller than png
-                const base64Data = dataUrl.split(',')[1];
-                const uint8Array = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-
-                // Max width available in DOCX considering 0.6in margins on 8.5in page = 7.3in = ~700px
-                const maxDocxWidth = 650;
-                // Scale up image to fill page width if it's close, or just use natural size up to maxDocxWidth
-                let widthPx = Math.min(Math.round(canvas.width), maxDocxWidth);
-                if (el.offsetWidth > 400 || el.tagName === 'TABLE') {
-                    widthPx = maxDocxWidth; // Force full width for large blocks/tables
-                }
-                const heightPx = Math.round(canvas.height * (widthPx / canvas.width));
-
-                return new Paragraph({
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 240 }, // Added space below images
-                    children: [
-                        new ImageRun({
-                            type: 'jpg',
-                            data: uint8Array,
-                            transformation: { width: widthPx, height: heightPx },
-                        })
-                    ]
-                });
-            } catch (e) {
-                console.error('[DOCX Export] Error rendering element as image:', e);
-                return null;
-            }
-        };
-
-        const shouldRenderAsImage = (el: HTMLElement): boolean => {
-            const classList = el.classList;
-            const computed = window.getComputedStyle(el);
-            const hasBgImage = computed.backgroundImage && computed.backgroundImage !== 'none';
-            const hasBgColor = computed.backgroundColor && computed.backgroundColor !== 'transparent' && computed.backgroundColor !== 'rgba(0, 0, 0, 0)' && computed.backgroundColor !== 'rgb(255, 255, 255)';
-            const hasBorder = computed.borderStyle && computed.borderStyle !== 'none';
-            const hasBorderRadius = computed.borderRadius && computed.borderRadius !== '0px';
-
-            if (classList.contains('tracing-line') || classList.contains('writing-lines') || classList.contains('toc-container') || classList.contains('toc-table')) return true;
-            if (el.tagName === 'TABLE') return true;
-            if (hasBgImage) return true;
-            if ((hasBgColor || hasBorder) && hasBorderRadius) return true;
-            if (computed.display === 'flex' || computed.display === 'grid') {
-                const isSimpleText = el.children.length <= 1 && !el.querySelector('img, table, svg');
-                if (!isSimpleText) return true;
-            }
-            return false;
-        };
-
-        const parseTextNodeStyles = (el: HTMLElement, text: string): TextRun => {
-            const computed = window.getComputedStyle(el);
-            const isBold = computed.fontWeight === 'bold' || parseInt(computed.fontWeight) >= 600 || el.tagName === 'B' || el.tagName === 'STRONG';
-            const isItalic = computed.fontStyle === 'italic' || el.tagName === 'I' || el.tagName === 'EM';
-            const isUnderline = computed.textDecoration.includes('underline') || el.tagName === 'U';
-            const sizeString = computed.fontSize;
-
-            return new TextRun({
-                text: text,
-                bold: isBold,
-                italics: isItalic,
-                underline: isUnderline ? {} : undefined,
-                color: parseColorToHex(computed.color),
-                size: cssPxToHalfPoint(sizeString),
-                font: computed.fontFamily.split(',')[0].replace(/['"]/g, ''),
-                shading: parseColorToHex(computed.backgroundColor) ? {
-                    type: "solid",
-                    color: parseColorToHex(computed.backgroundColor)
-                } : undefined
-            });
-        };
-
-        // Recursively build docx sub-elements (TextRuns)
-        const processInlineChildren = (el: Node, inheritedStyles?: CSSStyleDeclaration): TextRun[] => {
-            let runs: TextRun[] = [];
-            for (const child of Array.from(el.childNodes)) {
-                if (child.nodeType === Node.TEXT_NODE) {
-                    let text = child.textContent;
-                    if (text) {
-                        const computed = window.getComputedStyle(el as HTMLElement);
-                        if (computed.whiteSpace !== 'pre' && computed.whiteSpace !== 'pre-wrap') {
-                            text = text.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
-                        }
-                        runs.push(parseTextNodeStyles(el as HTMLElement, text));
-                    }
-                } else if (child.nodeType === Node.ELEMENT_NODE) {
-                    const childEl = child as HTMLElement;
-                    if (childEl.tagName === 'BR') {
-                        runs.push(new TextRun({ break: 1 }));
-                    } else {
-                        runs = runs.concat(processInlineChildren(childEl));
-                    }
-                }
-            }
-            return runs;
-        };
-
-        // Build top-level document structure
-        const docChildren: any[] = [];
-
-        try {
-            let wasLastParagraphEmpty = false;
-
-            for (let i = 0; i < pages.length; i++) {
-                const pct = Math.round((i / pages.length) * 90);
-                onProgress?.(pct);
-                console.log(`[DOCX Export] Processing page ${i + 1}/${pages.length}... (${pct}%)`);
-
-                await new Promise(resolve => setTimeout(resolve, 10));
-
-                const page = pages[i];
-
-                // Process elements in page
-                const topLevelElements = Array.from(page.children);
-                for (const child of topLevelElements) {
-                    const el = child as HTMLElement;
-                    if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT' || el.classList.contains('page-footer')) continue;
-
-                    if (shouldRenderAsImage(el)) {
-                        const imgPara = await renderElementAsImageRun(el);
-                        if (imgPara) docChildren.push(imgPara);
-                        continue;
-                    }
-
-                    if (el.tagName === 'IMG') {
-                        const img = el as HTMLImageElement;
-                        try {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = img.naturalWidth || img.width || 300;
-                            canvas.height = img.naturalHeight || img.height || 300;
-                            const ctx = canvas.getContext('2d');
-                            if (ctx) {
-                                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                                const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
-                                const uint8Array = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-                                docChildren.push(new Paragraph({
-                                    alignment: AlignmentType.CENTER,
-                                    spacing: { after: 240 }, // Added space below images
-                                    children: [
-                                        new ImageRun({
-                                            type: 'jpg',
-                                            data: uint8Array,
-                                            transformation: { width: Math.min(canvas.width, 650), height: Math.min(canvas.height, Math.round(canvas.height * (650 / canvas.width))) }
-                                        })
-                                    ]
-                                }));
-                            }
-                        } catch (e) { }
-                        continue;
-                    }
-
-                    const computed = window.getComputedStyle(el);
-                    let alignment: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.LEFT;
-                    if (computed.textAlign === 'center') alignment = AlignmentType.CENTER;
-                    if (computed.textAlign === 'right') alignment = AlignmentType.RIGHT;
-                    if (computed.textAlign === 'justify') alignment = AlignmentType.JUSTIFIED;
-
-                    const inlineRuns = processInlineChildren(el);
-
-                    const isWhitespaceOnly = !el.textContent || !el.textContent.trim();
-                    // Skip multiple consecutive empty paragraphs
-                    if (isWhitespaceOnly && el.tagName !== 'IMG' && !shouldRenderAsImage(el)) {
-                        if (wasLastParagraphEmpty) continue;
-                        wasLastParagraphEmpty = true;
-                    } else {
-                        wasLastParagraphEmpty = false;
-                    }
-
-                    if (inlineRuns.length > 0 || isWhitespaceOnly) {
-                        let wantsPageBreak = computed.pageBreakBefore === 'always' || computed.breakBefore === 'always' || computed.breakBefore === 'page';
-                        let headingLevel = undefined;
-                        let lineSpacingMultiplier = undefined;
-
-                        if (el.tagName === 'H1') { headingLevel = HeadingLevel.HEADING_1; lineSpacingMultiplier = 1.1; wantsPageBreak = true; }
-                        if (el.tagName === 'H2') { headingLevel = HeadingLevel.HEADING_2; lineSpacingMultiplier = 1.15; wantsPageBreak = true; }
-                        if (el.tagName === 'H3') { headingLevel = HeadingLevel.HEADING_3; lineSpacingMultiplier = 1.15; }
-                        if (el.tagName === 'H4') { headingLevel = HeadingLevel.HEADING_4; lineSpacingMultiplier = 1.15; }
-                        if (el.tagName === 'H5') { headingLevel = HeadingLevel.HEADING_5; lineSpacingMultiplier = 1.15; }
-                        if (el.tagName === 'H6') { headingLevel = HeadingLevel.HEADING_6; lineSpacingMultiplier = 1.15; }
-
-                        const spacing = getSpacingOption(computed);
-                        let indent = undefined;
-                        const indentTwip = cssToTwip(computed.textIndent);
-                        if (indentTwip > 0) {
-                            indent = { firstLine: indentTwip };
-                        }
-
-                        // Apply tighter line spacing for headings if not explicitly set
-                        if (headingLevel && spacing && (!spacing.line || spacing.line > 240 * 1.2)) {
-                            spacing.line = Math.round(240 * (lineSpacingMultiplier || 1.15));
-                        }
-
-                        // Insert an editable PageBreak before the element, except if it's the very first element in the document
-                        if (wantsPageBreak && docChildren.length > 0) {
-                            docChildren.push(new Paragraph({ children: [new PageBreak()] }));
-                        }
-
-                        docChildren.push(new Paragraph({
-                            children: inlineRuns,
-                            alignment: alignment,
-                            heading: headingLevel,
-                            spacing: spacing || { after: 120 },
-                            indent: indent
-                        }));
-                    }
-                }
-            }
-
-            onProgress?.(95);
-            console.log('[DOCX Export] Building DOCX file...');
-
-            const doc = new Document({
-                sections: [{
-                    properties: {
-                        page: {
-                            margin: {
-                                top: convertInchesToTwip(0.6),
-                                right: convertInchesToTwip(0.6),
-                                bottom: convertInchesToTwip(0.6),
-                                left: convertInchesToTwip(0.6),
-                            },
-                            size: {
-                                width: convertInchesToTwip(8.5),
-                                height: convertInchesToTwip(11),
-                            }
-                        }
-                    },
-                    children: docChildren
-                }]
-            });
-
-            const docxBlob = await Packer.toBlob(doc);
-            console.log('[DOCX Export] DOCX blob size:', docxBlob.size, 'bytes');
-
-            saveAs(docxBlob, `${fileName}.docx`);
-
-            onProgress?.(100);
-            console.log('[DOCX Export] Download triggered successfully');
-
-        } catch (err: unknown) {
-            console.error('[DOCX Export] Error:', err);
-            alert(`An error occurred during DOCX export:\n${err instanceof Error ? err.message : String(err)}\n\nPlease check the console for more details.`);
-        } finally {
-            overflowFixedElements.forEach(({ el, originalOverflow }) => {
-                el.style.overflow = originalOverflow;
-            });
-            removedElements.forEach(({ parent, element, nextSibling }) => {
-                if (nextSibling) {
-                    parent.insertBefore(element, nextSibling);
-                } else {
-                    parent.appendChild(element);
-                }
-            });
-            console.log('[DOCX Export] Cleanup complete');
-        }
+        await exportDOCX(fileName, onProgress);
     };
+
 
     const scrollToPage = (pageIndex: number) => {
         setCurrentPage(pageIndex);
@@ -5069,8 +4269,6 @@ ${workspace.innerHTML}
                 const workspace = document.querySelector('.editor-workspace');
                 if (workspace) {
                     const sig = getElementSignature(element, true);
-
-                    // Find similar items that are currently in the TOC or auto-detected
                     const rawMatches = findSimilarElements(sig, null, workspace as HTMLElement, true);
 
                     const filteredMatches = rawMatches.filter(match => {

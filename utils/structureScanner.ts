@@ -40,6 +40,7 @@ export const scanStructure = (workspace: HTMLElement): { entries: StructureEntry
     // We only care about H1, H2, H3 for structure mostly
     ['h1', 'h2', 'h3'].forEach(tag => {
         const exemplar = workspace.querySelector(tag) as HTMLElement;
+
         if (exemplar) {
             const style = window.getComputedStyle(exemplar);
             referenceStyles.push({
@@ -167,7 +168,8 @@ export const scanStructure = (workspace: HTMLElement): { entries: StructureEntry
             text: c.text,
             page: c.page,
             type: type,
-            status: existingStatus
+            status: existingStatus,
+            hasCustomStyle: c.element.getAttribute('data-custom-styled') === 'true'
         });
     });
 

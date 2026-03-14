@@ -96,4 +96,5 @@ export interface StructureEntry {
   type: string; // 'h1', 'h2', 'style-match', etc.
   status: StructureStatus;
   context?: string; // Snippet of text for context
+  hasCustomStyle?: boolean; // True if it has the data-custom-styled attribute
 }

@@ -8,6 +8,16 @@ interface SidebarProps {
     currentPage: number;
     onPageSelect: (pageIndex: number) => void;
     structureEntries: StructureEntry[];
+    savedHeadingStyles: {
+        h1?: Record<string, string>;
+        h2?: Record<string, string>;
+        h3?: Record<string, string>;
+        h4?: Record<string, string>;
+        h5?: Record<string, string>;
+        p?: Record<string, string>;
+        blockquote?: Record<string, string>;
+        pre?: Record<string, string>;
+    };
     selectionMode: { active: boolean; level: string | null; selectedIds: string[] };
     onStartSelection: (level: string) => void;
     onConfirmSelection: () => void;
@@ -30,6 +40,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     currentPage,
     onPageSelect,
     structureEntries,
+    savedHeadingStyles,
     selectionMode,
     onStartSelection,
     onConfirmSelection,
@@ -51,6 +62,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         { id: 'h1', label: 'Heading 1' },
         { id: 'h2', label: 'Heading 2' },
         { id: 'h3', label: 'Heading 3' },
+        { id: 'h4', label: 'Heading 4' },
+        { id: 'h5', label: 'Heading 5' },
     ];
 
     return (
@@ -199,29 +212,54 @@ const Sidebar: React.FC<SidebarProps> = ({
                                         .filter(e => e.status !== 'rejected')
                                         .sort((a, b) => a.page - b.page) // Sort by page number
                                         .map((entry, idx) => {
-                                            // Determine indent based on type
-                                            let indent = 'ml-0';
-                                            let fontSize = 'text-sm font-semibold';
-                                            if (entry.type.includes('h2')) { indent = 'ml-4'; fontSize = 'text-xs font-medium text-gray-600'; }
-                                            if (entry.type.includes('h3')) { indent = 'ml-8'; fontSize = 'text-[11px] text-gray-500'; }
+                                            // Determine indent, font style and badge based on heading level
+                                            let indentPx = 0;    // px left margin
+                                            let textClass = 'text-[13px] font-bold text-gray-900';
+                                            let badgeBg = '#8d55f1';
+                                            let badgeText = '#fff';
+                                            let tagLabel = 'H1';
+
+                                            if (entry.type.includes('h2')) {
+                                                indentPx = 12; textClass = 'text-xs font-semibold text-gray-700';
+                                                badgeBg = '#a97cf5'; badgeText = '#fff'; tagLabel = 'H2';
+                                            }
+                                            if (entry.type.includes('h3')) {
+                                                indentPx = 24; textClass = 'text-[11px] font-medium text-gray-600';
+                                                badgeBg = '#c4a8f7'; badgeText = '#fff'; tagLabel = 'H3';
+                                            }
+                                            if (entry.type.includes('h4')) {
+                                                indentPx = 36; textClass = 'text-[11px] font-normal text-gray-500';
+                                                badgeBg = '#d4d4d8'; badgeText = '#52525b'; tagLabel = 'H4';
+                                            }
+                                            if (entry.type.includes('h5')) {
+                                                indentPx = 48; textClass = 'text-[10px] font-normal text-gray-400';
+                                                badgeBg = '#e4e4e7'; badgeText = '#71717a'; tagLabel = 'H5';
+                                            }
 
                                             return (
                                                 <div
                                                     key={`${entry.id}-${entry.page}-${idx}`}
-                                                    className={`group flex items-center justify-between p-1.5 rounded hover:bg-brand-50 cursor-pointer transition-colors ${indent}`}
+                                                    className="group flex items-center justify-between py-1 px-1.5 rounded hover:bg-brand-50 cursor-pointer transition-colors"
+                                                    style={{ marginLeft: `${indentPx}px` }}
                                                     onClick={() => {
                                                         onNavigateToEntry(entry.elementId);
                                                         onPageSelect(Math.max(0, entry.page - 1));
                                                     }}
                                                 >
-                                                    <div className="flex items-baseline gap-2 overflow-hidden">
-                                                        <span className={`${fontSize} truncate`}>{entry.text}</span>
+                                                    <div className="flex items-center gap-1.5 overflow-hidden min-w-0">
+                                                        <span
+                                                            className="text-[8px] font-bold px-1 py-0.5 rounded flex-shrink-0 leading-none"
+                                                            style={{ backgroundColor: badgeBg, color: badgeText }}
+                                                        >
+                                                            {tagLabel}
+                                                        </span>
+                                                        <span className={`${textClass} truncate`}>{entry.text}</span>
                                                     </div>
                                                     <div className="flex items-center gap-2 flex-shrink-0">
                                                         <span className="text-[9px] text-gray-400 font-mono">p.{entry.page}</span>
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); onUpdateEntryStatus(entry.id, 'rejected'); }}
-                                                            className="text-brand-600 hover:text-brand-700 transition-colors"
+                                                            className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
                                                             title="Remove from TOC"
                                                         >
                                                             <X size={12} />
