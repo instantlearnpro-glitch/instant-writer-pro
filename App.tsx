@@ -250,13 +250,14 @@ const scopeImportedCss = (css: string, scopeSelector = '.editor-workspace') => {
         // If the imported CSS targets the page container, strip out fixed dimensions
         // because we want our `applyLayoutOverride` to control the physical page size.
         if (scopedSelectors.includes('.page')) {
-            // Use negative lookbehind to match standalone properties only.
-            // Without this, /width:/ also matches inside max-width, border-width, etc.
-            // and /height:/ matches inside line-height, corrupting the CSS rule.
-            body = body.replace(/(?<![a-z-])width\s*:\s*[^;]+;?/gi, '')
-                .replace(/(?<![a-z-])height\s*:\s*[^;]+;?/gi, '')
-                .replace(/(?<![a-z-])min-height\s*:\s*[^;]+;?/gi, '')
-                .replace(/(?<![a-z-])max-height\s*:\s*[^;]+;?/gi, '');
+            // Strip standalone width/height properties but NOT compound ones
+            // (line-height, max-width, border-width, etc.)
+            // Uses (^|[;\s{]) to match only when preceded by start/semicolon/whitespace/brace
+            // — avoids lookbehind which isn't supported in Safari/WKWebView.
+            body = body.replace(/(^|[;\s{])width\s*:\s*[^;]+;?/gi, '$1')
+                .replace(/(^|[;\s{])height\s*:\s*[^;]+;?/gi, '$1')
+                .replace(/(^|[;\s{])min-height\s*:\s*[^;]+;?/gi, '$1')
+                .replace(/(^|[;\s{])max-height\s*:\s*[^;]+;?/gi, '$1');
         }
 
         return `${scopedSelectors} { ${body} }`;
