@@ -29,6 +29,22 @@ img {
     transition: filter 0.2s ease;
 }
 
+/* Side-by-side image rows — created by dragging images next to each other */
+.image-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    width: 100%;
+    margin: 0.5em 0;
+}
+.image-row > img {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 100%;
+    height: auto;
+    object-fit: cover;
+}
+
 /* Style for broken images - visible to user so they can click to fix */
 img:not([src]), img[src=""], img.broken-image {
     display: inline-block;

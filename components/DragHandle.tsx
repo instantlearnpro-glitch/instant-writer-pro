@@ -9,11 +9,17 @@ interface DragHandleProps {
   onAction?: (type: ActionType, element: HTMLElement) => void;
 }
 
+const MAX_ROW_IMAGES = 3;
+
 const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmartGuides, onUpdate, onAction }) => {
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
   const startPos = useRef({ x: 0, y: 0, elementTop: 0, elementLeft: 0, width: 0, height: 0 });
   const isDraggingRef = useRef(false);
-  const dropTargetRef = useRef<{ element: HTMLElement; isAbove: boolean } | null>(null);
+  const dropTargetRef = useRef<{
+    element: HTMLElement;
+    isAbove: boolean;
+    horizontal?: 'left' | 'right' | null;
+  } | null>(null);
 
   useEffect(() => {
     updatePosition();
@@ -42,6 +48,26 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
     });
   };
 
+  // ---- Helpers for image-row logic ----
+
+  /** Count images in an .image-row (or 0 if not in one) */
+  const countRowImages = (el: HTMLElement): number => {
+    const row = el.closest('.image-row');
+    if (!row) return 0;
+    return row.querySelectorAll(':scope > img').length;
+  };
+
+  /** Check if an image target can accept another image beside it */
+  const canAcceptHorizontal = (targetImg: HTMLElement): boolean => {
+    const row = targetImg.closest('.image-row');
+    if (row) {
+      return row.querySelectorAll(':scope > img').length < MAX_ROW_IMAGES;
+    }
+    return true; // standalone image — can always create a new row
+  };
+
+  // ---- Drag start ----
+
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -56,13 +82,15 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       height: position.height
     };
 
-    // Add visual feedback to dragged element
+    // Visual feedback
     element.style.opacity = '0.5';
+
+    const isSourceImg = element.tagName === 'IMG';
 
     const onMove = (e: MouseEvent) => {
       if (!isDraggingRef.current) return;
 
-      // Find the element we're dragging over
+      // Find the element under the cursor
       const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
       let targetBlock: Element | undefined;
 
@@ -71,36 +99,71 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
         if (el.classList.contains('drag-handle')) continue;
         if (el.closest('.drag-handle')) continue;
 
-        const match = el.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, hr, img, table');
+        const match = el.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace):not(.image-row), blockquote, li, hr, img, table');
         if (match && match !== element) {
           targetBlock = match;
           break;
         }
       }
 
-      // Remove old indicator
+      // Remove old indicators
       document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
 
       if (targetBlock) {
         const targetRect = targetBlock.getBoundingClientRect();
-        const isAbove = e.clientY < targetRect.top + targetRect.height / 2;
+        const isTargetImg = targetBlock.tagName === 'IMG';
 
-        dropTargetRef.current = { element: targetBlock as HTMLElement, isAbove };
+        // Determine drop direction: horizontal for image-on-image, vertical otherwise
+        let horizontal: 'left' | 'right' | null = null;
 
-        // Visual indicator
-        const indicator = document.createElement('div');
-        indicator.className = 'drop-indicator';
-        indicator.style.cssText = `
-          height: 4px;
-          background: #8d55f1;
-          margin: 4px 0;
-          border-radius: 2px;
-        `;
+        if (isSourceImg && isTargetImg && canAcceptHorizontal(targetBlock as HTMLElement)) {
+          // Check if cursor is in the left/right edge zones (30% each side)
+          const relX = (e.clientX - targetRect.left) / targetRect.width;
+          if (relX < 0.35) {
+            horizontal = 'left';
+          } else if (relX > 0.65) {
+            horizontal = 'right';
+          }
+          // If relX is in the middle 30%, fall through to vertical behavior
+        }
 
-        if (isAbove) {
-          targetBlock.parentNode?.insertBefore(indicator, targetBlock);
+        if (horizontal) {
+          // Horizontal drop: show vertical bar on left/right of the target image
+          dropTargetRef.current = { element: targetBlock as HTMLElement, isAbove: false, horizontal };
+
+          const indicator = document.createElement('div');
+          indicator.className = 'drop-indicator';
+          indicator.style.cssText = `
+            position: absolute;
+            width: 4px;
+            background: #8d55f1;
+            border-radius: 2px;
+            pointer-events: none;
+            z-index: 9999;
+            top: ${targetRect.top}px;
+            height: ${targetRect.height}px;
+            left: ${horizontal === 'left' ? targetRect.left - 3 : targetRect.right - 1}px;
+          `;
+          document.body.appendChild(indicator);
         } else {
-          targetBlock.parentNode?.insertBefore(indicator, targetBlock.nextSibling);
+          // Vertical drop: standard above/below
+          const isAbove = e.clientY < targetRect.top + targetRect.height / 2;
+          dropTargetRef.current = { element: targetBlock as HTMLElement, isAbove, horizontal: null };
+
+          const indicator = document.createElement('div');
+          indicator.className = 'drop-indicator';
+          indicator.style.cssText = `
+            height: 4px;
+            background: #8d55f1;
+            margin: 4px 0;
+            border-radius: 2px;
+          `;
+
+          if (isAbove) {
+            targetBlock.parentNode?.insertBefore(indicator, targetBlock);
+          } else {
+            targetBlock.parentNode?.insertBefore(indicator, targetBlock.nextSibling);
+          }
         }
       } else {
         dropTargetRef.current = null;
@@ -117,14 +180,23 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       // Remove indicators
       document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
 
-      // Move element to drop target
+      // Execute drop
       if (dropTargetRef.current) {
-        const { element: target, isAbove } = dropTargetRef.current;
+        const { element: target, isAbove, horizontal } = dropTargetRef.current;
         if (target !== element) {
-          if (isAbove) {
-            target.parentNode?.insertBefore(element, target);
+          if (horizontal) {
+            // HORIZONTAL DROP: place image next to target in a row
+            this_handleHorizontalDrop(target, horizontal);
           } else {
-            target.parentNode?.insertBefore(element, target.nextSibling);
+            // VERTICAL DROP: standard above/below reorder
+            // First: unwrap from any existing .image-row if leaving
+            this_unwrapFromRow(element);
+
+            if (isAbove) {
+              target.parentNode?.insertBefore(element, target);
+            } else {
+              target.parentNode?.insertBefore(element, target.nextSibling);
+            }
           }
           onAction?.('move', element);
           onUpdate();
@@ -139,6 +211,78 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
     document.addEventListener('mouseup', onEnd);
   };
 
+  /** Handle dropping an image to the left/right of another image */
+  const this_handleHorizontalDrop = (target: HTMLElement, side: 'left' | 'right') => {
+    const sourceRow = element.closest('.image-row');
+    const targetRow = target.closest('.image-row');
+
+    // Remove from old row first (if any)
+    if (sourceRow) {
+      // Don't re-add if already in same row right next to target—just reorder
+      if (sourceRow === targetRow) {
+        // Reorder within the same row
+        if (side === 'left') {
+          targetRow!.insertBefore(element, target);
+        } else {
+          targetRow!.insertBefore(element, target.nextSibling);
+        }
+        return;
+      }
+      // Remove from old row, clean up if empty
+      element.remove();
+      cleanupRow(sourceRow as HTMLElement);
+    }
+
+    if (targetRow) {
+      // Target is already in a row — add to it (already checked max in canAcceptHorizontal)
+      if (side === 'left') {
+        targetRow.insertBefore(element, target);
+      } else {
+        targetRow.insertBefore(element, target.nextSibling);
+      }
+    } else {
+      // Target is a standalone image — create a new .image-row
+      const row = document.createElement('div');
+      row.className = 'image-row';
+
+      // Insert the row where the target image was
+      target.parentNode?.insertBefore(row, target);
+
+      // Move both images into the row
+      if (side === 'left') {
+        row.appendChild(element);
+        row.appendChild(target);
+      } else {
+        row.appendChild(target);
+        row.appendChild(element);
+      }
+    }
+  };
+
+  /** Remove element from an image-row and clean up if needed */
+  const this_unwrapFromRow = (el: HTMLElement) => {
+    const row = el.closest('.image-row');
+    if (!row) return;
+
+    // Remove the element from the row
+    el.remove();
+    cleanupRow(row as HTMLElement);
+  };
+
+  /** Clean up an image-row: if only 1 image left, unwrap it; if empty, remove */
+  const cleanupRow = (row: HTMLElement) => {
+    const remaining = Array.from(row.querySelectorAll(':scope > img')) as HTMLElement[];
+    if (remaining.length === 0) {
+      row.remove();
+    } else if (remaining.length === 1) {
+      // Unwrap the single remaining image back to standalone
+      const single = remaining[0];
+      row.parentNode?.insertBefore(single, row);
+      row.remove();
+    }
+  };
+
+  // ---- Resize ----
 
   const handleResizeStart = (e: React.MouseEvent, direction: string) => {
     e.preventDefault();
@@ -184,14 +328,10 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
         element.style.width = `${nextWidth}px`;
       }
       if (direction.includes('s')) {
-        // Bottom handle: drag down = add padding-bottom (more space below)
-        //                drag up  = reduce padding-bottom (content stays top, box shrinks)
         const newPb = Math.max(0, initialPaddingBottom + deltaY);
         element.style.paddingBottom = `${newPb}px`;
       }
       if (direction.includes('n')) {
-        // Top handle: drag down = reduce padding-top (less space above, content rises)
-        //             drag up   = add padding-top (more space above, content pushed down)
         const newPt = Math.max(0, initialPaddingTop + deltaY);
         element.style.paddingTop = `${newPt}px`;
       }
@@ -341,8 +481,17 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
             console.warn('Cannot delete structural element');
             return;
           }
+
+          // If deleting an image from a row, clean up the row
+          const row = element.closest('.image-row');
+
           onAction?.('delete', element);
           element.remove();
+
+          if (row) {
+            cleanupRow(row as HTMLElement);
+          }
+
           onUpdate();
         }}
         style={{

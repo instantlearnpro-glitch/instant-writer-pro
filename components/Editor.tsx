@@ -2326,7 +2326,7 @@ const Editor: React.FC<EditorProps> = ({
                     block = (selectedTextLayer || selectedImage) as HTMLElement | null;
                 }
                 if (!block) {
-                    block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img, .floating-text, .writing-lines') as HTMLElement | null;
+                    block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace):not(.image-row), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img, .floating-text, .writing-lines') as HTMLElement | null;
                 }
                 if (block) {
                     e.preventDefault();
@@ -2576,7 +2576,7 @@ const Editor: React.FC<EditorProps> = ({
             // Find and select block elements
             let block = target.closest('hr') as HTMLElement | null;
             if (!block) {
-                block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img') as HTMLElement | null;
+                block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace):not(.image-row), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img') as HTMLElement | null;
             }
 
             if (block) {
