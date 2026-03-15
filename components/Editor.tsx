@@ -9,6 +9,7 @@ import BlockContextMenu from './BlockContextMenu';
 import BulletOverlay from './BulletOverlay';
 import DragHandle from './DragHandle';
 import ColumnResizer from './ColumnResizer';
+import SelectionOverlay from './SelectionOverlay';
 import PatternModal from './PatternModal';
 import QRCodeModal from './QRCodeModal';
 import LinkToolbar from './LinkToolbar';
@@ -3353,28 +3354,18 @@ const Editor: React.FC<EditorProps> = ({
                 />
             )}
 
-            {activeBlock && !contextMenu && !activeBlock.classList.contains('floating-text') && (
-                <DragHandle
-                    element={activeBlock}
-                    containerRef={containerRef}
-                    showSmartGuides={showSmartGuides}
-                    onUpdate={() => {
-                        if (contentRef.current) {
-                            const _editor = contentRef.current;
-                            reflowPagesUntilStable(_editor, {
-                                onDone: () => { onContentChange(_editor.innerHTML); }
-                            });
-                        }
-                        setActiveBlock(null);
-                    }}
-                    onAction={handleAction}
-                />
-            )}
-
-            {/* Column resizers — draggable dividers between columns */}
-            <ColumnResizer
+            {/* SelectionOverlay — multi-level hover boxes, resize handles, drag */}
+            <SelectionOverlay
                 containerRef={containerRef}
                 onContentChange={onContentChange}
+                onUpdate={() => {
+                    if (contentRef.current) {
+                        const _editor = contentRef.current;
+                        reflowPagesUntilStable(_editor, {
+                            onDone: () => { onContentChange(_editor.innerHTML); }
+                        });
+                    }
+                }}
             />
 
             {activeLink && (
