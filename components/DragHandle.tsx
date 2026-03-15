@@ -93,13 +93,21 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       // Find the element under the cursor
       const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
       let targetBlock: Element | undefined;
+      let targetColumn: HTMLElement | null = null;
 
       for (const el of elementsAtPoint) {
         if (el === element) continue;
         if (el.classList.contains('drag-handle')) continue;
         if (el.closest('.drag-handle')) continue;
 
-        const match = el.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace):not(.image-row), blockquote, li, hr, img, table');
+        // Check if hovering over a .column container (drop INTO it)
+        const colMatch = el.closest('.column');
+        if (colMatch && !colMatch.contains(element)) {
+          targetColumn = colMatch as HTMLElement;
+          break;
+        }
+
+        const match = el.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace):not(.image-row):not(.column-row):not(.column), blockquote, li, hr, img, table');
         if (match && match !== element) {
           targetBlock = match;
           break;
@@ -109,7 +117,27 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       // Remove old indicators
       document.querySelectorAll('.drop-indicator').forEach(el => el.remove());
 
-      if (targetBlock) {
+      if (targetColumn) {
+        // Drop INTO a column — show highlighted column border
+        dropTargetRef.current = { element: targetColumn, isAbove: false, horizontal: null };
+
+        const colRect = targetColumn.getBoundingClientRect();
+        const indicator = document.createElement('div');
+        indicator.className = 'drop-indicator';
+        indicator.style.cssText = `
+          position: fixed;
+          top: ${colRect.top}px;
+          left: ${colRect.left}px;
+          width: ${colRect.width}px;
+          height: ${colRect.height}px;
+          border: 2px solid #8d55f1;
+          border-radius: 4px;
+          background: rgba(141, 85, 241, 0.08);
+          pointer-events: none;
+          z-index: 9999;
+        `;
+        document.body.appendChild(indicator);
+      } else if (targetBlock) {
         const targetRect = targetBlock.getBoundingClientRect();
         const isTargetImg = targetBlock.tagName === 'IMG';
 
@@ -117,24 +145,21 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
         let horizontal: 'left' | 'right' | null = null;
 
         if (isSourceImg && isTargetImg && canAcceptHorizontal(targetBlock as HTMLElement)) {
-          // Check if cursor is in the left/right edge zones (30% each side)
           const relX = (e.clientX - targetRect.left) / targetRect.width;
           if (relX < 0.35) {
             horizontal = 'left';
           } else if (relX > 0.65) {
             horizontal = 'right';
           }
-          // If relX is in the middle 30%, fall through to vertical behavior
         }
 
         if (horizontal) {
-          // Horizontal drop: show vertical bar on left/right of the target image
           dropTargetRef.current = { element: targetBlock as HTMLElement, isAbove: false, horizontal };
 
           const indicator = document.createElement('div');
           indicator.className = 'drop-indicator';
           indicator.style.cssText = `
-            position: absolute;
+            position: fixed;
             width: 4px;
             background: #8d55f1;
             border-radius: 2px;
@@ -146,7 +171,6 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
           `;
           document.body.appendChild(indicator);
         } else {
-          // Vertical drop: standard above/below
           const isAbove = e.clientY < targetRect.top + targetRect.height / 2;
           dropTargetRef.current = { element: targetBlock as HTMLElement, isAbove, horizontal: null };
 
@@ -184,12 +208,15 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
       if (dropTargetRef.current) {
         const { element: target, isAbove, horizontal } = dropTargetRef.current;
         if (target !== element) {
-          if (horizontal) {
+          if (target.classList.contains('column')) {
+            // DROP INTO COLUMN: append element into the column container
+            this_unwrapFromRow(element);
+            target.appendChild(element);
+          } else if (horizontal) {
             // HORIZONTAL DROP: place image next to target in a row
             this_handleHorizontalDrop(target, horizontal);
           } else {
             // VERTICAL DROP: standard above/below reorder
-            // First: unwrap from any existing .image-row if leaving
             this_unwrapFromRow(element);
 
             if (isAbove) {

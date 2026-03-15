@@ -5,7 +5,8 @@ import {
     ArrowBigUpDash, List, PanelLeft, PanelRight, Crop, FilePlus,
     Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
     RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
-    ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus, FileText
+    ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus, FileText,
+    Columns3
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
@@ -29,6 +30,7 @@ interface ToolbarProps {
     onOpenPageNumberModal: () => void;
     onInsertHorizontalRule: () => void;
     onInsertTextLayer: () => void;
+    onInsertColumns: (count: number) => void;
     onToggleCrop: () => void;
     onPageBreak: () => void;
     onBlockStyleUpdate: (style: Record<string, string>) => void;
@@ -77,6 +79,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
     onOpenPageNumberModal,
     onInsertHorizontalRule,
     onInsertTextLayer,
+    onInsertColumns,
     onToggleCrop,
     onPageBreak,
     onBlockStyleUpdate,
@@ -108,6 +111,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
     onOpenLogs
 }) => {
     const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
+    const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
     const [isLineHeightMenuOpen, setIsLineHeightMenuOpen] = useState(false);
     const [isTextCaseMenuOpen, setIsTextCaseMenuOpen] = useState(false);
     const [isListMenuOpen, setIsListMenuOpen] = useState(false);
@@ -477,6 +481,46 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             >
                                 <Square size={18} />
                             </button>
+
+                            {/* Column Layout Insert */}
+                            <div className="relative">
+                                <button
+                                    onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
+                                    className={ButtonClass(isColumnMenuOpen)}
+                                    title="Insert Columns"
+                                >
+                                    <Columns3 size={18} />
+                                </button>
+                                {isColumnMenuOpen && (
+                                    <div
+                                        className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-xl p-1 z-50 w-28"
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >
+                                        <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Colonne</div>
+                                        <button
+                                            onClick={() => { onInsertColumns(2); setIsColumnMenuOpen(false); }}
+                                            className="w-full text-left text-xs px-2 py-1.5 hover:bg-brand-50 rounded flex items-center gap-2"
+                                        >
+                                            <span className="flex gap-0.5">
+                                                <span className="w-3 h-5 border border-gray-400 rounded-sm" />
+                                                <span className="w-3 h-5 border border-gray-400 rounded-sm" />
+                                            </span>
+                                            2 Colonne
+                                        </button>
+                                        <button
+                                            onClick={() => { onInsertColumns(3); setIsColumnMenuOpen(false); }}
+                                            className="w-full text-left text-xs px-2 py-1.5 hover:bg-brand-50 rounded flex items-center gap-2"
+                                        >
+                                            <span className="flex gap-0.5">
+                                                <span className="w-2.5 h-5 border border-gray-400 rounded-sm" />
+                                                <span className="w-2.5 h-5 border border-gray-400 rounded-sm" />
+                                                <span className="w-2.5 h-5 border border-gray-400 rounded-sm" />
+                                            </span>
+                                            3 Colonne
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         {/* Page Size Selector (Compact) */}

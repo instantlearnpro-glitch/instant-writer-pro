@@ -3374,6 +3374,17 @@ const App: React.FC = () => {
         // History saved by content change debounce
     };
 
+    const handleInsertColumns = (count: number) => {
+        const editor = document.querySelector('.editor-workspace') as HTMLElement;
+        editor?.focus();
+
+        const columns = Array.from({ length: count }, () =>
+            '<div class="column" contenteditable="true"><p>​</p></div>'
+        ).join('');
+        const html = `<div class="column-row">${columns}</div><p>​</p>`;
+        document.execCommand('insertHTML', false, html);
+    };
+
     // --- Feature: Page Break ---
     const handlePageBreak = () => {
         insertPageBreak({ docState, updateDocState });
@@ -4929,6 +4940,7 @@ ${workspace.innerHTML}
                 onOpenPageNumberModal={preparePageAnchors}
                 onInsertHorizontalRule={handleInsertHorizontalRule}
                 onInsertTextLayer={handleInsertTextLayerMode}
+                onInsertColumns={handleInsertColumns}
                 onToggleCrop={handleToggleCrop}
                 onPageBreak={handlePageBreak}
                 onBlockStyleUpdate={handleBlockStyleUpdate}

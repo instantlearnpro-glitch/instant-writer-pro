@@ -45,6 +45,38 @@ img {
     object-fit: cover;
 }
 
+/* Column layout containers — general-purpose multi-column layout */
+.column-row {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    margin: 0.5em 0;
+    align-items: flex-start;
+}
+.column {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px;
+    border: 1px dashed transparent;
+    border-radius: 4px;
+    transition: border-color 0.15s ease;
+}
+.column:hover {
+    border-color: #c4b5fd;
+}
+.column:focus-within {
+    border-color: #8d55f1;
+}
+.column > img {
+    width: 100%;
+    height: auto;
+    display: block;
+    margin-bottom: 4px;
+}
+.column > p {
+    margin: 2px 0;
+}
+
 /* Style for broken images - visible to user so they can click to fix */
 img:not([src]), img[src=""], img.broken-image {
     display: inline-block;
