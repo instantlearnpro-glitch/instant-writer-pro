@@ -352,6 +352,61 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
 
   const isHR = element.tagName === 'HR';
   const isImg = element.tagName === 'IMG';
+  const imageRow = element.closest('.image-row') as HTMLElement | null;
+  const isInRow = isImg && imageRow !== null;
+
+  // ---- Row action buttons ----
+
+  const handleEqualWidth = () => {
+    if (!imageRow) return;
+    const imgs = Array.from(imageRow.querySelectorAll(':scope > img')) as HTMLElement[];
+    imgs.forEach(img => {
+      img.style.width = '';
+      img.style.maxWidth = '100%';
+      img.style.flex = '1 1 0';
+    });
+    onAction?.('resize', element);
+    onUpdate();
+  };
+
+  const handleMatchHeight = () => {
+    if (!imageRow) return;
+    const imgs = Array.from(imageRow.querySelectorAll(':scope > img')) as HTMLElement[];
+    // Find the smallest natural height so all images align
+    let minH = Infinity;
+    imgs.forEach(img => {
+      const rect = img.getBoundingClientRect();
+      if (rect.height < minH) minH = rect.height;
+    });
+    if (minH === Infinity || minH <= 0) return;
+    // Get scale from workspace zoom
+    const workspace = element.closest('.editor-workspace') as HTMLElement | null;
+    const scale = workspace ? (workspace.getBoundingClientRect().height / (workspace.offsetHeight || 1)) : 1;
+    const heightCss = Math.round(minH / scale);
+    imgs.forEach(img => {
+      img.style.height = `${heightCss}px`;
+      img.style.objectFit = 'cover';
+    });
+    onAction?.('resize', element);
+    onUpdate();
+  };
+
+  const handleDistribute = () => {
+    if (!imageRow) return;
+    const imgs = Array.from(imageRow.querySelectorAll(':scope > img')) as HTMLElement[];
+    const n = imgs.length;
+    if (n < 2) return;
+    imgs.forEach(img => {
+      img.style.width = '';
+      img.style.height = '';
+      img.style.flex = '1 1 0';
+      img.style.objectFit = 'cover';
+    });
+    // Set the row to stretch alignment for equal height
+    imageRow.style.alignItems = 'stretch';
+    onAction?.('resize', element);
+    onUpdate();
+  };
 
   return (
     <div
@@ -513,6 +568,80 @@ const DragHandle: React.FC<DragHandleProps> = ({ element, containerRef, showSmar
           <path d="M18 6L6 18M6 6l12 12" />
         </svg>
       </div>
+
+      {/* Image row action toolbar — only shown for images inside a .image-row */}
+      {isInRow && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: -32,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            gap: 4,
+            background: '#1f2937',
+            borderRadius: 6,
+            padding: '3px 5px',
+            pointerEvents: 'auto',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            whiteSpace: 'nowrap' as const,
+          }}
+        >
+          {/* Equal Width */}
+          <button
+            onClick={handleEqualWidth}
+            title="Stessa larghezza"
+            style={{
+              width: 26, height: 22,
+              background: '#8d55f1', border: 'none', borderRadius: 4,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 0,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="4" y1="12" x2="20" y2="12" />
+              <line x1="4" y1="6" x2="4" y2="18" />
+              <line x1="20" y1="6" x2="20" y2="18" />
+            </svg>
+          </button>
+
+          {/* Match Height */}
+          <button
+            onClick={handleMatchHeight}
+            title="Stessa altezza"
+            style={{
+              width: 26, height: 22,
+              background: '#8d55f1', border: 'none', borderRadius: 4,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 0,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="12" y1="4" x2="12" y2="20" />
+              <line x1="6" y1="4" x2="18" y2="4" />
+              <line x1="6" y1="20" x2="18" y2="20" />
+            </svg>
+          </button>
+
+          {/* Distribute equally */}
+          <button
+            onClick={handleDistribute}
+            title="Distribuisci uniformemente"
+            style={{
+              width: 26, height: 22,
+              background: '#8d55f1', border: 'none', borderRadius: 4,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 0,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+              <rect x="3" y="5" width="5" height="14" rx="1" />
+              <rect x="10" y="5" width="5" height="14" rx="1" />
+              <rect x="17" y="5" width="5" height="14" rx="1" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
