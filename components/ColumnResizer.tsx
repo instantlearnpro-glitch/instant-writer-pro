@@ -109,26 +109,27 @@ const ColumnResizer: React.FC<ColumnResizerProps> = ({ containerRef, onContentCh
           onMouseDown={(e) => handleDividerDrag(e, d.leftCol, d.rightCol, d.rowEl)}
           style={{
             position: 'absolute',
-            left: d.x - 4,
+            left: d.x - 8,
             top: d.top,
-            width: 8,
+            width: 16,
             height: d.height,
             cursor: 'col-resize',
-            zIndex: 90,
+            zIndex: 150,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            pointerEvents: 'auto',
           }}
         >
-          {/* Visible divider bar — appears on hover */}
+          {/* Visible divider bar */}
           <div
             style={{
-              width: 4,
-              height: Math.min(d.height, 40),
-              background: '#c4b5fd',
-              borderRadius: 2,
-              transition: 'background 0.15s',
-              opacity: 0.6,
+              width: 5,
+              height: Math.min(d.height, 60),
+              background: '#3b82f6',
+              borderRadius: 3,
+              transition: 'background 0.15s, opacity 0.15s',
+              opacity: 0.7,
             }}
             className="column-divider-bar"
           />

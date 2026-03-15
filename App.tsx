@@ -20,7 +20,6 @@ const ExportModal = lazy(() => import('./components/ExportModal'));
 const SettingsModal = lazy(() => import('./components/SettingsModal'));
 const AutoLogModal = lazy(() => import('./components/AutoLogModal'));
 import { ensureContentIsPaginated, reflowPages, reflowPagesUntilStable } from './utils/pagination';
-import { autoDetectColumns } from './utils/columnDetector';
 import { exportPdf } from './utils/pdfExport';
 import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
 import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, convertInchesToTwip, HeadingLevel, PageBreak } from 'docx';
@@ -1178,15 +1177,11 @@ const App: React.FC = () => {
                         const PRE_PAGINATED_THRESHOLD = 3;
                         if (pages.length >= PRE_PAGINATED_THRESHOLD && !changed) {
                             console.log(`[Import] Skipping reflow: ${pages.length} pre-paginated pages detected`);
-                            const colCount = autoDetectColumns(workspace);
-                            if (colCount > 0) console.log(`[Import] Auto-detected ${colCount} column layouts`);
                             commitFinalState();
                         } else {
                             // Small or unpaginated doc: reflow normally
                             reflowPagesUntilStable(workspace, {
                                 onDone: () => {
-                                    const colCount = autoDetectColumns(workspace);
-                                    if (colCount > 0) console.log(`[Import] Auto-detected ${colCount} column layouts`);
                                     commitFinalState();
                                 }
                             });

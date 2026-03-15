@@ -17,10 +17,10 @@ interface SelectionOverlayProps {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const BOX_COLORS: Record<BoxLevel['kind'], string> = {
-  element:   '#22c55e',  // green
-  column:    '#ef4444',  // red (inner)
-  container: '#ef4444',  // red (outer)
-  page:      '#b91c1c',  // dark red
+  element:   '#ef4444',  // red — individual elements
+  column:    '#3b82f6',  // blue — column containers
+  container: '#3b82f6',  // blue — column-row wrappers
+  page:      '#22c55e',  // green — page border
 };
 
 const MIN_COLUMN_WIDTH = 60;
@@ -28,12 +28,25 @@ const MAX_ROW_ELEMENTS = 3;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Return true if element has an interactive class (mission-box, shape-*, etc.) */
+function isInteractiveBlock(el: HTMLElement): boolean {
+  const cls = el.classList;
+  return cls.contains('mission-box') || cls.contains('shape-rectangle') ||
+    cls.contains('shape-circle') || cls.contains('shape-pill') ||
+    cls.contains('shape-speech') || cls.contains('shape-cloud') ||
+    cls.contains('writing-lines') || cls.contains('floating-text') ||
+    cls.contains('toc-container') || cls.contains('worksheet');
+}
+
 /** Return the ancestry chain of a DOM element up to the editor workspace */
 function getBoxChain(target: EventTarget | null, workspace: HTMLElement | null): BoxLevel[] {
   if (!target || !workspace) return [];
   let el = target as HTMLElement | null;
   const chain: BoxLevel[] = [];
   const seen = new Set<HTMLElement>();
+
+  // Cache: is the target inside a column? (avoids repeated .closest() calls)
+  const insideColumn = (target as HTMLElement)?.closest?.('.column') != null;
 
   while (el && el !== workspace && el !== document.body) {
     if (seen.has(el)) break;
@@ -48,24 +61,30 @@ function getBoxChain(target: EventTarget | null, workspace: HTMLElement | null):
       chain.push({ el, rect: el.getBoundingClientRect(), kind: 'container' });
     } else if (cls.contains('column')) {
       chain.push({ el, rect: el.getBoundingClientRect(), kind: 'column' });
-    } else if (!cls.contains('drag-handle') && !cls.contains('drop-indicator') &&
-      ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'li',
-       'ul', 'ol', 'table', 'img', 'hr', 'div'].includes(tag)) {
-      // Only render element box for actual content nodes, not structural wrappers
-      const parent = el.parentElement;
-      const isDirectChild = parent &&
-        (parent.classList.contains('page') || parent.classList.contains('column') ||
-         parent.classList.contains('column-row') || parent.classList.contains('image-row') ||
-         parent === workspace);
-      if (isDirectChild) {
-        chain.push({ el, rect: el.getBoundingClientRect(), kind: 'element' });
-      }
+    } else if (
+      !cls.contains('drag-handle') && !cls.contains('drop-indicator') &&
+      !cls.contains('selection-overlay') && !cls.contains('page-footer') &&
+      (
+        ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'li',
+         'ul', 'ol', 'table', 'img', 'hr', 'textarea'].includes(tag) ||
+        isInteractiveBlock(el) ||
+        (tag === 'div' && !cls.contains('page') && !cls.contains('editor-workspace') &&
+         !cls.contains('column-row') && !cls.contains('image-row') && !cls.contains('column') &&
+         el.parentElement &&
+         (
+           insideColumn ||
+           el.parentElement.classList.contains('page') ||
+           el.parentElement === workspace
+         ))
+      )
+    ) {
+      chain.push({ el, rect: el.getBoundingClientRect(), kind: 'element' });
     }
 
     el = el.parentElement;
   }
 
-  return chain.reverse(); // page → container → column → element
+  return chain.reverse();
 }
 
 function getFriendlyLabel(el: HTMLElement): string {
@@ -74,12 +93,21 @@ function getFriendlyLabel(el: HTMLElement): string {
   if (cls.contains('page')) return 'Pagina';
   if (cls.contains('column-row') || cls.contains('image-row')) return 'Riga';
   if (cls.contains('column')) return 'Colonna';
+  if (cls.contains('mission-box') || cls.contains('shape-rectangle')) return 'Box';
+  if (cls.contains('shape-circle')) return 'Cerchio';
+  if (cls.contains('shape-pill')) return 'Pillola';
+  if (cls.contains('shape-speech')) return 'Fumetto';
+  if (cls.contains('shape-cloud')) return 'Nuvola';
+  if (cls.contains('toc-container')) return 'Indice';
+  if (cls.contains('writing-lines')) return 'Righe';
+  if (cls.contains('floating-text')) return 'Testo Libero';
   if (tag === 'img') return 'Immagine';
   if (['h1','h2','h3','h4','h5','h6'].includes(tag)) return tag.toUpperCase();
   if (tag === 'p') return 'Testo';
   if (tag === 'ul' || tag === 'ol') return 'Lista';
   if (tag === 'table') return 'Tabella';
   if (tag === 'hr') return 'Separatore';
+  if (tag === 'div') return 'Blocco';
   return tag;
 }
 
@@ -100,7 +128,7 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
   // Drop indicator state for drag
   const [dropIndicator, setDropIndicator] = useState<{
     x: number; top: number; height: number; vertical: boolean;
-    left?: number; width?: number;
+    left?: number; width?: number; isColumnLevel?: boolean;
   } | null>(null);
 
   const isDragging = useRef(false);
@@ -128,24 +156,36 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
     };
   }, [refreshSelected]);
 
-  // ── Hover detection ─────────────────────────────────────────────────────
+  // ── Hover detection (throttled) ──────────────────────────────────────────
   useEffect(() => {
     const ws = workspace();
     if (!ws) return;
 
+    let hoverRaf = 0;
+    let lastHoverTarget: EventTarget | null = null;
+
     const onMouseMove = (e: MouseEvent) => {
       if (isDragging.current) return;
-      const chain = getBoxChain(e.target, ws);
-      setHoveredChain(chain);
+      // Skip if same target element
+      if (e.target === lastHoverTarget) return;
+      lastHoverTarget = e.target;
+
+      cancelAnimationFrame(hoverRaf);
+      hoverRaf = requestAnimationFrame(() => {
+        const chain = getBoxChain(e.target, ws);
+        setHoveredChain(chain);
+      });
     };
 
     const onMouseLeave = () => {
+      lastHoverTarget = null;
       if (!isDragging.current) setHoveredChain([]);
     };
 
-    ws.addEventListener('mousemove', onMouseMove);
+    ws.addEventListener('mousemove', onMouseMove, { passive: true });
     ws.addEventListener('mouseleave', onMouseLeave);
     return () => {
+      cancelAnimationFrame(hoverRaf);
       ws.removeEventListener('mousemove', onMouseMove);
       ws.removeEventListener('mouseleave', onMouseLeave);
     };
@@ -158,8 +198,21 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
 
     const onClick = (e: MouseEvent) => {
       const chain = getBoxChain(e.target, ws);
-      // Select innermost element (last in chain)
-      const inner = chain[chain.length - 1];
+      
+      // Alt+click → select the parent column or container (skip the inner element)
+      if (e.altKey) {
+        const colOrContainer = chain.find(b => b.kind === 'column') || chain.find(b => b.kind === 'container');
+        if (colOrContainer) {
+          setSelectedEl(colOrContainer.el);
+          setSelectedRect(colOrContainer.el.getBoundingClientRect());
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // Normal click → select the innermost element
+      const interactiveEntry = chain.find(b => b.kind === 'element' && isInteractiveBlock(b.el));
+      const inner = interactiveEntry || chain.filter(b => b.kind === 'element').pop() || chain[chain.length - 1];
       if (inner) {
         setSelectedEl(inner.el);
         setSelectedRect(inner.el.getBoundingClientRect());
@@ -253,6 +306,43 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
     document.addEventListener('mouseup', onUp);
   };
 
+  // ── Resize: scale entire element via corners ──────────────────────────
+  const handleResizeCorner = (e: React.MouseEvent, corner: 'nw'|'ne'|'sw'|'se') => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedEl) return;
+
+    const startX = e.clientX;
+    const startW = selectedEl.offsetWidth;
+    const startZoom = parseFloat(selectedEl.style.zoom) || 1;
+
+    const onMove = (mv: MouseEvent) => {
+      const dx = mv.clientX - startX;
+      const sign = (corner === 'ne' || corner === 'se') ? 1 : -1;
+      
+      const visualStartW = startW * startZoom;
+      const visualNewW = visualStartW + sign * dx;
+      const ratio = visualNewW / Math.max(1, visualStartW);
+      
+      const nextZoom = Math.max(0.1, startZoom * ratio);
+      selectedEl.style.zoom = nextZoom.toFixed(2);
+      
+      setSelectedRect(selectedEl.getBoundingClientRect());
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      setSelectedRect(selectedEl.getBoundingClientRect());
+      const ws = workspace();
+      if (ws) onContentChange(ws.innerHTML);
+      onUpdate?.();
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
   // ── Drag element ─────────────────────────────────────────────────────────
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -273,13 +363,23 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
 
         const elementsAtPoint = document.elementsFromPoint(mv.clientX, mv.clientY);
         let target: HTMLElement | null = null;
+        let targetColumn: HTMLElement | null = null;
 
         for (const el of elementsAtPoint) {
           if (el === selectedEl || selectedEl.contains(el)) continue;
-          if ((el as HTMLElement).closest?.('.drag-handle, .selection-overlay')) continue;
+          if ((el as HTMLElement).closest?.('.drag-handle, .selection-overlay, .column-divider-bar')) continue;
+          // GUARD: only consider targets inside a .page
+          if (!(el as HTMLElement).closest?.('.page')) continue;
 
+          // First check: is this inside a .column?
+          const colMatch = (el as HTMLElement).closest?.('.column') as HTMLElement | null;
+          if (colMatch && !colMatch.contains(selectedEl) && colMatch !== selectedEl) {
+            targetColumn = colMatch;
+          }
+
+          // Then check for specific content elements
           const match = (el as HTMLElement).closest?.(
-            '.column, p, h1, h2, h3, h4, h5, h6, blockquote, li, ul, ol, img, table, hr'
+            'p, h1, h2, h3, h4, h5, h6, blockquote, li, ul, ol, img, table, hr, div:not(.page):not(.editor-workspace):not(.column-row):not(.image-row):not(.column)'
           ) as HTMLElement | null;
           if (match && match !== selectedEl && !selectedEl.contains(match)) {
             target = match;
@@ -289,22 +389,57 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
 
         setDropIndicator(null);
 
+        // Priority 1: Check if we're near the outer edge of a column (column-level drop)
+        if (targetColumn) {
+          const colRect = targetColumn.getBoundingClientRect();
+          const distFromRight = colRect.right - mv.clientX;
+          const distFromLeft = mv.clientX - colRect.left;
+          const edgeThreshold = 30; // px from column edge
+
+          if (distFromRight < edgeThreshold && distFromRight >= 0) {
+            // Near right edge of column → show tall blue line
+            const rowEl = targetColumn.closest('.column-row');
+            const rowRect = rowEl ? rowEl.getBoundingClientRect() : colRect;
+            dropTarget.current = { el: targetColumn, side: 'col-right' };
+            setDropIndicator({
+              x: colRect.right - 2,
+              top: rowRect.top,
+              height: rowRect.height,
+              vertical: true,
+              isColumnLevel: true,
+            });
+            return;
+          } else if (distFromLeft < edgeThreshold && distFromLeft >= 0) {
+            // Near left edge of column → show tall blue line
+            const rowEl = targetColumn.closest('.column-row');
+            const rowRect = rowEl ? rowEl.getBoundingClientRect() : colRect;
+            dropTarget.current = { el: targetColumn, side: 'col-left' };
+            setDropIndicator({
+              x: colRect.left - 2,
+              top: rowRect.top,
+              height: rowRect.height,
+              vertical: true,
+              isColumnLevel: true,
+            });
+            return;
+          }
+        }
+
+        // Priority 2: Element-level interaction
         if (target) {
           const rect = target.getBoundingClientRect();
           const relX = (mv.clientX - rect.left) / rect.width;
-          const isTargetCol = target.classList.contains('column');
 
-          if (isTargetCol) {
-            // Hovering over a column — show green highlight outline
-            dropTarget.current = { el: target, side: 'into' };
-            setDropIndicator({ x: rect.left, top: rect.top, height: rect.height, width: rect.width, vertical: false });
-          } else if (relX < 0.3 && canAcceptHorizontalSibling(target)) {
+          if (relX < 0.25) {
+            // Left side of element → short red line
             dropTarget.current = { el: target, side: 'left' };
             setDropIndicator({ x: rect.left - 3, top: rect.top, height: rect.height, vertical: true });
-          } else if (relX > 0.7 && canAcceptHorizontalSibling(target)) {
+          } else if (relX > 0.75) {
+            // Right side of element → short red line
             dropTarget.current = { el: target, side: 'right' };
             setDropIndicator({ x: rect.right - 2, top: rect.top, height: rect.height, vertical: true });
           } else {
+            // Center → horizontal bar above/below
             const isAbove = mv.clientY < rect.top + rect.height / 2;
             dropTarget.current = { el: target, side: isAbove ? 'above' : 'below' };
             if (isAbove) {
@@ -313,7 +448,26 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
               setDropIndicator({ x: rect.left, top: rect.bottom - 2, height: 4, width: rect.width, vertical: false });
             }
           }
-        } else {
+        } else if (!targetColumn) {
+          // Also check if near the right edge of the page (no column) for creating a new column layout
+          const page = elementsAtPoint.find(el =>
+            (el as HTMLElement).classList?.contains('page')
+          ) as HTMLElement | null;
+          if (page) {
+            const pageRect = page.getBoundingClientRect();
+            const distFromRight = pageRect.right - mv.clientX;
+            if (distFromRight < 40 && distFromRight >= 0) {
+              dropTarget.current = { el: page, side: 'col-right' };
+              setDropIndicator({
+                x: pageRect.right - 20,
+                top: pageRect.top,
+                height: pageRect.height,
+                vertical: true,
+                isColumnLevel: true,
+              });
+              return;
+            }
+          }
           dropTarget.current = null;
         }
       });
@@ -331,28 +485,52 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
       const { el: target, side } = dropTarget.current;
       const dragged = dragEl.current;
 
-      // Remove from old image-row if present
-      const oldRow = dragged.closest('.image-row') as HTMLElement | null;
+      // ABSOLUTE GUARD: drop target must be inside a .page
+      const targetPage = target.closest('.page');
+      if (!targetPage && !target.classList.contains('page')) {
+        console.warn('[SelectionOverlay] Drop cancelled: target is outside any page');
+        return;
+      }
+
+      // Remove from old row/column if present
+      const oldRow = dragged.closest('.column-row, .image-row') as HTMLElement | null;
+      const oldCol = dragged.closest('.column') as HTMLElement | null;
       dragged.remove();
+      
+      // Clean up old column if it's now empty
+      if (oldCol && oldCol.children.length === 0) {
+        oldCol.remove();
+      }
+      
+      // Clean up old row
       if (oldRow) {
-        const imgs = oldRow.querySelectorAll(':scope > img');
-        if (imgs.length === 0) oldRow.remove();
-        else if (imgs.length === 1) {
-          const img = imgs[0];
-          oldRow.parentNode?.insertBefore(img, oldRow);
+        const remainingCols = oldRow.querySelectorAll(':scope > .column');
+        const remainingImgs = oldRow.querySelectorAll(':scope > img');
+        if (remainingCols.length === 0 && remainingImgs.length === 0) {
+          oldRow.remove();
+        } else if (remainingCols.length === 1 && remainingImgs.length === 0) {
+          const singleCol = remainingCols[0] as HTMLElement;
+          while (singleCol.firstChild) {
+            oldRow.parentNode?.insertBefore(singleCol.firstChild, oldRow);
+          }
+          oldRow.remove();
+        } else if (remainingCols.length === 0 && remainingImgs.length === 1) {
+          oldRow.parentNode?.insertBefore(remainingImgs[0], oldRow);
           oldRow.remove();
         }
       }
 
-      if (side === 'into') {
-        // Drop into column
+      if (side === 'col-left' || side === 'col-right') {
+        // COLUMN-LEVEL DROP: add new column with the dragged element
+        handleColumnDrop(dragged, target, side === 'col-left' ? 'left' : 'right');
+      } else if (side === 'into') {
         target.appendChild(dragged);
       } else if (side === 'above') {
         target.parentNode?.insertBefore(dragged, target);
       } else if (side === 'below') {
         target.parentNode?.insertBefore(dragged, target.nextSibling);
       } else {
-        // Horizontal side-by-side
+        // Horizontal side-by-side (element-level)
         handleHorizontalDrop(dragged, target, side as 'left'|'right');
       }
 
@@ -365,14 +543,86 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
     document.addEventListener('mouseup', onUp);
   };
 
+  /** Column-level drop: add the dragged element as a new column beside an existing column */
+  function handleColumnDrop(dragged: HTMLElement, target: HTMLElement, side: 'left'|'right') {
+    const existingRow = target.closest('.column-row') as HTMLElement | null;
+    const newCol = document.createElement('div');
+    newCol.className = 'column';
+    newCol.contentEditable = 'true';
+    
+    // Protect elements from breaking the column boundary
+    dragged.style.maxWidth = '100%';
+    dragged.style.boxSizing = 'border-box';
+    newCol.appendChild(dragged);
+
+    if (existingRow) {
+      // Add new column to existing row
+      const col = target.classList.contains('column') ? target : target.closest('.column') || target;
+      if (side === 'right') {
+        col.parentNode?.insertBefore(newCol, col.nextSibling);
+      } else {
+        col.parentNode?.insertBefore(newCol, col);
+      }
+    } else {
+      // Create a new column-row: wrap visible children of the page into a column on one side
+      const row = document.createElement('div');
+      row.className = 'column-row';
+      
+      // Wrap the target in a column
+      const existingCol = document.createElement('div');
+      existingCol.className = 'column';
+      existingCol.contentEditable = 'true';
+      
+      // Protect target as well since it's becoming a column child
+      target.style.maxWidth = '100%';
+      target.style.boxSizing = 'border-box';
+
+      // If target is a page, move all its content children into the existing col
+      if (target.classList.contains('page')) {
+        const children = Array.from(target.children).filter(
+          c => c instanceof HTMLElement && !c.classList.contains('page-footer')
+        );
+        for (const child of children) {
+          existingCol.appendChild(child);
+        }
+        if (side === 'right') {
+          row.appendChild(existingCol);
+          row.appendChild(newCol);
+        } else {
+          row.appendChild(newCol);
+          row.appendChild(existingCol);
+        }
+        target.insertBefore(row, target.firstChild);
+      } else {
+        target.parentNode?.insertBefore(row, target);
+        existingCol.appendChild(target);
+        if (side === 'right') {
+          row.appendChild(existingCol);
+          row.appendChild(newCol);
+        } else {
+          row.appendChild(newCol);
+          row.appendChild(existingCol);
+        }
+      }
+    }
+  }
+
   function handleHorizontalDrop(dragged: HTMLElement, target: HTMLElement, side: 'left'|'right') {
     const targetRow = target.closest('.column-row, .image-row') as HTMLElement | null;
 
     if (targetRow) {
-      if (side === 'left') targetRow.insertBefore(dragged, target);
-      else targetRow.insertBefore(dragged, target.nextSibling);
+      // Already in a row — add beside the target's column
+      const col = target.closest('.column') || target;
+      const newCol = document.createElement('div');
+      newCol.className = 'column';
+      newCol.contentEditable = 'true';
+      dragged.style.maxWidth = '100%';
+      dragged.style.boxSizing = 'border-box';
+      newCol.appendChild(dragged);
+      if (side === 'left') col.parentNode?.insertBefore(newCol, col);
+      else col.parentNode?.insertBefore(newCol, col.nextSibling);
     } else {
-      // Create new column-row
+      // Create new column-row wrapping both elements
       const row = document.createElement('div');
       row.className = 'column-row';
       target.parentNode?.insertBefore(row, target);
@@ -383,6 +633,11 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
       const rightCol = document.createElement('div');
       rightCol.className = 'column';
       rightCol.contentEditable = 'true';
+
+      dragged.style.maxWidth = '100%';
+      dragged.style.boxSizing = 'border-box';
+      target.style.maxWidth = '100%';
+      target.style.boxSizing = 'border-box';
 
       if (side === 'left') {
         leftCol.appendChild(dragged);
@@ -416,6 +671,54 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
     onUpdate?.();
   };
 
+  // ── Add column beside ───────────────────────────────────────────────────
+  const handleAddColumnBeside = (side: 'left' | 'right') => {
+    if (!selectedEl) return;
+    const ws = workspace();
+    const existingRow = selectedEl.closest('.column-row') as HTMLElement | null;
+
+    if (existingRow) {
+      // Already inside a column-row — add a new column at the specified side
+      const col = selectedEl.closest('.column') || selectedEl;
+      const newCol = document.createElement('div');
+      newCol.className = 'column';
+      newCol.contentEditable = 'true';
+      newCol.innerHTML = '<p>&nbsp;</p>';
+      if (side === 'right') {
+        col.parentNode?.insertBefore(newCol, col.nextSibling);
+      } else {
+        col.parentNode?.insertBefore(newCol, col);
+      }
+    } else {
+      // Not in a column-row — wrap element in a new column-row
+      const row = document.createElement('div');
+      row.className = 'column-row';
+      selectedEl.parentNode?.insertBefore(row, selectedEl);
+
+      const existingCol = document.createElement('div');
+      existingCol.className = 'column';
+      existingCol.contentEditable = 'true';
+      existingCol.appendChild(selectedEl);
+
+      const newCol = document.createElement('div');
+      newCol.className = 'column';
+      newCol.contentEditable = 'true';
+      newCol.innerHTML = '<p>&nbsp;</p>';
+
+      if (side === 'right') {
+        row.appendChild(existingCol);
+        row.appendChild(newCol);
+      } else {
+        row.appendChild(newCol);
+        row.appendChild(existingCol);
+      }
+    }
+
+    if (ws) onContentChange(ws.innerHTML);
+    onUpdate?.();
+    setSelectedRect(selectedEl.getBoundingClientRect());
+  };
+
   // ── Render ───────────────────────────────────────────────────────────────
   const container = containerRef.current;
   const containerRect = container?.getBoundingClientRect();
@@ -435,14 +738,13 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
 
   return (
     <>
-      {/* Hover boxes */}
-      {hoverLevels.map((box, i) => {
+      {/* Hover box — only innermost element */}
+      {hoverLevels.length > 0 && (() => {
+        const box = hoverLevels[hoverLevels.length - 1];
         const pos = toRelative(box.rect);
         const color = BOX_COLORS[box.kind];
-        const isInnermost = i === hoverLevels.length - 1;
         return (
           <div
-            key={i}
             className="selection-overlay"
             style={{
               position: 'absolute',
@@ -450,35 +752,32 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
               left: pos.left - 1,
               width: pos.width + 2,
               height: pos.height + 2,
-              border: `1.5px ${isInnermost ? 'solid' : 'dashed'} ${color}`,
+              border: `1.5px solid ${color}`,
               borderRadius: 2,
               pointerEvents: 'none',
-              zIndex: 80 + i,
+              zIndex: 85,
               boxSizing: 'border-box',
             }}
           >
-            {/* Label chip */}
-            {isInnermost && (
-              <div style={{
-                position: 'absolute',
-                top: -18,
-                left: 0,
-                background: color,
-                color: 'white',
-                fontSize: 9,
-                fontWeight: 700,
-                fontFamily: 'Inter, sans-serif',
-                padding: '1px 5px',
-                borderRadius: '3px 3px 0 0',
-                whiteSpace: 'nowrap',
-                pointerEvents: 'none',
-              }}>
-                {getFriendlyLabel(box.el)}
-              </div>
-            )}
+            <div style={{
+              position: 'absolute',
+              top: -18,
+              left: 0,
+              background: color,
+              color: 'white',
+              fontSize: 9,
+              fontWeight: 700,
+              fontFamily: 'Inter, sans-serif',
+              padding: '1px 5px',
+              borderRadius: '3px 3px 0 0',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+            }}>
+              {getFriendlyLabel(box.el)}
+            </div>
           </div>
         );
-      })}
+      })()}
 
       {/* Selected element box with resize handles and toolbar */}
       {selectedEl && selectedRect && (() => {
@@ -554,6 +853,59 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
                 {getFriendlyLabel(selectedEl)}
               </div>
 
+              {/* Select parent column — only when element is inside a .column */}
+              {selectedEl.closest('.column') && !selectedEl.classList.contains('column') && (
+                <div
+                  onClick={() => {
+                    const col = selectedEl.closest('.column') as HTMLElement;
+                    if (col) {
+                      setSelectedEl(col);
+                      setSelectedRect(col.getBoundingClientRect());
+                    }
+                  }}
+                  title="Seleziona Colonna (Alt+Click)"
+                  style={{
+                    background: '#3b82f6',
+                    color: 'white',
+                    height: 20,
+                    borderRadius: '4px 4px 0 0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    fontSize: 9,
+                    fontWeight: 700,
+                    marginTop: 4,
+                    padding: '0 5px',
+                    gap: 2,
+                  }}
+                >
+                  ↑ Col
+                </div>
+              )}
+
+              {/* Add column to the right */}
+              <div
+                onClick={() => handleAddColumnBeside('right')}
+                title="Aggiungi colonna a destra"
+                style={{
+                  background: '#3b82f6',
+                  color: 'white',
+                  width: 20,
+                  height: 20,
+                  borderRadius: '4px 4px 0 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  marginTop: 4,
+                }}
+              >
+                +
+              </div>
+
               {/* Delete */}
               <div
                 onClick={handleDelete}
@@ -586,6 +938,12 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
             <div onMouseDown={(e) => handleResizeEdge(e, 's')} style={edgeStyle('ns-resize', { bottom: 0, left: 0, right: 0, height: 6 })} />
             <div onMouseDown={(e) => handleResizeEdge(e, 'e')} style={edgeStyle('ew-resize', { right: 0, top: 0, bottom: 0, width: 6 })} />
             <div onMouseDown={(e) => handleResizeEdge(e, 'w')} style={edgeStyle('ew-resize', { left: 0, top: 0, bottom: 0, width: 6 })} />
+
+            {/* Resize corners for scale (zoom) */}
+            <div onMouseDown={(e) => handleResizeCorner(e, 'nw')} style={handleStyle('nwse-resize', { top: -6, left: -6, width: 12, height: 12, borderRadius: 6, background: '#fff', border: `2px solid ${color}` })} />
+            <div onMouseDown={(e) => handleResizeCorner(e, 'ne')} style={handleStyle('nesw-resize', { top: -6, right: -6, width: 12, height: 12, borderRadius: 6, background: '#fff', border: `2px solid ${color}` })} />
+            <div onMouseDown={(e) => handleResizeCorner(e, 'sw')} style={handleStyle('nesw-resize', { bottom: -6, left: -6, width: 12, height: 12, borderRadius: 6, background: '#fff', border: `2px solid ${color}` })} />
+            <div onMouseDown={(e) => handleResizeCorner(e, 'se')} style={handleStyle('nwse-resize', { bottom: -6, right: -6, width: 12, height: 12, borderRadius: 6, background: '#fff', border: `2px solid ${color}` })} />
           </div>
         );
       })()}
@@ -593,17 +951,19 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
       {/* Drop indicator */}
       {dropIndicator && (() => {
         if (dropIndicator.vertical) {
+          const isCol = dropIndicator.isColumnLevel;
           return (
             <div style={{
               position: 'fixed',
               top: dropIndicator.top,
               left: dropIndicator.x,
-              width: 4,
+              width: isCol ? 6 : 4,
               height: dropIndicator.height,
-              background: '#8d55f1',
-              borderRadius: 2,
+              background: isCol ? '#3b82f6' : '#ef4444',
+              borderRadius: isCol ? 3 : 2,
               pointerEvents: 'none',
               zIndex: 9999,
+              boxShadow: isCol ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none',
             }} />
           );
         } else if (dropIndicator.width) {

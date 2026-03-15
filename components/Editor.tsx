@@ -3354,6 +3354,11 @@ const Editor: React.FC<EditorProps> = ({
                 />
             )}
 
+            <ColumnResizer
+                containerRef={containerRef}
+                onContentChange={onContentChange}
+            />
+
             {/* SelectionOverlay — multi-level hover boxes, resize handles, drag */}
             <SelectionOverlay
                 containerRef={containerRef}
