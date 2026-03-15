@@ -8,6 +8,7 @@ import PageRuler from './PageRuler';
 import BlockContextMenu from './BlockContextMenu';
 import BulletOverlay from './BulletOverlay';
 import DragHandle from './DragHandle';
+import ColumnResizer from './ColumnResizer';
 import PatternModal from './PatternModal';
 import QRCodeModal from './QRCodeModal';
 import LinkToolbar from './LinkToolbar';
@@ -3369,6 +3370,12 @@ const Editor: React.FC<EditorProps> = ({
                     onAction={handleAction}
                 />
             )}
+
+            {/* Column resizers — draggable dividers between columns */}
+            <ColumnResizer
+                containerRef={containerRef}
+                onContentChange={onContentChange}
+            />
 
             {activeLink && (
                 <LinkToolbar
