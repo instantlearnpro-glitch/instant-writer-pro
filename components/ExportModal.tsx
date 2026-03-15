@@ -26,15 +26,27 @@ const ExportModal: React.FC<ExportModalProps> = ({
   if (!isOpen) return null;
 
   const handleExport = async () => {
-    setIsExporting(true);
-    setExportProgress(0);
     const finalName = fileName || 'documento';
 
+    // PDF: close modal FIRST, then capture (modal must not be visible during screenshots)
+    if (format === 'pdf') {
+      onClose();
+      // Wait for modal to fully disappear before starting screen capture
+      setTimeout(async () => {
+        try {
+          await onExportPDF(finalName);
+        } catch (error) {
+          console.error('PDF export failed:', error);
+        }
+      }, 500);
+      return;
+    }
+
+    // HTML & DOCX: keep modal open for progress
+    setIsExporting(true);
+    setExportProgress(0);
     try {
       switch (format) {
-        case 'pdf':
-          await onExportPDF(finalName, (percent) => setExportProgress(percent));
-          break;
         case 'html':
           onExportHTML(finalName);
           break;
@@ -145,7 +157,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
             ) : (
               <>
                 {format === 'pdf' && (
-                  <>📄 The PDF keeps layout, images, and formatting exactly as shown.</>
+                  <>📸 Screenshots every page exactly as shown. Your browser will ask to share this tab.</>
                 )}
                 {format === 'html' && (
                   <>🌐 HTML preserves all content and can be reopened in Instant Writer Pro.</>

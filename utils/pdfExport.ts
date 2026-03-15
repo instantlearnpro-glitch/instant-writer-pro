@@ -1,4 +1,6 @@
-// utils/pdfExport.ts — Extracted PDF export logic from App.tsx
+// utils/pdfExport.ts — True screenshot-based PDF export
+// Uses the Screen Capture API (getDisplayMedia) to capture ACTUAL rendered pixels.
+// Flow: modal closes → getDisplayMedia permission → scroll & capture each page → build PDF
 
 interface JsPDFInstance {
     addPage(format: number[], orientation: string): void;
@@ -33,6 +35,78 @@ const toInches = (val: string): number => {
     return num;
 };
 
+// ---------- Inline progress bar (shown at the top of the screen) ----------
+
+const createProgressBar = () => {
+    const container = document.createElement('div');
+    container.id = 'pdf-export-progress';
+    container.innerHTML = `
+        <div style="position:fixed; top:0; left:0; right:0; z-index:99999;
+                    background:rgba(17,24,39,0.92); backdrop-filter:blur(8px);
+                    padding:10px 20px; display:flex; align-items:center; gap:14px;
+                    box-shadow:0 4px 20px rgba(0,0,0,0.3); font-family:Inter,sans-serif;">
+            <span style="color:white; font-size:13px; font-weight:600; white-space:nowrap;">
+                📸 Rendering PDF…
+            </span>
+            <div style="flex:1; height:6px; background:rgba(255,255,255,0.15);
+                        border-radius:3px; overflow:hidden;">
+                <div id="pdf-progress-fill"
+                     style="height:100%; width:0%; background:linear-gradient(90deg,#8d55f1,#c4a7ff);
+                            border-radius:3px; transition:width 0.2s;"></div>
+            </div>
+            <span id="pdf-progress-text"
+                  style="color:white; font-size:13px; font-weight:700; min-width:36px; text-align:right;">
+                0%
+            </span>
+        </div>
+    `;
+    document.body.appendChild(container);
+    return container;
+};
+
+const updateProgressBar = (pct: number) => {
+    const fill = document.getElementById('pdf-progress-fill');
+    const text = document.getElementById('pdf-progress-text');
+    if (fill) fill.style.width = `${pct}%`;
+    if (text) text.textContent = `${Math.round(pct)}%`;
+};
+
+const removeProgressBar = () => {
+    document.getElementById('pdf-export-progress')?.remove();
+};
+
+// ---------- Capture helpers ----------
+
+/**
+ * Capture a single video frame from the screen capture stream,
+ * cropped to the given element's bounding rect on screen.
+ */
+const captureElementFromStream = (
+    video: HTMLVideoElement,
+    element: HTMLElement,
+): string => {
+    const rect = element.getBoundingClientRect();
+
+    // Map CSS viewport pixels → video stream pixels
+    const scaleX = video.videoWidth / window.innerWidth;
+    const scaleY = video.videoHeight / window.innerHeight;
+
+    const srcX = Math.round(rect.left * scaleX);
+    const srcY = Math.round(rect.top * scaleY);
+    const srcW = Math.round(rect.width * scaleX);
+    const srcH = Math.round(rect.height * scaleY);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = srcW;
+    canvas.height = srcH;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
+
+    return canvas.toDataURL('image/png');
+};
+
+// ---------- Main export function ----------
+
 export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
     const {
         fileName,
@@ -41,23 +115,14 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         cssContent,
         pageFormats,
         detectPageSizeFromCss,
-        onProgress,
     } = options;
 
-    // --- Verify libraries ---
-    if (!window.html2canvas) {
-        alert('html2canvas library is not loaded. Please refresh the page and try again.');
-        return;
-    }
-
+    // --- Verify jsPDF ---
     const JsPDF = (window as unknown as { jspdf?: { jsPDF: new (opts: Record<string, unknown>) => JsPDFInstance } }).jspdf?.jsPDF;
     if (!JsPDF) {
         alert('jsPDF library is not loaded. Please refresh the page and try again.');
         return;
     }
-
-    console.log('[PDF Export] Starting export for:', fileName);
-    onProgress?.(0);
 
     // --- 1. Determine page dimensions ---
     let pageWidthIn = 8.5;
@@ -78,16 +143,13 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         pageHeightIn = toInches(cssSize.height);
     }
 
-    const pageWidthPx = Math.round(pageWidthIn * 96);
-    const pageHeightPx = Math.round(pageHeightIn * 96);
     const orientation = pageWidthIn > pageHeightIn ? 'landscape' : 'portrait';
 
-    console.log('[PDF Export] Page size:', pageWidthIn, 'x', pageHeightIn, 'in');
-
-    // --- 2. Find the .page elements in the workspace ---
-    const workspace = document.querySelector('.editor-workspace');
-    if (!workspace) {
-        alert('Workspace not found.');
+    // --- 2. Find elements ---
+    const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+    const editorContainer = document.querySelector('.editor-container') as HTMLElement | null;
+    if (!workspace || !editorContainer) {
+        alert('Editor not found.');
         return;
     }
 
@@ -97,120 +159,121 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         return;
     }
 
-    console.log('[PDF Export] Found', pages.length, 'pages');
+    console.log('[PDF Export] Starting screen capture for', pages.length, 'pages');
 
-    // Signal to MutationObservers that we're exporting (prevents button re-injection loop)
+    // --- 3. Request screen capture permission (browser dialog) ---
+    let stream: MediaStream;
+    try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+                // @ts-ignore — displaySurface hint for Chromium
+                displaySurface: 'browser',
+            },
+            // @ts-ignore — preferCurrentTab is Chromium-specific
+            preferCurrentTab: true,
+            // @ts-ignore
+            selfBrowserSurface: 'include',
+        } as DisplayMediaStreamOptions);
+    } catch {
+        alert('Screen capture was denied. Please try again and share the current tab.');
+        return;
+    }
+
+    // --- 4. Set up video element from stream ---
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.muted = true;
+    await video.play();
+    // Wait for video dimensions to stabilize
+    await new Promise(r => setTimeout(r, 500));
+    console.log(`[PDF Export] Video stream: ${video.videoWidth}x${video.videoHeight}`);
+
+    // --- 5. Prepare editor: hide UI, adjust zoom ---
+
+    // Save current state
+    const savedTransform = workspace.style.transform;
+    const savedTransformOrigin = workspace.style.transformOrigin;
+
+    // Calculate zoom so a full page fits in the editor container's height
+    const pageComputedStyle = getComputedStyle(pages[0]);
+    const pageRealHeight = parseFloat(pageComputedStyle.height);
+    const containerHeight = editorContainer.clientHeight;
+    const fitZoom = Math.min(100, Math.floor((containerHeight / pageRealHeight) * 96));
+
+    // Hide editor UI elements and remove page shadows
+    const hideStyle = document.createElement('style');
+    hideStyle.id = 'pdf-export-hide';
+    hideStyle.textContent = `
+        .image-overlay, .resize-handle, .drag-handle,
+        .text-mode-badge, .marquee, .context-menu,
+        .page-ruler, .margin-guides, .toc-refresh-btn {
+            display: none !important;
+        }
+        .editor-workspace .page {
+            box-shadow: none !important;
+        }
+        [data-selected], [data-multi-selected] {
+            outline: none !important;
+        }
+        #pdf-export-progress {
+            /* Keep progress bar visible during capture */
+        }
+    `;
+    document.head.appendChild(hideStyle);
+
+    // Set zoom to fit
+    workspace.style.transform = `scale(${fitZoom / 100})`;
+    workspace.style.transformOrigin = 'top center';
     workspace.setAttribute('data-pdf-exporting', 'true');
 
-    // --- 3. Temporarily clean up editor UI elements ---
-    const removedElements: { parent: Node; element: Node; nextSibling: Node | null }[] = [];
-    const editorSelectors = '.image-overlay, .resize-handle, .drag-handle, .text-mode-badge, .marquee, .context-menu, .page-ruler, .margin-guides, .toc-refresh-btn';
+    // Wait for repaint
+    await new Promise(r => setTimeout(r, 300));
 
-    workspace.querySelectorAll(editorSelectors).forEach(el => {
-        if (el.parentNode) {
-            removedElements.push({
-                parent: el.parentNode,
-                element: el,
-                nextSibling: el.nextSibling
-            });
-            el.parentNode.removeChild(el);
-        }
-    });
-
-    // Remove data-selected attributes temporarily
-    const selectedEls = workspace.querySelectorAll('[data-selected]');
-    selectedEls.forEach(el => el.removeAttribute('data-selected'));
-    const multiSelectedEls = workspace.querySelectorAll('[data-multi-selected]');
-    multiSelectedEls.forEach(el => el.removeAttribute('data-multi-selected'));
-
-    const overflowFixedElements: { el: HTMLElement; originalOverflow: string; originalBoxShadow?: string }[] = [];
-    const tocTextBackups: { el: HTMLElement; origStyle: string }[] = [];
-
-    pages.forEach(page => {
-        overflowFixedElements.push({ el: page, originalOverflow: page.style.overflow, originalBoxShadow: page.style.boxShadow });
-        page.style.overflow = 'visible';
-        page.style.boxShadow = 'none';
-
-        // Fix TOC text spans
-        page.querySelectorAll('.toc-dyn-text').forEach(textNode => {
-            const textEl = textNode as HTMLElement;
-            tocTextBackups.push({ el: textEl, origStyle: textEl.getAttribute('style') || '' });
-            textEl.style.overflow = 'visible';
-            textEl.style.whiteSpace = 'normal';
-            textEl.style.textOverflow = 'clip';
-        });
-    });
-
-    // --- Pre-process TOC leader dots: html2canvas can't render CSS radial-gradient,
-    // so we temporarily replace gradient-based leaders with border-bottom styles ---
-    const tocLeaderBackups: { el: HTMLElement; originalStyle: string; originalAriaHidden: string | null }[] = [];
-    pages.forEach(page => {
-        page.querySelectorAll('.toc-dyn-leader').forEach(leaderNode => {
-            const leader = leaderNode as HTMLElement;
-            const inlineStyle = leader.getAttribute('style') || '';
-
-            tocLeaderBackups.push({
-                el: leader,
-                originalStyle: inlineStyle,
-                originalAriaHidden: leader.getAttribute('aria-hidden')
-            });
-
-            leader.removeAttribute('aria-hidden');
-
-            const colorMatch = inlineStyle.match(/(#[0-9a-fA-F]{3,8})/);
-            const color = colorMatch ? colorMatch[1] : '#9ca3af';
-
-            if (inlineStyle.includes('radial-gradient')) {
-                leader.style.cssText = `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; height: 0px; border-bottom: 2px dotted ${color}; background: none;`;
-            } else if (inlineStyle.includes('repeating-linear-gradient')) {
-                leader.style.cssText = `flex: 1 1 auto; display: block; align-self: center; min-width: 20px; height: 0px; border-bottom: 2px dashed ${color}; background: none;`;
-            } else if (inlineStyle.includes('border-bottom')) {
-                leader.style.background = 'none';
-            }
-        });
-    });
+    // Show progress bar
+    const progressContainer = createProgressBar();
 
     try {
-        // --- 4. Render each page with html2canvas ---
         const pdf = new JsPDF({
             unit: 'in',
             format: [pageWidthIn, pageHeightIn],
             orientation: orientation
         });
 
+        const capturedImages: string[] = [];
+
         for (let i = 0; i < pages.length; i++) {
             const pct = Math.round(((i) / pages.length) * 90);
-            onProgress?.(pct);
-            console.log(`[PDF Export] Rendering page ${i + 1}/${pages.length}... (${pct}%)`);
+            updateProgressBar(pct);
+            console.log(`[PDF Export] Page ${i + 1}/${pages.length} (${pct}%)`);
 
-            if (i % 5 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
+            // Scroll this page into the center of the editor
+            pages[i].scrollIntoView({ behavior: 'instant', block: 'center' });
 
-            const canvas = await window.html2canvas(pages[i], {
-                scale: 1.5,
-                useCORS: true,
-                allowTaint: true,
-                logging: false,
-                width: pageWidthPx,
-                height: pageHeightPx,
-                backgroundColor: '#ffffff',
-                imageTimeout: 5000,
-                removeContainer: true
-            });
+            // Wait for scroll + repaint
+            await new Promise(r => setTimeout(r, 350));
 
+            // Capture actual screen pixels for this page
+            const imgData = captureElementFromStream(video, pages[i]);
+            capturedImages.push(imgData);
+        }
+
+        // Stop capture immediately
+        stream.getTracks().forEach(t => t.stop());
+        video.remove();
+
+        updateProgressBar(92);
+
+        // Build PDF from captured images
+        for (let i = 0; i < capturedImages.length; i++) {
             if (i > 0) {
                 pdf.addPage([pageWidthIn, pageHeightIn], orientation);
             }
-
-            const imgData = canvas.toDataURL('image/jpeg', 0.85);
-            pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthIn, pageHeightIn, undefined, 'FAST');
+            pdf.addImage(capturedImages[i], 'PNG', 0, 0, pageWidthIn, pageHeightIn, undefined, 'FAST');
         }
 
-        onProgress?.(95);
-        console.log('[PDF Export] All pages rendered, generating PDF blob...');
+        updateProgressBar(97);
 
-        // --- 5. Trigger download ---
+        // Trigger download
         const pdfBlob = pdf.output('blob');
         console.log('[PDF Export] PDF blob size:', pdfBlob.size, 'bytes');
 
@@ -221,48 +284,29 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         downloadLink.style.display = 'none';
         document.body.appendChild(downloadLink);
         downloadLink.click();
-
         setTimeout(() => {
             document.body.removeChild(downloadLink);
             URL.revokeObjectURL(blobUrl);
         }, 1000);
 
-        onProgress?.(100);
-        console.log('[PDF Export] Download triggered successfully');
+        updateProgressBar(100);
+        console.log('[PDF Export] Done!');
+
+        // Brief moment to show 100% before removing
+        await new Promise(r => setTimeout(r, 600));
 
     } catch (err) {
         console.error('[PDF Export] Error:', err);
-        alert('An error occurred during PDF export. Please try again.');
+        try { stream.getTracks().forEach(t => t.stop()); } catch { /* */ }
+        video.remove();
+        alert('An error occurred during PDF export.');
     } finally {
-        // --- 6. Restore removed editor UI elements & styles ---
-
-        // Restore TOC leader dots (revert border→gradient conversion)
-        tocLeaderBackups.forEach(({ el, originalStyle, originalAriaHidden }) => {
-            el.setAttribute('style', originalStyle);
-            if (originalAriaHidden !== null) {
-                el.setAttribute('aria-hidden', originalAriaHidden);
-            }
-        });
-
-        // Restore TOC text spans (revert overflow:visible → original hidden+ellipsis)
-        tocTextBackups.forEach(({ el, origStyle }) => {
-            el.setAttribute('style', origStyle);
-        });
-
-        overflowFixedElements.forEach(({ el, originalOverflow, originalBoxShadow }) => {
-            el.style.overflow = originalOverflow;
-            if (originalBoxShadow !== undefined) el.style.boxShadow = originalBoxShadow;
-        });
-        removedElements.forEach(({ parent, element, nextSibling }) => {
-            if (nextSibling) {
-                parent.insertBefore(element, nextSibling);
-            } else {
-                parent.appendChild(element);
-            }
-        });
-        console.log('[PDF Export] Cleanup complete');
-
-        // Remove export flag
+        // Restore everything
         workspace.removeAttribute('data-pdf-exporting');
+        workspace.style.transform = savedTransform;
+        workspace.style.transformOrigin = savedTransformOrigin;
+        hideStyle.remove();
+        removeProgressBar();
+        console.log('[PDF Export] Cleanup complete');
     }
 };
