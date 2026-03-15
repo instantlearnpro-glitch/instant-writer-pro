@@ -970,6 +970,33 @@ const App: React.FC = () => {
                         }
                     });
 
+                    // F. Convert inline base64 data URIs to blob URLs (CRITICAL for large files).
+                    // Without this, a 350-page book with 150+ images would be ~184MB of HTML text,
+                    // crashing the browser when inserted via innerHTML.
+                    // Blob URLs reduce the HTML to ~2MB while keeping images in efficient Blob objects.
+                    const dataImages = doc.querySelectorAll('img') as NodeListOf<HTMLImageElement>;
+                    dataImages.forEach(img => {
+                        const src = img.getAttribute('src');
+                        if (!src || !src.startsWith('data:image')) return;
+                        try {
+                            const commaIdx = src.indexOf(',');
+                            if (commaIdx === -1) return;
+                            const meta = src.substring(0, commaIdx);
+                            const base64 = src.substring(commaIdx + 1);
+                            const mimeMatch = meta.match(/data:([^;]+)/);
+                            const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+                            const binary = atob(base64);
+                            const array = new Uint8Array(binary.length);
+                            for (let i = 0; i < binary.length; i++) {
+                                array[i] = binary.charCodeAt(i);
+                            }
+                            const blob = new Blob([array], { type: mime });
+                            img.src = URL.createObjectURL(blob);
+                        } catch (e) {
+                            console.warn('[Import] Failed to convert data URI to blob:', e);
+                        }
+                    });
+
                     // E. Sanitize fixed widths that cause margin overflow
                     // Only target plain layout containers — skip styled boxes with borders/backgrounds
                     doc.body.querySelectorAll('*').forEach(el => {
