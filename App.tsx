@@ -1095,60 +1095,68 @@ const App: React.FC = () => {
                             unwrapSingleContainer(page);
                             fixClippedContainers(page);
                         });
-                        // Use reflowPagesUntilStable for full convergence, not single pass.
-                        // Use onDone callback because reflowPagesUntilStable is async (uses rAF).
-                        reflowPagesUntilStable(workspace, {
-                            onDone: () => {
-                                // Rebuild structure entries from saved data-structure-status attributes
-                                const rebuiltEntries: StructureEntry[] = [];
-                                const allPages = Array.from(workspace!.querySelectorAll('.page'));
-                                workspace!.querySelectorAll('[data-structure-status="approved"]').forEach(el => {
-                                    const htmlEl = el as HTMLElement;
-                                    const tag = htmlEl.tagName.toLowerCase();
-                                    if (!['h1', 'h2', 'h3'].includes(tag)) return;
 
-                                    const elId = htmlEl.id || `struct-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                                    if (!htmlEl.id) htmlEl.id = elId;
+                        // Finalize state: rebuild structure entries and persist
+                        const commitFinalState = () => {
+                            const rebuiltEntries: StructureEntry[] = [];
+                            const allPages = Array.from(workspace!.querySelectorAll('.page'));
+                            workspace!.querySelectorAll('[data-structure-status="approved"]').forEach(el => {
+                                const htmlEl = el as HTMLElement;
+                                const tag = htmlEl.tagName.toLowerCase();
+                                if (!['h1', 'h2', 'h3'].includes(tag)) return;
 
-                                    const page = htmlEl.closest('.page');
-                                    let pageNum = 1;
-                                    allPages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+                                const elId = htmlEl.id || `struct-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                                if (!htmlEl.id) htmlEl.id = elId;
 
-                                    rebuiltEntries.push({
-                                        id: elId,
-                                        elementId: elId,
-                                        text: htmlEl.innerText.substring(0, 50),
-                                        page: pageNum,
-                                        type: tag,
-                                        status: 'approved'
-                                    });
+                                const page = htmlEl.closest('.page');
+                                let pageNum = 1;
+                                allPages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+
+                                rebuiltEntries.push({
+                                    id: elId,
+                                    elementId: elId,
+                                    text: htmlEl.innerText.substring(0, 50),
+                                    page: pageNum,
+                                    type: tag,
+                                    status: 'approved'
                                 });
+                            });
 
-                                if (rebuiltEntries.length > 0) {
-                                    setStructureEntries(rebuiltEntries);
-                                }
-
-                                // Use functional update to get the LATEST docState, not the stale
-                                // closure value. Between import and finalize, handleContentChange
-                                // may have overwritten cssContent with stale old CSS.
-                                setDocState(prev => {
-                                    // Re-apply layout override to ensure the correct page size
-                                    const correctedCss = applyLayoutOverride(
-                                        newState.cssContent, // Use the import's CSS as base
-                                        targetSize.width,
-                                        targetSize.height,
-                                        importMargins
-                                    );
-                                    const finalState = {
-                                        ...newState,
-                                        htmlContent: workspace!.innerHTML,
-                                        cssContent: correctedCss
-                                    };
-                                    pushHistoryState(finalState);
-                                    return finalState;
-                                });
+                            if (rebuiltEntries.length > 0) {
+                                setStructureEntries(rebuiltEntries);
                             }
-                        });
+
+                            setDocState(prev => {
+                                const correctedCss = applyLayoutOverride(
+                                    newState.cssContent,
+                                    targetSize.width,
+                                    targetSize.height,
+                                    importMargins
+                                );
+                                const finalState = {
+                                    ...newState,
+                                    htmlContent: workspace!.innerHTML,
+                                    cssContent: correctedCss
+                                };
+                                pushHistoryState(finalState);
+                                return finalState;
+                            });
+                        };
+
+                        // If the document already has many pre-paginated pages,
+                        // skip the expensive reflow pass — the content is already
+                        // laid out by the author. Running reflow on large docs
+                        // (e.g. 350+ pages, 150+ base64 images) crashes the browser.
+                        const PRE_PAGINATED_THRESHOLD = 3;
+                        if (pages.length >= PRE_PAGINATED_THRESHOLD && !changed) {
+                            console.log(`[Import] Skipping reflow: ${pages.length} pre-paginated pages detected`);
+                            commitFinalState();
+                        } else {
+                            // Small or unpaginated doc: reflow normally
+                            reflowPagesUntilStable(workspace, {
+                                onDone: commitFinalState
+                            });
+                        }
                     };
 
                     const fontReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
