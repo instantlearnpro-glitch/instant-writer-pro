@@ -250,10 +250,13 @@ const scopeImportedCss = (css: string, scopeSelector = '.editor-workspace') => {
         // If the imported CSS targets the page container, strip out fixed dimensions
         // because we want our `applyLayoutOverride` to control the physical page size.
         if (scopedSelectors.includes('.page')) {
-            body = body.replace(/width\s*:\s*[^;]+;?/gi, '')
-                .replace(/height\s*:\s*[^;]+;?/gi, '')
-                .replace(/min-height\s*:\s*[^;]+;?/gi, '')
-                .replace(/max-height\s*:\s*[^;]+;?/gi, '');
+            // Use negative lookbehind to match standalone properties only.
+            // Without this, /width:/ also matches inside max-width, border-width, etc.
+            // and /height:/ matches inside line-height, corrupting the CSS rule.
+            body = body.replace(/(?<![a-z-])width\s*:\s*[^;]+;?/gi, '')
+                .replace(/(?<![a-z-])height\s*:\s*[^;]+;?/gi, '')
+                .replace(/(?<![a-z-])min-height\s*:\s*[^;]+;?/gi, '')
+                .replace(/(?<![a-z-])max-height\s*:\s*[^;]+;?/gi, '');
         }
 
         return `${scopedSelectors} { ${body} }`;

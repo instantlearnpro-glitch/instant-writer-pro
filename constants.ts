@@ -17,7 +17,7 @@ export const DEFAULT_CSS = `
     padding: calc(0.5in + var(--header-reserve, 0in)) 0.5in calc(0.5in + var(--footer-reserve, 0in)) 0.45in;
     margin: 0 auto 0.5in auto;
     position: relative;
-    background: #fff;
+    background-color: #fff;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     overflow: hidden;
 }
