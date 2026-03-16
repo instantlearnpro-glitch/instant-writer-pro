@@ -22,6 +22,8 @@ const AutoLogModal = lazy(() => import('./components/AutoLogModal'));
 import { ensureContentIsPaginated, reflowPages, reflowPagesUntilStable } from './utils/pagination';
 import { exportPdf } from './utils/pdfExport';
 import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
+import { sanitizeDocument, detectOrphanPageNumbers, SanitizeIssue } from './utils/documentSanitizer';
+import SanitizeReviewPanel from './components/SanitizeReviewPanel';
 import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, convertInchesToTwip, HeadingLevel, PageBreak } from 'docx';
 import { saveAs } from 'file-saver';
 
@@ -555,6 +557,9 @@ const App: React.FC = () => {
     const [showFrameTools, setShowFrameTools] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
+    // Document sanitization review
+    const [sanitizeIssues, setSanitizeIssues] = useState<SanitizeIssue[]>([]);
+
     // Zoom and View Mode
     const [zoom, setZoom] = useState(100);
     const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
@@ -866,7 +871,7 @@ const App: React.FC = () => {
                     if (window.mammoth) {
                         window.mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
                             .then((result) => {
-                                const html = result.value;
+                                const html = sanitizeDocument(result.value);
                                 const bodyContent = `<div class="page">${html}</div>`;
                                 const newState = {
                                     htmlContent: bodyContent,
@@ -1029,7 +1034,7 @@ const App: React.FC = () => {
                         }
                     });
 
-                    let bodyContent = doc.body.innerHTML;
+                    let bodyContent = sanitizeDocument(doc.body.innerHTML);
 
                     // Wrap in page if needed
                     const tempDiv = document.createElement('div');
@@ -5053,6 +5058,18 @@ ${workspace.innerHTML}
                 onAddFont={handleAddFont}
                 onCaptureSelection={handleCaptureSelection}
                 onOpenLogs={() => setIsAutoLogModalOpen(true)}
+                onSanitize={() => {
+                    const ws = document.querySelector('.editor-workspace') as HTMLElement | null;
+                    if (ws) {
+                        const issues = detectOrphanPageNumbers(ws);
+                        if (issues.length > 0) {
+                            console.log(`[Sanitizer] Found ${issues.length} orphan page numbers`);
+                            setSanitizeIssues(issues);
+                        } else {
+                            alert('No orphan page numbers found.');
+                        }
+                    }
+                }}
             />
 
             {fontUploadMessage && (
@@ -5222,6 +5239,23 @@ ${workspace.innerHTML}
                     onExportDOCX={handleExportDOCX}
                 />
             </Suspense>
+
+            {sanitizeIssues.length > 0 && (
+                <SanitizeReviewPanel
+                    issues={sanitizeIssues}
+                    onResolve={(removedIds) => {
+                        console.log(`[Sanitizer] Removed ${removedIds.length} orphan page numbers`);
+                        setSanitizeIssues([]);
+                        // Persist DOM changes to state
+                        const ws = document.querySelector('.editor-workspace') as HTMLElement | null;
+                        if (ws) {
+                            reflowPagesUntilStable(ws);
+                            updateDocState({ ...docState, htmlContent: ws.innerHTML }, true);
+                        }
+                    }}
+                    onDismiss={() => setSanitizeIssues([])}
+                />
+            )}
         </div>
     );
 };

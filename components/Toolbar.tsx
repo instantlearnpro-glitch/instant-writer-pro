@@ -6,7 +6,7 @@ import {
     Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
     RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
     ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus, FileText,
-    Columns3
+    Columns3, ScanSearch
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
@@ -60,6 +60,7 @@ interface ToolbarProps {
     onAddFont: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onCaptureSelection: () => void;
     onOpenLogs: () => void;
+    onSanitize: () => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -108,7 +109,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
     onReloadFonts,
     onAddFont,
     onCaptureSelection,
-    onOpenLogs
+    onOpenLogs,
+    onSanitize
 }) => {
     const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
     const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
@@ -906,6 +908,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 )}
                             </div>
                         </div>
+                        <button
+                            onClick={onSanitize}
+                            className={ButtonClass(false)}
+                            title="Scan Document (Orphan Page Numbers)"
+                        >
+                            <ScanSearch size={18} />
+                        </button>
                         <button
                             onClick={onExport}
                             className="bg-[#8d55f1] text-white p-2 rounded-md hover:bg-[#7539d3] shadow-sm"

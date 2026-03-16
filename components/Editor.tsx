@@ -15,6 +15,7 @@ import QRCodeModal from './QRCodeModal';
 import LinkToolbar from './LinkToolbar';
 import TableTocModal from './TableTocModal';
 import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from '../utils/patternDetector';
+import { sanitizeDocument } from '../utils/documentSanitizer';
 
 interface EditorProps {
     htmlContent: string;
@@ -2271,7 +2272,8 @@ const Editor: React.FC<EditorProps> = ({
     const handlePaste = async () => {
         try {
             const clipboardData = await navigator.clipboard.readText();
-            document.execCommand('insertText', false, clipboardData);
+            const sanitizedData = sanitizeDocument(clipboardData);
+            document.execCommand('insertText', false, sanitizedData);
             if (contentRef.current) {
                 reflowPages(contentRef.current);
                 onContentChange(contentRef.current.innerHTML);
