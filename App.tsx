@@ -4588,7 +4588,7 @@ const App: React.FC = () => {
         return clone;
     };
 
-    const handleExportHTML = (fileName: string) => {
+    const handleExportHTML = async (fileName: string) => {
         // Refresh dynamic TOC page numbers before export
         refreshDynamicTOC();
         // Use the actual document state, not the live DOM
@@ -4598,6 +4598,28 @@ const App: React.FC = () => {
         // Clean up selection attributes
         tempDiv.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
         // Keep data-structure-status for round-trip fidelity
+
+        // CRITICAL: Convert blob: URLs back to base64 data URIs.
+        // During import, base64 images are converted to blob: URLs for performance,
+        // but blob URLs are session-only and become dead links after page reload.
+        const blobImages = Array.from(tempDiv.querySelectorAll('img')) as HTMLImageElement[];
+        await Promise.all(blobImages.map(async (img) => {
+            const src = img.getAttribute('src');
+            if (!src || !src.startsWith('blob:')) return;
+            try {
+                const resp = await fetch(src);
+                const blobData = await resp.blob();
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blobData);
+                });
+                img.setAttribute('src', dataUrl);
+            } catch (e) {
+                console.warn('[Export] Failed to convert blob URL back to data URI:', src, e);
+            }
+        }));
 
         const workspace = tempDiv;
 

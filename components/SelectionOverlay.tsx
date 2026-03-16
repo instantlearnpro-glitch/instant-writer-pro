@@ -854,6 +854,36 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
               </div>
             </div>
 
+            {/* Delete × button — top right */}
+            <div
+              onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+              style={{
+                position: 'absolute',
+                top: -26,
+                right: 0,
+                background: color,
+                color: 'white',
+                fontSize: 12,
+                fontWeight: 700,
+                fontFamily: 'Inter, sans-serif',
+                width: 22,
+                height: 22,
+                borderRadius: '4px 4px 0 0',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                pointerEvents: 'auto',
+                userSelect: 'none',
+                opacity: 0.8,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.8')}
+              title="Delete element"
+            >
+              ×
+            </div>
+
             {/* Resize handles — corners */}
             <div onMouseDown={(e) => handleResizeEdge(e, 'n')} style={handleStyle('ns-resize', { top: -5, left: '50%', transform: 'translateX(-50%)', width: 24, height: 10 })} />
             <div onMouseDown={(e) => handleResizeEdge(e, 's')} style={handleStyle('ns-resize', { bottom: -5, left: '50%', transform: 'translateX(-50%)', width: 24, height: 10 })} />

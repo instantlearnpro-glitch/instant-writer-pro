@@ -102,7 +102,8 @@ const captureElementFromStream = (
     const ctx = canvas.getContext('2d')!;
     ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
 
-    return canvas.toDataURL('image/png');
+    // JPEG is ~5-10x smaller than PNG — critical for large documents
+    return canvas.toDataURL('image/jpeg', 0.92);
 };
 
 // ---------- Main export function ----------
@@ -239,10 +240,11 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
             orientation: orientation
         });
 
-        const capturedImages: string[] = [];
-
+        // Process pages incrementally: capture → add to PDF → discard.
+        // This avoids holding ALL page screenshots in memory at once,
+        // which was causing the browser to freeze/crash on large documents.
         for (let i = 0; i < pages.length; i++) {
-            const pct = Math.round(((i) / pages.length) * 90);
+            const pct = Math.round(((i) / pages.length) * 95);
             updateProgressBar(pct);
             console.log(`[PDF Export] Page ${i + 1}/${pages.length} (${pct}%)`);
 
@@ -254,24 +256,25 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
 
             // Capture actual screen pixels for this page
             const imgData = captureElementFromStream(video, pages[i]);
-            capturedImages.push(imgData);
-        }
 
-        // Stop capture immediately
-        stream.getTracks().forEach(t => t.stop());
-        video.remove();
-
-        updateProgressBar(92);
-
-        // Build PDF from captured images
-        for (let i = 0; i < capturedImages.length; i++) {
+            // Add to PDF immediately instead of storing (saves memory)
             if (i > 0) {
                 pdf.addPage([pageWidthIn, pageHeightIn], orientation);
             }
-            pdf.addImage(capturedImages[i], 'PNG', 0, 0, pageWidthIn, pageHeightIn, undefined, 'FAST');
+            pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthIn, pageHeightIn, `page-${i}`, 'FAST');
+
+            // Yield to the browser event loop every page to prevent UI freeze
+            await new Promise(r => setTimeout(r, 0));
         }
 
+        // Stop capture
+        stream.getTracks().forEach(t => t.stop());
+        video.remove();
+
         updateProgressBar(97);
+
+        // Yield before heavy blob generation
+        await new Promise(r => setTimeout(r, 10));
 
         // Trigger download
         const pdfBlob = pdf.output('blob');
