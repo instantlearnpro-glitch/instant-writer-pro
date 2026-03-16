@@ -462,9 +462,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             <button onClick={onOpenTOCModal} className={ButtonClass(false)} title="Insert Table of Contents">
                                 <TableOfContents size={18} />
                             </button>
-                            <button onClick={onConvertToTOC} className={ButtonClass(false)} title="Convert Selected Text to Dynamic TOC">
-                                <ListOrdered size={18} />
-                            </button>
                             <button onClick={onOpenPageNumberModal} className={ButtonClass(false)} title="Insert Page Numbers">
                                 <Hash size={18} />
                             </button>
@@ -481,46 +478,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             >
                                 <Square size={18} />
                             </button>
-
-                            {/* Column Layout Insert */}
-                            <div className="relative">
-                                <button
-                                    onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
-                                    className={ButtonClass(isColumnMenuOpen)}
-                                    title="Insert Columns"
-                                >
-                                    <Columns3 size={18} />
-                                </button>
-                                {isColumnMenuOpen && (
-                                    <div
-                                        className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-xl p-1 z-50 w-28"
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                    >
-                                        <div className="text-[9px] uppercase font-bold text-gray-400 px-2 py-1 bg-gray-50 mb-1 rounded">Colonne</div>
-                                        <button
-                                            onClick={() => { onInsertColumns(2); setIsColumnMenuOpen(false); }}
-                                            className="w-full text-left text-xs px-2 py-1.5 hover:bg-brand-50 rounded flex items-center gap-2"
-                                        >
-                                            <span className="flex gap-0.5">
-                                                <span className="w-3 h-5 border border-gray-400 rounded-sm" />
-                                                <span className="w-3 h-5 border border-gray-400 rounded-sm" />
-                                            </span>
-                                            2 Colonne
-                                        </button>
-                                        <button
-                                            onClick={() => { onInsertColumns(3); setIsColumnMenuOpen(false); }}
-                                            className="w-full text-left text-xs px-2 py-1.5 hover:bg-brand-50 rounded flex items-center gap-2"
-                                        >
-                                            <span className="flex gap-0.5">
-                                                <span className="w-2.5 h-5 border border-gray-400 rounded-sm" />
-                                                <span className="w-2.5 h-5 border border-gray-400 rounded-sm" />
-                                                <span className="w-2.5 h-5 border border-gray-400 rounded-sm" />
-                                            </span>
-                                            3 Colonne
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
                         </div>
 
                         {/* Page Size Selector (Compact) */}
@@ -750,7 +707,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 </button>
                             </div>
 
-                            {/* Color */}
+                            {/* Text Color */}
                             <div className="relative flex items-center justify-center w-9 h-9 rounded hover:bg-brand-50 cursor-pointer border border-transparent hover:border-gray-300" title="Text Color">
                                 <span className="font-bold text-gray-700 text-xs select-none" style={{ color: selectionState.foreColor }}>A</span>
                                 <input
@@ -760,6 +717,26 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                     onChange={(e) => onFormat('foreColor', e.target.value)}
                                 />
                                 <div className="absolute bottom-1 w-5 h-0.5 rounded-full" style={{ backgroundColor: selectionState.foreColor || '#000000' }}></div>
+                            </div>
+
+                            {/* Background Color */}
+                            <div className="relative flex items-center justify-center w-9 h-9 rounded hover:bg-brand-50 cursor-pointer border border-transparent hover:border-gray-300" title="Background Color">
+                                <div className="relative flex items-center justify-center w-5 h-5 rounded border border-gray-300" style={{ backgroundColor: selectionState.backgroundColor && selectionState.backgroundColor !== 'transparent' ? selectionState.backgroundColor : '#ffffff' }}>
+                                    <span className="font-bold text-[10px] select-none" style={{ color: selectionState.backgroundColor && selectionState.backgroundColor !== 'transparent' && selectionState.backgroundColor !== '#ffffff' ? '#ffffff' : '#666666', mixBlendMode: 'difference' }}>A</span>
+                                </div>
+                                <input
+                                    type="color"
+                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                    value={(() => {
+                                        const bg = selectionState.backgroundColor;
+                                        if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') return '#ffffff';
+                                        const m = bg.match(/\d+/g);
+                                        if (m && m.length >= 3) return '#' + m.slice(0, 3).map((n: string) => parseInt(n).toString(16).padStart(2, '0')).join('');
+                                        return bg.startsWith('#') ? bg : '#ffffff';
+                                    })()}
+                                    onChange={(e) => handleBorderUpdate('backgroundColor', e.target.value)}
+                                />
+                                <div className="absolute bottom-1 w-5 h-0.5 rounded-full" style={{ backgroundColor: selectionState.backgroundColor && selectionState.backgroundColor !== 'transparent' ? selectionState.backgroundColor : '#cccccc' }}></div>
                             </div>
 
                             <div className="w-px h-8 bg-gray-200"></div>

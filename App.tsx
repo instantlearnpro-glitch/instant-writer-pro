@@ -3227,8 +3227,8 @@ const App: React.FC = () => {
 
         // 2. Standard behavior: Apply to active block
 
-        // RECOVERY: If activeBlock is detached (due to re-render), try to find it again via selection
-        let currentBlock = activeBlock;
+        // RECOVERY: If activeBlock is null or detached (due to re-render or focus loss), try to find it again
+        let currentBlock = activeBlock || activeBlockRef.current;
         if (currentBlock && !currentBlock.isConnected) {
             const selection = window.getSelection();
             if (selection && selection.rangeCount > 0) {
@@ -3289,7 +3289,8 @@ const App: React.FC = () => {
         if (Object.keys(pendingStyles).length === 0) return;
 
         // RESOLVE TARGET: If applying shape properties, look for the shape container
-        const isShapeProperty = pendingStyles.shape || pendingStyles.borderColor || pendingStyles.backgroundColor || pendingStyles.borderWidth || pendingStyles.borderStyle || pendingStyles.padding;
+        // Note: backgroundColor is NOT shape-only — it should work on any element
+        const isShapeProperty = pendingStyles.shape || pendingStyles.borderColor || pendingStyles.borderWidth || pendingStyles.borderStyle || pendingStyles.padding;
 
         let targetBlock = currentBlock;
         let isShape = currentBlock.matches(shapeSelectors);
@@ -3305,11 +3306,67 @@ const App: React.FC = () => {
 
         if (isShapeProperty && !isShape) {
             // Exception: If we are just aligning text (textAlign), that's allowed on paragraphs.
-            // But if we are setting borders/backgrounds/shapes, abort if it's not a shape.
+            // But if we are setting borders/shapes, abort if it's not a shape.
             // This prevents "Page Rectangle" layout breakage.
             if (!pendingStyles.textAlign && !pendingStyles.blockType && !pendingStyles.fontSize && !pendingStyles.fontName) {
                 return;
             }
+        }
+
+        // For backgroundColor: find the actual container that has the background color
+        // Parse docState.cssContent directly because getComputedStyle fails (Tailwind CDN)
+        if (pendingStyles.backgroundColor && !isShape) {
+            let bgTarget: HTMLElement | null = currentBlock;
+            let foundBgTarget = false;
+
+            const elementHasBackground = (el: HTMLElement): boolean => {
+                // Check inline styles
+                if (el.style.backgroundColor && el.style.backgroundColor !== 'transparent') return true;
+                if (el.style.background && el.style.background !== 'transparent' && el.style.background !== 'initial') return true;
+                // Check CSS rules in docState.cssContent
+                for (const cls of Array.from(el.classList)) {
+                    const escapedCls = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const ruleRegex = new RegExp(`\\.${escapedCls}\\s*(?:,\\s*[^{]*)?\\{([^}]*)\\}`, 'gi');
+                    let m;
+                    while ((m = ruleRegex.exec(docState.cssContent)) !== null) {
+                        const body = m[1];
+                        if (/background(-color)?\s*:\s*(?!transparent|none|initial|inherit|rgba\(0,\s*0,\s*0,\s*0\))[^;]+/i.test(body)) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+
+            while (bgTarget && !bgTarget.classList.contains('page') && !bgTarget.classList.contains('editor-workspace')) {
+                if (elementHasBackground(bgTarget)) {
+                    // Must set BOTH background and backgroundColor to override CSS `background` shorthand
+                    bgTarget.style.background = pendingStyles.backgroundColor;
+                    bgTarget.style.backgroundColor = pendingStyles.backgroundColor;
+                    foundBgTarget = true;
+                    break;
+                }
+                bgTarget = bgTarget.parentElement;
+            }
+            if (!foundBgTarget) {
+                currentBlock.style.background = pendingStyles.backgroundColor;
+                currentBlock.style.backgroundColor = pendingStyles.backgroundColor;
+            }
+            delete pendingStyles.backgroundColor;
+        }
+
+        if (Object.keys(pendingStyles).length === 0) {
+            // Only backgroundColor was set — save and return
+            setSelectionState(prev => ({ ...prev, backgroundColor: styles.backgroundColor }));
+            if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+            debounceTimeoutRef.current = setTimeout(() => {
+                const workspace = document.querySelector('.editor-workspace');
+                if (workspace) {
+                    const newState = { ...docState, htmlContent: workspace.innerHTML };
+                    updateDocState(newState, true);
+                }
+            }, 500);
+            return;
         }
 
         Object.entries(pendingStyles).forEach(([key, value]) => {

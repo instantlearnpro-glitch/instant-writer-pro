@@ -871,6 +871,53 @@ const Editor: React.FC<EditorProps> = ({
             return isNaN(parsed) ? '0' : parsed.toString();
         };
 
+        // Find the real background color by directly parsing the cssContent prop
+        // getComputedStyle fails because Tailwind CDN preflight overrides background-color
+        // document.styleSheets fails because selectors are scoped to .editor-workspace .page
+        const getRealBackgroundColor = (el: HTMLElement): string => {
+            let current: HTMLElement | null = el;
+            while (current && !current.classList.contains('page') && !current.classList.contains('editor-workspace')) {
+                // 1. Check inline style first (set by user via the app)
+                if (current.style.backgroundColor && current.style.backgroundColor !== 'transparent') {
+                    return rgbToHex(current.style.backgroundColor);
+                }
+                if (current.style.background && current.style.background !== 'transparent' && current.style.background !== 'initial') {
+                    const m = current.style.background.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)/);
+                    if (m) return m[0].startsWith('#') ? m[0] : rgbToHex(m[0]);
+                }
+                // 2. Search for this element's classes in the CSS text
+                for (const cls of Array.from(current.classList)) {
+                    // Build regex to find .className { ... background... : <color> ... }
+                    // Match both "background-color" and "background" shorthand
+                    const escapedCls = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const ruleRegex = new RegExp(`\\.${escapedCls}\\s*(?:,\\s*[^{]*)?\\{([^}]*)\\}`, 'gi');
+                    let match;
+                    while ((match = ruleRegex.exec(cssContent)) !== null) {
+                        const ruleBody = match[1];
+                        // Try background-color first, then background shorthand
+                        const bgColorMatch = ruleBody.match(/background-color\s*:\s*([^;]+)/i);
+                        if (bgColorMatch) {
+                            const val = bgColorMatch[1].trim();
+                            if (val !== 'transparent' && val !== 'rgba(0, 0, 0, 0)' && val !== 'initial' && val !== 'inherit') {
+                                if (val.startsWith('#')) return val;
+                                if (val.startsWith('rgb')) return rgbToHex(val);
+                            }
+                        }
+                        const bgMatch = ruleBody.match(/(?<![a-z-])background\s*:\s*([^;]+)/i);
+                        if (bgMatch) {
+                            const val = bgMatch[1].trim();
+                            if (val !== 'transparent' && val !== 'none' && val !== 'initial' && val !== 'inherit') {
+                                const colorMatch = val.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)/);
+                                if (colorMatch) return colorMatch[0].startsWith('#') ? colorMatch[0] : rgbToHex(colorMatch[0]);
+                            }
+                        }
+                    }
+                }
+                current = current.parentElement;
+            }
+            return '#ffffff';
+        };
+
         const state: SelectionState = {
             bold: computedBold || boldTag,
             italic: computedItalic || italicTag,
@@ -890,7 +937,7 @@ const Editor: React.FC<EditorProps> = ({
             borderWidth: safeParseInt(computedBlock.borderTopWidth),
             borderColor: rgbToHex(computedBlock.borderTopColor),
             borderRadius: safeParseInt(computedBlock.borderRadius),
-            backgroundColor: rgbToHex(computedBlock.backgroundColor),
+            backgroundColor: getRealBackgroundColor(block),
             padding: safeParseInt(computedBlock.paddingTop),
             borderStyle: computedBlock.borderTopStyle || 'none',
             textAlign: textAlign,
@@ -947,6 +994,46 @@ const Editor: React.FC<EditorProps> = ({
         const ulTag = element.tagName === 'LI' && element.parentElement?.tagName === 'UL';
         const olTag = element.tagName === 'LI' && element.parentElement?.tagName === 'OL';
 
+        // Find the real background color by directly parsing the cssContent prop
+        const getRealBackgroundColor = (el: HTMLElement): string => {
+            let current: HTMLElement | null = el;
+            while (current && !current.classList.contains('page') && !current.classList.contains('editor-workspace')) {
+                if (current.style.backgroundColor && current.style.backgroundColor !== 'transparent') {
+                    return rgbToHex(current.style.backgroundColor);
+                }
+                if (current.style.background && current.style.background !== 'transparent' && current.style.background !== 'initial') {
+                    const m = current.style.background.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)/);
+                    if (m) return m[0].startsWith('#') ? m[0] : rgbToHex(m[0]);
+                }
+                for (const cls of Array.from(current.classList)) {
+                    const escapedCls = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const ruleRegex = new RegExp(`\\.${escapedCls}\\s*(?:,\\s*[^{]*)?\\{([^}]*)\\}`, 'gi');
+                    let match2;
+                    while ((match2 = ruleRegex.exec(cssContent)) !== null) {
+                        const ruleBody = match2[1];
+                        const bgColorMatch = ruleBody.match(/background-color\s*:\s*([^;]+)/i);
+                        if (bgColorMatch) {
+                            const val = bgColorMatch[1].trim();
+                            if (val !== 'transparent' && val !== 'rgba(0, 0, 0, 0)' && val !== 'initial' && val !== 'inherit') {
+                                if (val.startsWith('#')) return val;
+                                if (val.startsWith('rgb')) return rgbToHex(val);
+                            }
+                        }
+                        const bgMatch = ruleBody.match(/(?<![a-z-])background\s*:\s*([^;]+)/i);
+                        if (bgMatch) {
+                            const val = bgMatch[1].trim();
+                            if (val !== 'transparent' && val !== 'none' && val !== 'initial' && val !== 'inherit') {
+                                const colorMatch = val.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)/);
+                                if (colorMatch) return colorMatch[0].startsWith('#') ? colorMatch[0] : rgbToHex(colorMatch[0]);
+                            }
+                        }
+                    }
+                }
+                current = current.parentElement;
+            }
+            return '#ffffff';
+        };
+
         return {
             bold: isBold || boldTag,
             italic: (fontStyle === 'italic' || fontStyle === 'oblique') || italicTag,
@@ -966,7 +1053,7 @@ const Editor: React.FC<EditorProps> = ({
             borderWidth: safeParseInt(computedBlock.borderTopWidth),
             borderColor: rgbToHex(computedBlock.borderTopColor),
             borderRadius: safeParseInt(computedBlock.borderRadius),
-            backgroundColor: rgbToHex(computedBlock.backgroundColor),
+            backgroundColor: getRealBackgroundColor(element),
             padding: safeParseInt(computedBlock.paddingTop),
             borderStyle: computedBlock.borderTopStyle || 'none',
             textAlign: textAlign,
@@ -2232,9 +2319,7 @@ const Editor: React.FC<EditorProps> = ({
                     'justifyCenter': 'align',
                     'justifyRight': 'align',
                     'justifyFull': 'align',
-                    'fontSize': 'fontSize',
-                    'foreColor': 'fontColor',
-                    'hiliteColor': 'fontColor'
+                    'fontSize': 'fontSize'
                 };
 
                 const actionType = formatCommands[command];
@@ -2960,7 +3045,7 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace .shape-cloud,
             .editor-workspace .shape-rectangle {
                 cursor: grab;
-                transition: outline 0.15s, background-color 0.15s;
+                transition: outline 0.15s;
             }
             .editor-workspace table:hover,
             .editor-workspace img:hover,
@@ -2973,7 +3058,6 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace .shape-rectangle:hover {
                 outline: 2px dashed #8d55f1;
                 outline-offset: 2px;
-                background-color: rgba(141, 85, 241, 0.06);
             }
             ${viewMode === 'double' ? `
             .editor-workspace {
