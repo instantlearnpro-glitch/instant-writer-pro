@@ -1371,23 +1371,25 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
     }
 
     // Sweep: remove empty flow containers left behind by split operations.
-    // These are divs/sections with no visible content that still occupy
-    // space (e.g., styled boxes whose children were all pulled up).
+    // IMPORTANT: only remove containers that were CREATED by the reflow
+    // split process (have a data-split-source attribute). Never remove
+    // containers from the original document, as they may be intentional
+    // visual elements (styled boxes, textareas, etc.).
     if (pullUp) {
         for (const page of pages) {
-            const containers = Array.from(page.querySelectorAll('div:not(.page):not(.page-footer), section, article')) as HTMLElement[];
+            const containers = Array.from(page.querySelectorAll('div:not(.page):not(.page-footer)[data-split-source], section[data-split-source], article[data-split-source]')) as HTMLElement[];
             for (const c of containers) {
                 if (!c.isConnected) continue;
-                // Preserve page break markers — they are empty divs by design
+                // Preserve page break markers
                 if (c.getAttribute('data-page-break') === 'true') continue;
                 if (c.getAttribute('data-user-page-break') === 'true') continue;
-                // Preserve writing-lines — they're intentionally empty but visual
+                // Preserve writing-lines and tracing-line
                 if (c.classList.contains('writing-lines')) continue;
                 if (c.classList.contains('tracing-line')) continue;
                 // Check for meaningful content: text, images, tables, HR, etc.
                 if (c.textContent?.trim()) continue;
-                if (c.querySelector('img, table, hr, svg, canvas, video')) continue;
-                // It's a container with no meaningful content — remove it
+                if (c.querySelector('img, table, hr, svg, canvas, video, textarea')) continue;
+                // It's a split-created container with no meaningful content — remove it
                 c.remove();
                 changesMade = true;
             }
@@ -1437,11 +1439,15 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 }
 
                 // Merge text blocks (p, h1-h6, etc.) split mid-sentence.
-                // Guards: same tag, same class, same font-size, same font-weight,
+                // Guards: MUST have at least one data-split-source marker (i.e.,
+                // was actually split by the reflow system, not two unrelated
+                // paragraphs from the original document), same tag, same class,
+                // same font-size, same font-weight,
                 // first must NOT end with terminal punctuation,
                 // and second must NOT start with a number (numbered list/TOC entry).
                 // NOTE: LI excluded — list items merge ONLY via data-split-source.
                 if (!shouldMerge &&
+                    (splitA || splitB) &&
                     textTags.has(a.tagName) &&
                     a.tagName !== 'LI' &&
                     a.tagName === b.tagName &&
@@ -1648,7 +1654,7 @@ export const reflowPagesUntilStable = (
     editor: HTMLElement,
     options?: { pullUp?: boolean; maxPasses?: number; onDone?: () => void }
 ) => {
-    const maxPasses = options?.maxPasses ?? 200;
+    const maxPasses = options?.maxPasses ?? 10;
     const pullUp = options?.pullUp ?? true;
     const onDone = options?.onDone;
 
@@ -1665,7 +1671,11 @@ export const reflowPagesUntilStable = (
     let pass = 1;
 
     const scheduleNextPass = () => {
-        if (pass >= maxPasses) { onDone?.(); return; }
+        if (pass >= maxPasses) {
+            if (pass >= 10) console.warn(`[reflow] Stopped after ${pass} passes (max reached).`);
+            onDone?.();
+            return;
+        }
         requestAnimationFrame(() => {
             const result = reflowPages(editor, {
                 pullUp,

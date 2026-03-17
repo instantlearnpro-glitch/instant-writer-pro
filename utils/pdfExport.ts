@@ -210,6 +210,10 @@ export const exportPdf = async (options: PdfExportOptions): Promise<void> => {
         .page-ruler, .margin-guides, .toc-refresh-btn {
             display: none !important;
         }
+        /* Hide page break indicators during PDF capture */
+        .editor-workspace .page > div[data-user-page-break="true"] {
+            display: none !important;
+        }
         .editor-workspace .page {
             box-shadow: none !important;
         }

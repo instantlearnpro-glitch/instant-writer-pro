@@ -51,6 +51,7 @@ interface EditorProps {
     onEndDistributeAdjust: () => void;
     showMarginGuides: boolean;
     showSmartGuides: boolean;
+    showOverlays: boolean;
     pageMargins: { top: number, bottom: number, left: number, right: number };
     onMarginChange: (key: 'top' | 'bottom' | 'left' | 'right', value: number) => void;
     selectionMode?: { active: boolean; level: string | null; selectedIds: string[] };
@@ -358,6 +359,7 @@ const Editor: React.FC<EditorProps> = ({
     selectedTextLayer,
     showMarginGuides,
     showSmartGuides,
+    showOverlays,
     pageMargins,
     onMarginChange,
     selectionMode,
@@ -2402,7 +2404,10 @@ const Editor: React.FC<EditorProps> = ({
             }
 
             // Click on page-break indicator → remove the break and reflow
-            const breakMarker = target.closest('div[data-user-page-break="true"]') as HTMLElement | null;
+            // IMPORTANT: Only match the hidden child marker div, NOT the page div itself.
+            // The page div may also carry data-user-page-break="true", but clicking
+            // anywhere on the page should NOT remove the break.
+            const breakMarker = target.closest('div[data-user-page-break="true"]:not(.page)') as HTMLElement | null;
             if (breakMarker) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -2924,9 +2929,10 @@ const Editor: React.FC<EditorProps> = ({
         transformOrigin: 'top center',
     };
 
-    const workspaceClasses = viewMode === 'double'
+    const workspaceClasses = (viewMode === 'double'
         ? 'editor-workspace flex flex-row flex-wrap justify-center gap-4 outline-none relative'
-        : 'editor-workspace w-full flex flex-col items-center outline-none relative';
+        : 'editor-workspace w-full flex flex-col items-center outline-none relative')
+        + (showOverlays ? '' : ' hide-overlays');
 
     // Detect mergeable split containers (elements split by reflow that
     // now live on the same page and can be reunited).
@@ -3065,6 +3071,10 @@ const Editor: React.FC<EditorProps> = ({
                 .editor-workspace .page > div[data-user-page-break="true"] {
                     display: none !important;
                 }
+            }
+            /* Toggle: hide technical overlays when .hide-overlays is set */
+            .editor-workspace.hide-overlays .page > div[data-user-page-break="true"] {
+                display: none !important;
             }
             .cursor-crosshair, .cursor-crosshair * {
                 cursor: crosshair !important;

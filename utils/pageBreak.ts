@@ -44,6 +44,46 @@ export const insertPageBreak = ({ docState, updateDocState }: PageBreakParams) =
     }
 
     if (topBlock && topBlock.parentElement === currentPage) {
+        // Guard: if topBlock is a non-splittable container (TOC, styled box, etc.),
+        // do NOT split it. Instead, insert the page break AFTER the entire element.
+        const NON_SPLITTABLE = [
+            'toc-container', 'toc-table', 'mission-box',
+            'shape-rectangle', 'shape-circle', 'shape-pill',
+            'shape-speech', 'shape-cloud', 'writing-lines',
+            'tracing-line', 'exercise-block'
+        ];
+        const isNonSplittable = NON_SPLITTABLE.some(cls => topBlock!.classList.contains(cls))
+            || topBlock.tagName === 'TABLE';
+        if (isNonSplittable) {
+            // Move all siblings AFTER topBlock to the new page
+            let nextSib = topBlock.nextSibling;
+            const toMove: Node[] = [];
+            while (nextSib) {
+                if (!(nextSib instanceof HTMLElement && nextSib.classList.contains('page-footer'))) {
+                    toMove.push(nextSib);
+                }
+                nextSib = nextSib.nextSibling;
+            }
+            toMove.forEach(n => newPage.appendChild(n));
+            currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
+            marker.remove();
+            const rangeNew = document.createRange();
+            if (newPage.firstChild) {
+                rangeNew.setStart(newPage.firstChild, 0);
+            } else {
+                rangeNew.setStart(newPage, 0);
+            }
+            rangeNew.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(rangeNew);
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                try { reflowPages(workspace as HTMLElement); } catch (e) { /* non-fatal */ }
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            }
+            return;
+        }
+
         const markerIsTopBlock = (topBlock as unknown as Node) === marker;
         if (markerIsTopBlock) {
             let nextSib: Node | null = marker.nextSibling;

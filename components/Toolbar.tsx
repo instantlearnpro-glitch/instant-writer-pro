@@ -6,7 +6,7 @@ import {
     Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
     RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
     ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus, FileText,
-    Columns3, ScanSearch
+    Columns3, ScanSearch, Eye, EyeOff
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
@@ -55,6 +55,8 @@ interface ToolbarProps {
     onToggleMarginGuides: () => void;
     showSmartGuides: boolean;
     onToggleSmartGuides: () => void;
+    showOverlays: boolean;
+    onToggleOverlays: () => void;
     onOpenSettings: () => void;
     onReloadFonts: () => void;
     onAddFont: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -105,6 +107,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
     onToggleMarginGuides,
     showSmartGuides,
     onToggleSmartGuides,
+    showOverlays,
+    onToggleOverlays,
     onOpenSettings,
     onReloadFonts,
     onAddFont,
@@ -500,6 +504,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                         title="Show margins and ruler"
                                     >
                                         <Ruler size={12} />
+                                    </button>
+                                    <button
+                                        onClick={onToggleOverlays}
+                                        className={`${ButtonClass(showOverlays)} !p-1`}
+                                        title={showOverlays ? 'Hide technical overlays (page breaks, etc.)' : 'Show technical overlays'}
+                                    >
+                                        {showOverlays ? <Eye size={12} /> : <EyeOff size={12} />}
                                     </button>
                                 </div>
                             </div>

@@ -571,6 +571,7 @@ const App: React.FC = () => {
     const [pageAnchors, setPageAnchors] = useState<PageAnchor[]>([]);
 
     const [showFrameTools, setShowFrameTools] = useState(false);
+    const [showOverlays, setShowOverlays] = useState(true);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
     // Document sanitization review
@@ -5309,6 +5310,8 @@ ${workspace.innerHTML}
                 onToggleMarginGuides={() => setShowMarginGuides(!showMarginGuides)}
                 showSmartGuides={showSmartGuides}
                 onToggleSmartGuides={() => setShowSmartGuides(!showSmartGuides)}
+                showOverlays={showOverlays}
+                onToggleOverlays={() => setShowOverlays(!showOverlays)}
                 onOpenSettings={() => setIsSettingsModalOpen(true)}
                 onReloadFonts={handleReloadFonts}
                 onAddFont={handleAddFont}
@@ -5413,6 +5416,7 @@ ${workspace.innerHTML}
                         onRefreshTOC={handleRefreshTOC}
                         showMarginGuides={showMarginGuides}
                         showSmartGuides={showSmartGuides}
+                        showOverlays={showOverlays}
                         pageMargins={pageMargins}
                         onMarginChange={handleMarginChange}
                         selectionMode={selectionMode}
