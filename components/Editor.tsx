@@ -1615,11 +1615,15 @@ const Editor: React.FC<EditorProps> = ({
                     ? range.startContainer as HTMLElement
                     : (range.startContainer as Text).parentElement;
                 const breakPage = startEl?.closest?.('.page') as HTMLElement | null;
-                if (breakPage && breakPage.getAttribute('data-user-page-break') === 'true') {
+                // Check BOTH the page div attribute AND the hidden child marker.
+                // During import, the page div attribute is removed but the child marker stays,
+                // so we need to check both to allow removal of page breaks in imported docs.
+                const hasPageBreakAttr = breakPage?.getAttribute('data-user-page-break') === 'true';
+                const childMarker = breakPage?.querySelector(':scope > [data-user-page-break="true"]') as HTMLElement | null;
+                if (breakPage && (hasPageBreakAttr || childMarker)) {
                     e.preventDefault();
                     breakPage.removeAttribute('data-user-page-break');
                     // Also remove the invisible child marker added by the page break insertion
-                    const childMarker = breakPage.querySelector(':scope > [data-user-page-break="true"]');
                     if (childMarker) childMarker.remove();
                     if (contentRef.current) {
                         reflowPagesUntilStable(contentRef.current);
@@ -1961,9 +1965,10 @@ const Editor: React.FC<EditorProps> = ({
     };
 
     const handleMoveUp = () => {
-        if (!activeBlock || !activeBlock.previousElementSibling) return;
-        const prev = activeBlock.previousElementSibling;
-        activeBlock.parentNode?.insertBefore(activeBlock, prev);
+        const block = activeBlock || contextMenu?.block;
+        if (!block || !block.previousElementSibling) return;
+        const prev = block.previousElementSibling;
+        block.parentNode?.insertBefore(block, prev);
         if (contentRef.current) {
             reflowPagesUntilStable(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
@@ -1971,9 +1976,10 @@ const Editor: React.FC<EditorProps> = ({
     };
 
     const handleMoveDown = () => {
-        if (!activeBlock || !activeBlock.nextElementSibling) return;
-        const next = activeBlock.nextElementSibling;
-        activeBlock.parentNode?.insertBefore(next, activeBlock);
+        const block = activeBlock || contextMenu?.block;
+        if (!block || !block.nextElementSibling) return;
+        const next = block.nextElementSibling;
+        block.parentNode?.insertBefore(next, block);
         if (contentRef.current) {
             reflowPagesUntilStable(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
@@ -2208,13 +2214,14 @@ const Editor: React.FC<EditorProps> = ({
     };
 
     const handleDeleteBlock = () => {
-        if (!activeBlock) return;
+        const block = activeBlock || contextMenu?.block;
+        if (!block) return;
 
         // SAFETY: Never delete structural elements
-        if (activeBlock.classList.contains('page') ||
-            activeBlock.classList.contains('editor-workspace') ||
-            activeBlock.tagName === 'BODY' ||
-            activeBlock.tagName === 'HTML') {
+        if (block.classList.contains('page') ||
+            block.classList.contains('editor-workspace') ||
+            block.tagName === 'BODY' ||
+            block.tagName === 'HTML') {
             console.warn('Cannot delete structural element');
             return;
         }
@@ -2225,7 +2232,7 @@ const Editor: React.FC<EditorProps> = ({
             if (pages.length === 1) {
                 const firstPage = pages[0];
                 const children = firstPage.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div:not(.page), img, hr, table, blockquote, li');
-                if (children.length <= 1 && firstPage.contains(activeBlock)) {
+                if (children.length <= 1 && firstPage.contains(block)) {
                     console.warn('Cannot delete last element in document');
                     return;
                 }
@@ -2233,9 +2240,9 @@ const Editor: React.FC<EditorProps> = ({
         }
 
         // Track action for pattern detection BEFORE removing
-        handleAction('delete', activeBlock);
+        handleAction('delete', block);
 
-        activeBlock.remove();
+        block.remove();
         setActiveBlock(null);
         if (contentRef.current) {
             reflowPagesUntilStable(contentRef.current);
@@ -2244,12 +2251,13 @@ const Editor: React.FC<EditorProps> = ({
     };
 
     const handleDuplicateBlock = () => {
-        if (!activeBlock) return;
-        const clone = activeBlock.cloneNode(true) as HTMLElement;
+        const block = activeBlock || contextMenu?.block;
+        if (!block) return;
+        const clone = block.cloneNode(true) as HTMLElement;
         if (clone.id) {
             clone.id = `dup-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
         }
-        activeBlock.parentNode?.insertBefore(clone, activeBlock.nextSibling);
+        block.parentNode?.insertBefore(clone, block.nextSibling);
         if (contentRef.current) {
             reflowPages(contentRef.current);
             onContentChange(contentRef.current.innerHTML);
@@ -2390,6 +2398,23 @@ const Editor: React.FC<EditorProps> = ({
             const hasDragSelection = !!selection && selection.rangeCount > 0 && !selection.isCollapsed;
 
             if (hasDragSelection) {
+                return;
+            }
+
+            // Click on page-break indicator → remove the break and reflow
+            const breakMarker = target.closest('div[data-user-page-break="true"]') as HTMLElement | null;
+            if (breakMarker) {
+                e.preventDefault();
+                e.stopPropagation();
+                const breakPage = breakMarker.closest('.page') as HTMLElement | null;
+                if (breakPage) {
+                    breakPage.removeAttribute('data-user-page-break');
+                }
+                breakMarker.remove();
+                if (contentRef.current) {
+                    reflowPagesUntilStable(contentRef.current);
+                    onContentChange(contentRef.current.innerHTML);
+                }
                 return;
             }
 
@@ -2793,9 +2818,42 @@ const Editor: React.FC<EditorProps> = ({
             }
         };
 
+        // Copy/Cut interceptor: when a block element is selected (data-selected),
+        // explicitly put only that element's outerHTML in the clipboard.
+        // Without this, the browser's native copy serializes the entire page HTML.
+        const handleCopyEvent = (e: ClipboardEvent) => {
+            const selected = container.querySelector('[data-selected="true"]') as HTMLElement | null;
+            if (selected && e.clipboardData) {
+                e.preventDefault();
+                const html = selected.outerHTML;
+                const text = selected.textContent || '';
+                e.clipboardData.setData('text/html', html);
+                e.clipboardData.setData('text/plain', text);
+            }
+            // Otherwise, let the browser handle copy normally (e.g. text selection)
+        };
+
+        const handleCutEvent = (e: ClipboardEvent) => {
+            const selected = container.querySelector('[data-selected="true"]') as HTMLElement | null;
+            if (selected && e.clipboardData) {
+                e.preventDefault();
+                const html = selected.outerHTML;
+                const text = selected.textContent || '';
+                e.clipboardData.setData('text/html', html);
+                e.clipboardData.setData('text/plain', text);
+                selected.remove();
+                if (contentRef.current) {
+                    reflowPagesUntilStable(contentRef.current);
+                    onContentChange(contentRef.current.innerHTML);
+                }
+            }
+        };
+
         container.addEventListener('click', handleClick);
         container.addEventListener('input', handleInput);
         container.addEventListener('keyup', handleInput);
+        container.addEventListener('copy', handleCopyEvent as EventListener);
+        container.addEventListener('cut', handleCutEvent as EventListener);
         container.addEventListener('mouseup', handleSelectionChange);
         document.addEventListener('selectionchange', handleSelectionChange);
         document.addEventListener('selectionchange', handleSelectionForCleanup);
@@ -2805,6 +2863,8 @@ const Editor: React.FC<EditorProps> = ({
             container.removeEventListener('click', handleClick);
             container.removeEventListener('input', handleInput);
             container.removeEventListener('keyup', handleInput);
+            container.removeEventListener('copy', handleCopyEvent as EventListener);
+            container.removeEventListener('cut', handleCutEvent as EventListener);
             container.removeEventListener('mouseup', handleSelectionChange);
             document.removeEventListener('selectionchange', handleSelectionChange);
             document.removeEventListener('selectionchange', handleSelectionForCleanup);
@@ -2950,6 +3010,62 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace li[data-list-continuation] {
                 list-style-type: none;
             }
+            /* Visual page-break indicator — show the hidden marker div as a label */
+            .editor-workspace .page > div[data-user-page-break="true"] {
+                display: flex !important;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                height: auto !important;
+                overflow: visible !important;
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                z-index: 10;
+                border-top: 2px dashed #60a5fa;
+                margin: 0;
+                padding: 3px 0;
+                font-size: 10px;
+                font-family: system-ui, sans-serif;
+                color: #60a5fa;
+                text-align: center;
+                pointer-events: auto;
+                user-select: none;
+                cursor: pointer;
+                transition: background-color 0.15s;
+            }
+            .editor-workspace .page > div[data-user-page-break="true"]:hover {
+                background-color: rgba(96, 165, 250, 0.08);
+            }
+            .editor-workspace .page > div[data-user-page-break="true"]::after {
+                content: '⤶ Page Break';
+            }
+            .editor-workspace .page > div[data-user-page-break="true"]::before {
+                content: '✕';
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 16px;
+                height: 16px;
+                border-radius: 50%;
+                background: #ef4444;
+                color: white;
+                font-size: 10px;
+                font-weight: 700;
+                line-height: 1;
+                cursor: pointer;
+                transition: background-color 0.15s;
+            }
+            .editor-workspace .page > div[data-user-page-break="true"]:hover::before {
+                background: #dc2626;
+            }
+            /* Hide page break indicators in print */
+            @media print {
+                .editor-workspace .page > div[data-user-page-break="true"] {
+                    display: none !important;
+                }
+            }
             .cursor-crosshair, .cursor-crosshair * {
                 cursor: crosshair !important;
             }
@@ -2988,6 +3104,12 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace hr {
                 cursor: pointer;
                 transition: outline 0.2s;
+                /* Enlarge click target: HRs are only 1-2px tall, making them
+                   nearly impossible to click. Transparent padding expands the
+                   hit area without changing the visual line position. */
+                padding: 6px 0;
+                box-sizing: border-box;
+                background-clip: content-box;
             }
             .editor-workspace hr:hover {
                 outline: 2px dashed #8d55f1;

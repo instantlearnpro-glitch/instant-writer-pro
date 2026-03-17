@@ -9,9 +9,9 @@ interface SidebarProps {
     onPageSelect: (pageIndex: number) => void;
     structureEntries: StructureEntry[];
     savedHeadingStyles: {
-        h1?: Record<string, string>;
-        h2?: Record<string, string>;
-        h3?: Record<string, string>;
+        h1?: Record<string, string> | { lines: { styles: Record<string, string>; innerHTML: string }[]; trailingHR?: string };
+        h2?: Record<string, string> | { lines: { styles: Record<string, string>; innerHTML: string }[]; trailingHR?: string };
+        h3?: Record<string, string> | { lines: { styles: Record<string, string>; innerHTML: string }[]; trailingHR?: string };
         h4?: Record<string, string>;
         h5?: Record<string, string>;
         p?: Record<string, string>;

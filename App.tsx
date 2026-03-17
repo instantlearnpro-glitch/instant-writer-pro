@@ -27,6 +27,22 @@ import SanitizeReviewPanel from './components/SanitizeReviewPanel';
 import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, convertInchesToTwip, HeadingLevel, PageBreak } from 'docx';
 import { saveAs } from 'file-saver';
 
+// ─── Multi-line heading template types ───────────────────────────────────────
+interface HeadingLineTemplate {
+    styles: Record<string, string>;   // CSS properties for this line
+    innerHTML: string;                // sanitized innerHTML preserving inline spans
+}
+
+interface HeadingTemplate {
+    lines: HeadingLineTemplate[];     // lines[0] = heading itself, lines[1..N] = companion elements
+    trailingHR?: string;              // cssText of trailing <hr>, if present
+}
+
+/** Type guard: checks whether a saved style entry is a multi-line HeadingTemplate */
+const isHeadingTemplate = (v: Record<string, string> | HeadingTemplate | undefined): v is HeadingTemplate =>
+    !!v && 'lines' in v && Array.isArray((v as HeadingTemplate).lines);
+// ─────────────────────────────────────────────────────────────────────────────
+
 declare global {
     interface Window {
         html2pdf: any;
@@ -453,9 +469,9 @@ const App: React.FC = () => {
     });
     const [manualHeadingSignatures, setManualHeadingSignatures] = useState<{ h1?: string; h2?: string; h3?: string }>({});
     const [savedHeadingStyles, setSavedHeadingStyles] = useState<{
-        h1?: Record<string, string>;
-        h2?: Record<string, string>;
-        h3?: Record<string, string>;
+        h1?: Record<string, string> | HeadingTemplate;
+        h2?: Record<string, string> | HeadingTemplate;
+        h3?: Record<string, string> | HeadingTemplate;
         h4?: Record<string, string>;
         h5?: Record<string, string>;
         p?: Record<string, string>;
@@ -1303,6 +1319,154 @@ const App: React.FC = () => {
         element.setAttribute('data-custom-styled', 'true');
     };
 
+    // ─── Multi-line heading helpers ────────────────────────────────────────────
+
+    /** Collect all consecutive block-level elements inside the user's selection */
+    const collectSelectedBlocks = (): HTMLElement[] => {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) return [];
+        const range = selection.getRangeAt(0);
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace || !workspace.contains(range.commonAncestorContainer)) return [];
+
+        // If all in one block, return that one block
+        const blockSelector = 'p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.page):not(.editor-workspace)';
+
+        // Walk through the range to find all block elements it spans
+        const container = range.commonAncestorContainer;
+        const containerEl = container.nodeType === Node.ELEMENT_NODE
+            ? (container as HTMLElement)
+            : container.parentElement;
+        if (!containerEl) return [];
+
+        // If the selection is inside one block, return just that
+        const singleBlock = containerEl.closest(blockSelector) as HTMLElement | null;
+
+        // Check if the range spans multiple blocks — if container is a page or bigger
+        const isMultiBlock = containerEl.classList?.contains('page')
+            || containerEl.classList?.contains('editor-workspace')
+            || containerEl.tagName === 'DIV';
+
+        if (!isMultiBlock && singleBlock) {
+            return [singleBlock];
+        }
+
+        // Collect all child blocks that intersect the range
+        const allBlocks = Array.from(containerEl.querySelectorAll(blockSelector)) as HTMLElement[];
+        const result: HTMLElement[] = [];
+        for (const block of allBlocks) {
+            // Skip nested blocks (e.g., a <p> inside a bordered div)
+            if (block.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle, .page-footer')) continue;
+            if (range.intersectsNode(block)) {
+                result.push(block);
+            }
+        }
+
+        // Also check if there's an HR immediately after the last block
+        // (we don't add it to blocks, but the template capture will look for it)
+        return result;
+    };
+
+    /** Build a HeadingTemplate from an array of consecutive block elements */
+    const captureMultiLineTemplate = (blocks: HTMLElement[]): HeadingTemplate | null => {
+        if (blocks.length === 0) return null;
+
+        const lines: HeadingLineTemplate[] = blocks.map(block => {
+            const computed = window.getComputedStyle(block);
+            const styles: Record<string, string> = {
+                'font-family': computed.fontFamily,
+                'font-size': computed.fontSize,
+                'font-weight': computed.fontWeight,
+                'font-style': computed.fontStyle,
+                'color': computed.color,
+                'text-transform': computed.textTransform,
+                'text-align': computed.textAlign,
+                'line-height': computed.lineHeight,
+                'letter-spacing': computed.letterSpacing,
+                'text-decoration': computed.textDecorationLine || computed.textDecoration,
+                'margin-top': computed.marginTop,
+                'margin-bottom': computed.marginBottom
+            };
+
+            // Capture inner HTML to preserve rich inline structure (e.g. <span style="color:gold">Chapter 1</span>)
+            return { styles, innerHTML: block.innerHTML };
+        });
+
+        // Check for a trailing HR after the last block
+        let trailingHR: string | undefined;
+        const lastBlock = blocks[blocks.length - 1];
+        let nextSib = lastBlock.nextElementSibling as HTMLElement | null;
+        while (nextSib && nextSib.tagName === 'BR') nextSib = nextSib.nextElementSibling as HTMLElement | null;
+        if (nextSib && nextSib.tagName === 'HR') {
+            trailingHR = nextSib.style.cssText;
+        }
+
+        return { lines, trailingHR };
+    };
+
+    /**
+     * Apply a multi-line HeadingTemplate to a target heading element.
+     * - line[0] styles → applied to the heading itself
+     * - line[1..N] → companion <p> elements created/updated after the heading
+     * - trailingHR → an <hr> inserted/updated after the companions
+     *
+     * The heading's existing text is kept; companion and HR elements are structural.
+     */
+    const applyMultiLineTemplate = (heading: HTMLElement, template: HeadingTemplate) => {
+        // ── Line 0: apply to the heading itself ──
+        const line0 = template.lines[0];
+        if (line0) {
+            applyInlineHeadingStyles(heading, line0.styles);
+        }
+
+        // ── Lines 1..N: companion elements ──
+        let insertAfter: HTMLElement = heading;
+
+        for (let i = 1; i < template.lines.length; i++) {
+            const lineTpl = template.lines[i];
+            let companion: HTMLElement | null = null;
+
+            // Check if the next sibling is already a companion
+            let nextSib = insertAfter.nextElementSibling as HTMLElement | null;
+            while (nextSib && nextSib.tagName === 'BR') nextSib = nextSib.nextElementSibling as HTMLElement | null;
+
+            if (nextSib && nextSib.getAttribute('data-heading-companion') === 'true') {
+                companion = nextSib;
+            } else {
+                // Create a new companion element
+                companion = document.createElement('p');
+                companion.setAttribute('data-heading-companion', 'true');
+                companion.innerHTML = '<br>';
+                insertAfter.parentNode?.insertBefore(companion, insertAfter.nextSibling);
+            }
+
+            if (companion) {
+                // Apply line styles
+                applyInlineHeadingStyles(companion, lineTpl.styles);
+                companion.setAttribute('data-heading-companion', 'true');
+                insertAfter = companion;
+            }
+        }
+
+        // ── Trailing HR ──
+        if (template.trailingHR !== undefined) {
+            let nextSib = insertAfter.nextElementSibling as HTMLElement | null;
+            while (nextSib && nextSib.tagName === 'BR') nextSib = nextSib.nextElementSibling as HTMLElement | null;
+
+            let hrEl: HTMLHRElement;
+            if (nextSib && nextSib.tagName === 'HR') {
+                hrEl = nextSib as HTMLHRElement;
+            } else {
+                hrEl = document.createElement('hr');
+                insertAfter.parentNode?.insertBefore(hrEl, insertAfter.nextSibling);
+            }
+            hrEl.style.cssText = template.trailingHR;
+            hrEl.removeAttribute('data-selected');
+        }
+    };
+
+    // ─── End multi-line heading helpers ─────────────────────────────────────────
+
     const findExistingHeadingStyles = (level: 'h1' | 'h2' | 'h3'): Record<string, string> | null => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (!workspace) return null;
@@ -1380,7 +1544,11 @@ const App: React.FC = () => {
         // imported files should not dictate the style for new headings.
         const styles = stylesToApply || savedHeadingStylesRef.current[level] || null;
         if (styles) {
-            applyInlineHeadingStyles(target, styles);
+            if (isHeadingTemplate(styles)) {
+                applyMultiLineTemplate(target, styles);
+            } else {
+                applyInlineHeadingStyles(target, styles as Record<string, string>);
+            }
         }
 
         ensureElementId(target);
@@ -2777,11 +2945,16 @@ const App: React.FC = () => {
                 }
             }
 
-            // Apply saved styles (Word-like behavior)
+            // Apply saved styles (Word-like behavior) — supports both flat styles and multi-line templates
             const stylesToApply = savedHeadingStylesRef.current[appliedTagStr as keyof typeof savedHeadingStyles];
 
             if (stylesToApply && targetBlock) {
-                applyInlineHeadingStyles(targetBlock, stylesToApply);
+                if (isHeadingTemplate(stylesToApply)) {
+                    // Multi-line template: apply heading styles + create companion elements + trailing HR
+                    applyMultiLineTemplate(targetBlock, stylesToApply);
+                } else {
+                    applyInlineHeadingStyles(targetBlock, stylesToApply as Record<string, string>);
+                }
             }
 
             // Save state
@@ -2891,6 +3064,85 @@ const App: React.FC = () => {
         }
 
         let htmlModified = false;
+
+        // ─── MULTI-LINE HEADING TEMPLATE CAPTURE ───────────────────────────────
+        // If the user selected multiple consecutive blocks AND the target is a heading tag,
+        // capture them as a multi-line HeadingTemplate instead of a flat style dict.
+
+        if (normalizedSelector && workspace) {
+            const selectedBlocks = collectSelectedBlocks();
+
+            if (selectedBlocks.length > 1) {
+                // ── Multi-line capture path ──
+                const template = captureMultiLineTemplate(selectedBlocks);
+                if (template) {
+                    // Convert the first selected block to the target heading tag if needed
+                    const firstBlock = selectedBlocks[0];
+                    if (firstBlock.tagName.toLowerCase() !== normalizedSelector) {
+                        const newElement = document.createElement(normalizedSelector);
+                        Array.from(firstBlock.attributes).forEach(attr => {
+                            newElement.setAttribute(attr.name, attr.value);
+                        });
+                        newElement.innerHTML = firstBlock.innerHTML;
+                        firstBlock.parentNode?.replaceChild(newElement, firstBlock);
+                        applyInlineHeadingStyles(newElement, template.lines[0].styles);
+                        ensureElementId(newElement);
+                        newElement.setAttribute('data-structure-status', 'approved');
+
+                        // Add to structure entries
+                        const page = newElement.closest('.page');
+                        const pages = workspace.querySelectorAll('.page');
+                        let pageNum = 1;
+                        pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+                        setStructureEntries(prev => {
+                            const exists = prev.find(e => e.elementId === newElement.id);
+                            if (exists) {
+                                return prev.map(e => e.elementId === newElement.id
+                                    ? { ...e, status: 'approved' as const, type: normalizedSelector, page: pageNum, text: newElement.innerText.substring(0, 50) }
+                                    : e
+                                );
+                            }
+                            return [...prev, {
+                                id: newElement.id,
+                                elementId: newElement.id,
+                                text: newElement.innerText.substring(0, 50),
+                                page: pageNum,
+                                type: normalizedSelector,
+                                status: 'approved' as const
+                            }];
+                        });
+                    }
+
+                    // Mark companion blocks with data attribute
+                    for (let i = 1; i < selectedBlocks.length; i++) {
+                        selectedBlocks[i].setAttribute('data-heading-companion', 'true');
+                    }
+
+                    // Save the multi-line template
+                    setSavedHeadingStyles(prev => {
+                        const next = { ...prev, [normalizedSelector]: template };
+                        savedHeadingStylesRef.current = next;
+                        return next;
+                    });
+
+                    // Sync all existing headings of this level
+                    const existingHeadings = Array.from(workspace.querySelectorAll(normalizedSelector)) as HTMLElement[];
+                    existingHeadings.forEach(heading => {
+                        if (heading.closest('.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle, .page-footer')) return;
+                        // Skip the heading we just captured FROM (so we don't double-process)
+                        if (selectedBlocks.includes(heading)) return;
+                        applyMultiLineTemplate(heading, template);
+                    });
+
+                    updateDocState({
+                        ...docState,
+                        htmlContent: workspace.innerHTML
+                    }, true);
+                    return; // Done — skip the single-line path below
+                }
+            }
+        }
+        // ─── END MULTI-LINE HEADING TEMPLATE CAPTURE ───────────────────────────
 
         const applyShapeToHeadings = (tagName: string, sourceShape: HTMLElement) => {
             if (!workspace) return false;
@@ -4750,7 +5002,7 @@ ${workspace.innerHTML}
         // 1. Already-saved heading styles (from previous H1 tagging or handleUpdateStyle)
         // 2. Styles from existing headings of the same level in the document
         // 3. Only as a LAST RESORT: capture from the selected element (if it's already that heading type)
-        let resolvedStyles: Record<string, string> | undefined = undefined;
+        let resolvedStyles: Record<string, string> | HeadingTemplate | undefined = undefined;
         if (targetTag === 'h1' || targetTag === 'h2' || targetTag === 'h3') {
             const firstId = selectionMode.selectedIds[0];
             if (firstId) {
@@ -4793,7 +5045,11 @@ ${workspace.innerHTML}
                     updatedElement.setAttribute('data-structure-status', 'approved');
                     // Apply saved heading styles to ensure visual consistency
                     if (resolvedStyles) {
-                        applyInlineHeadingStyles(updatedElement as HTMLElement, resolvedStyles);
+                        if (isHeadingTemplate(resolvedStyles)) {
+                            applyMultiLineTemplate(updatedElement as HTMLElement, resolvedStyles);
+                        } else {
+                            applyInlineHeadingStyles(updatedElement as HTMLElement, resolvedStyles as Record<string, string>);
+                        }
                     }
                 }
 

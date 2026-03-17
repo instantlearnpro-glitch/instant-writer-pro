@@ -733,8 +733,8 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
     };
   };
 
-  // Which levels to render hover boxes for (skip innermost if it's selected)
-  const hoverLevels = hoveredChain.filter(b => b.el !== selectedEl);
+  // Which levels to render hover boxes for (skip page-level and already-selected)
+  const hoverLevels = hoveredChain.filter(b => b.el !== selectedEl && b.kind !== 'page');
 
   return (
     <>
@@ -779,8 +779,8 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
         );
       })()}
 
-      {/* Selected element box with resize handles and toolbar */}
-      {selectedEl && selectedRect && (() => {
+      {/* Selected element box with resize handles and toolbar (skip page-level) */}
+      {selectedEl && selectedRect && !selectedEl.classList.contains('page') && (() => {
         const pos = toRelative(selectedRect);
         const color = BOX_COLORS[
           selectedEl.classList.contains('page') ? 'page' :
