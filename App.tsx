@@ -3787,19 +3787,34 @@ const App: React.FC = () => {
 
     /** Process a clicked block as the TOC container — fuzzy-match lines to headings */
     const processSelectedTOCPages = (pages: HTMLElement[]) => {
-        // Extract lines from ALL selected pages
+        // Extract lines from ALL selected pages — deep scan for all block-level text elements
         const lineElements: HTMLElement[] = [];
+        const blockSelector = 'p, h1, h2, h3, h4, h5, h6, li, [data-toc-row]';
         pages.forEach(page => {
-            page.querySelectorAll(':scope > *').forEach(child => {
-                const el = child as HTMLElement;
-                // For already-converted rows, get text from the .toc-dyn-text span
-                const dynText = el.querySelector('.toc-dyn-text');
-                const text = dynText ? (dynText.textContent?.trim() || '') : (el.textContent?.trim() || '');
-                if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
-                    && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
-                    lineElements.push(el);
-                }
-            });
+            // First try deep block-level elements
+            const deepBlocks = page.querySelectorAll(blockSelector);
+            if (deepBlocks.length > 0) {
+                deepBlocks.forEach(child => {
+                    const el = child as HTMLElement;
+                    const dynText = el.querySelector('.toc-dyn-text');
+                    const text = dynText ? (dynText.textContent?.trim() || '') : (el.textContent?.trim() || '');
+                    if (text && text.length > 1
+                        && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
+                        lineElements.push(el);
+                    }
+                });
+            } else {
+                // Fallback: direct children (for plain div/span structures)
+                page.querySelectorAll(':scope > *').forEach(child => {
+                    const el = child as HTMLElement;
+                    const dynText = el.querySelector('.toc-dyn-text');
+                    const text = dynText ? (dynText.textContent?.trim() || '') : (el.textContent?.trim() || '');
+                    if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
+                        && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
+                        lineElements.push(el);
+                    }
+                });
+            }
         });
 
         if (lineElements.length === 0) {
@@ -3885,6 +3900,8 @@ const App: React.FC = () => {
                 };
             }
         });
+
+
 
         tocSelectedPagesRef.current = pages;
         setTocMappingRows(rows);
@@ -3993,22 +4010,113 @@ const App: React.FC = () => {
 
         const leaderCss = buildLeaderCss();
 
-        // Get all line elements from ALL selected pages
+        // Get all line elements from ALL selected pages — deep scan
         const lineElements: HTMLElement[] = [];
+        const blockSel = 'p, h1, h2, h3, h4, h5, h6, li, [data-toc-row]';
         selectedPages.forEach(page => {
-            page.querySelectorAll(':scope > *').forEach(child => {
-                const el = child as HTMLElement;
-                const text = el.textContent?.trim();
-                if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
-                    && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
-                    lineElements.push(el);
-                }
-            });
+            const deepBlocks = page.querySelectorAll(blockSel);
+            if (deepBlocks.length > 0) {
+                deepBlocks.forEach(child => {
+                    const el = child as HTMLElement;
+                    const text = el.textContent?.trim();
+                    if (text && text.length > 1
+                        && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
+                        lineElements.push(el);
+                    }
+                });
+            } else {
+                page.querySelectorAll(':scope > *').forEach(child => {
+                    const el = child as HTMLElement;
+                    const text = el.textContent?.trim();
+                    if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
+                        && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
+                        lineElements.push(el);
+                    }
+                });
+            }
         });
 
         const pages = workspace.querySelectorAll('.page');
 
+        // Helper: resolve page number for a heading by its ID
+        const resolvePageNum = (headingId: string): number => {
+            const targetEl = document.getElementById(headingId);
+            let pageNum = 0;
+            if (targetEl) {
+                const targetPage = targetEl.closest('.page') as HTMLElement | null;
+                if (targetPage) {
+                    const footer = targetPage.querySelector('.page-footer') as HTMLElement | null;
+                    const footerText = footer?.textContent?.trim() || '';
+                    const footerNum = parseInt(footerText, 10);
+                    if (!isNaN(footerNum) && footerNum > 0) {
+                        pageNum = footerNum;
+                    } else {
+                        pages.forEach((p, pIdx) => { if (p === targetPage) pageNum = pIdx + 1; });
+                    }
+                }
+            }
+            return pageNum;
+        };
+
+        // Helper: apply TOC row formatting to a DOM element
+        const applyTocRowFormatting = (el: HTMLElement, mapping: TOCMappingRow) => {
+            if (mapping.matchedHeadingId) {
+                const pageNum = resolvePageNum(mapping.matchedHeadingId);
+
+                el.setAttribute('data-toc-row', 'true');
+                el.setAttribute('data-toc-target', mapping.matchedHeadingId);
+
+                el.style.display = 'flex';
+                el.style.alignItems = 'baseline';
+                el.style.gap = `${styleOpts.leaderSpacing}px`;
+                el.style.width = '100%';
+
+                const originalContent = el.innerHTML;
+                const textSpan = document.createElement('span');
+                textSpan.className = 'toc-dyn-text';
+                textSpan.style.cssText = `flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: ${styleOpts.textFontSize}px;`;
+                textSpan.innerHTML = originalContent;
+
+                const leaderSpan = document.createElement('span');
+                leaderSpan.className = 'toc-dyn-leader';
+                leaderSpan.setAttribute('aria-hidden', 'true');
+                leaderSpan.style.cssText = leaderCss;
+
+                const pageSpan = document.createElement('span');
+                pageSpan.className = 'toc-dyn-page';
+                pageSpan.style.cssText = `flex: 0 0 auto; min-width: 3ch; text-align: right; white-space: nowrap; font-size: ${styleOpts.pageNumberFontSize}px;`;
+                pageSpan.textContent = pageNum > 0 ? String(pageNum) : '?';
+
+                el.innerHTML = '';
+                el.appendChild(textSpan);
+                el.appendChild(leaderSpan);
+                el.appendChild(pageSpan);
+            } else if (mapping.isTitle) {
+                el.setAttribute('data-toc-row', 'true');
+                el.setAttribute('data-toc-title', 'true');
+            }
+        };
+
         mappings.forEach((mapping, idx) => {
+            // --- Manual rows: create a new <p> element on the last TOC page ---
+            if (mapping.isManual) {
+                const lastPage = selectedPages[selectedPages.length - 1];
+                const newEl = document.createElement('p');
+                newEl.textContent = mapping.lineText;
+
+                // Insert before the page-footer if present, otherwise append
+                const footer = lastPage.querySelector('.page-footer');
+                if (footer) {
+                    lastPage.insertBefore(newEl, footer);
+                } else {
+                    lastPage.appendChild(newEl);
+                }
+
+                applyTocRowFormatting(newEl, mapping);
+                return;
+            }
+
+            // --- Existing rows from the page ---
             if (idx >= lineElements.length) return;
             const el = lineElements[idx];
 
@@ -4028,62 +4136,7 @@ const App: React.FC = () => {
                 el.style.width = '';
             }
 
-            if (mapping.matchedHeadingId) {
-                // Find page number for the target heading using FOOTER number (not DOM index)
-                const targetEl = document.getElementById(mapping.matchedHeadingId);
-                let pageNum = 0;
-                if (targetEl) {
-                    const targetPage = targetEl.closest('.page') as HTMLElement | null;
-                    if (targetPage) {
-                        const footer = targetPage.querySelector('.page-footer') as HTMLElement | null;
-                        const footerText = footer?.textContent?.trim() || '';
-                        const footerNum = parseInt(footerText, 10);
-                        if (!isNaN(footerNum) && footerNum > 0) {
-                            pageNum = footerNum;
-                        } else {
-                            // Fallback to DOM index if no footer number
-                            pages.forEach((p, pIdx) => { if (p === targetPage) pageNum = pIdx + 1; });
-                        }
-                    }
-                }
-
-                el.setAttribute('data-toc-row', 'true');
-                el.setAttribute('data-toc-target', mapping.matchedHeadingId);
-
-                // Make the line a flex row: [original text] [dot leader] [page number]
-                el.style.display = 'flex';
-                el.style.alignItems = 'baseline';
-                el.style.gap = `${styleOpts.leaderSpacing}px`;
-                el.style.width = '100%';
-
-                // Wrap existing content in a span to preserve styling
-                const originalContent = el.innerHTML;
-                const textSpan = document.createElement('span');
-                textSpan.className = 'toc-dyn-text';
-                textSpan.style.cssText = `flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: ${styleOpts.textFontSize}px;`;
-                textSpan.innerHTML = originalContent;
-
-                // Leader
-                const leaderSpan = document.createElement('span');
-                leaderSpan.className = 'toc-dyn-leader';
-                leaderSpan.setAttribute('aria-hidden', 'true');
-                leaderSpan.style.cssText = leaderCss;
-
-                // Page number
-                const pageSpan = document.createElement('span');
-                pageSpan.className = 'toc-dyn-page';
-                pageSpan.style.cssText = `flex: 0 0 auto; min-width: 3ch; text-align: right; white-space: nowrap; font-size: ${styleOpts.pageNumberFontSize}px;`;
-                pageSpan.textContent = pageNum > 0 ? String(pageNum) : '?';
-
-                el.innerHTML = '';
-                el.appendChild(textSpan);
-                el.appendChild(leaderSpan);
-                el.appendChild(pageSpan);
-            } else if (mapping.isTitle) {
-                // Mark as title row — no page number, but still mark for identification
-                el.setAttribute('data-toc-row', 'true');
-                el.setAttribute('data-toc-title', 'true');
-            }
+            applyTocRowFormatting(el, mapping);
         });
 
         // Reflow and save

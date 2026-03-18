@@ -115,6 +115,7 @@ export interface TOCMappingRow {
   matchedHeadingText: string | null;
   isTitle: boolean; // True = section header, no page number
   confidence: number; // 0-1 auto-match confidence
+  isManual?: boolean; // True = row was manually added by user, not extracted from page
 }
 
 /** Styling options for the dynamic TOC */

@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { X, Check, AlertTriangle, Minus } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Check, AlertTriangle, Minus, Plus, Trash2 } from 'lucide-react';
 import { TOCMappingRow, DocumentHeading, TOCStyleOptions } from '../types';
 
 interface TOCMappingModalProps {
@@ -26,7 +26,7 @@ const quickScore = (lineText: string, headingText: string): number => {
 const numPrefix = (text: string): number => {
     const m = text.match(/^(\d+(?:\.\d+)*)/);
     if (!m) return Infinity;
-    return parseFloat(m[1].replace(/\.(\d)$/g, '.$1')); // 2.2 → 2.2
+    return parseFloat(m[1].replace(/\.(\d)$/g, '.$1'));
 };
 
 const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
@@ -69,6 +69,10 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
         }));
     };
 
+    const handleDeleteRow = (index: number) => {
+        setRows(prev => prev.filter((_, i) => i !== index));
+    };
+
     const mappedCount = rows.filter(r => r.matchedHeadingId || r.isTitle).length;
 
     // Build a live preview of leader style
@@ -93,7 +97,6 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
             score: quickScore(lineText, h.text),
             num: numPrefix(h.text)
         }));
-        // Sort: best score first, then by number prefix, then by page
         scored.sort((a, b) => {
             if (Math.abs(a.score - b.score) > 0.05) return b.score - a.score;
             if (a.num !== b.num) return a.num - b.num;
@@ -105,11 +108,9 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
     /** Build dropdown options for a specific row */
     const renderHeadingOptions = (lineText: string) => {
         const sorted = getSortedHeadings(lineText);
-        // Top 5 as "⭐ Suggested" 
         const suggested = sorted.slice(0, 5);
         const remaining = sorted.slice(5);
 
-        // Group remaining by level
         const byLevel: Record<string, DocumentHeading[]> = {};
         remaining.forEach(h => {
             const key = h.level;
@@ -135,7 +136,6 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                 {['h1', 'h2', 'h3', 'h4', 'h5'].map(level => {
                     const items = byLevel[level];
                     if (!items || items.length === 0) return null;
-                    // Sort by numeric prefix (1.1, 2.2...) then by page order
                     const sortedItems = [...items].sort((a, b) => {
                         const na = numPrefix(a.text);
                         const nb = numPrefix(b.text);
@@ -160,7 +160,7 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                     <div>
                         <h3 className="font-bold text-lg text-gray-800" style={FONT}>Convert to Dynamic TOC</h3>
                         <p className="text-xs text-gray-500 mt-1">
-                            Match each line to a heading. Best matches appear first in each dropdown.
+                            All document headings are included. Remove unwanted rows with ✕. Reassign with the dropdown.
                         </p>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -170,7 +170,6 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
 
                 {/* Styling Options Panel */}
                 <div className="px-6 py-3 border-b bg-gray-50 grid grid-cols-5 gap-3 items-end">
-                    {/* Leader Style */}
                     <div>
                         <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">Leader Style</label>
                         <select
@@ -185,65 +184,33 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                             <option value="none">   None</option>
                         </select>
                     </div>
-
-                    {/* Leader Spacing */}
                     <div>
                         <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">
                             Dot Gap: {styleOptions.leaderSpacing}px
                         </label>
-                        <input
-                            type="range"
-                            min={4}
-                            max={20}
-                            step={1}
-                            value={styleOptions.leaderSpacing}
-                            onChange={(e) => setStyleOptions({ ...styleOptions, leaderSpacing: Number(e.target.value) })}
-                            className="w-full"
-                        />
+                        <input type="range" min={4} max={20} step={1} value={styleOptions.leaderSpacing}
+                            onChange={(e) => setStyleOptions({ ...styleOptions, leaderSpacing: Number(e.target.value) })} className="w-full" />
                     </div>
-
-                    {/* Text Font Size */}
                     <div>
                         <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">
                             Text Size: {styleOptions.textFontSize}px
                         </label>
-                        <input
-                            type="range"
-                            min={8}
-                            max={24}
-                            step={1}
-                            value={styleOptions.textFontSize}
-                            onChange={(e) => setStyleOptions({ ...styleOptions, textFontSize: Number(e.target.value) })}
-                            className="w-full"
-                        />
+                        <input type="range" min={8} max={24} step={1} value={styleOptions.textFontSize}
+                            onChange={(e) => setStyleOptions({ ...styleOptions, textFontSize: Number(e.target.value) })} className="w-full" />
                     </div>
-
-                    {/* Page Number Font Size */}
                     <div>
                         <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">
                             Page # Size: {styleOptions.pageNumberFontSize}px
                         </label>
-                        <input
-                            type="range"
-                            min={8}
-                            max={24}
-                            step={1}
-                            value={styleOptions.pageNumberFontSize}
-                            onChange={(e) => setStyleOptions({ ...styleOptions, pageNumberFontSize: Number(e.target.value) })}
-                            className="w-full"
-                        />
+                        <input type="range" min={8} max={24} step={1} value={styleOptions.pageNumberFontSize}
+                            onChange={(e) => setStyleOptions({ ...styleOptions, pageNumberFontSize: Number(e.target.value) })} className="w-full" />
                     </div>
-
-                    {/* Leader Color */}
                     <div>
                         <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">Color</label>
                         <div className="flex items-center gap-2">
-                            <input
-                                type="color"
-                                value={styleOptions.leaderColor}
+                            <input type="color" value={styleOptions.leaderColor}
                                 onChange={(e) => setStyleOptions({ ...styleOptions, leaderColor: e.target.value })}
-                                className="w-8 h-8 border border-gray-300 rounded cursor-pointer"
-                            />
+                                className="w-8 h-8 border border-gray-300 rounded cursor-pointer" />
                             <span className="text-[10px] text-gray-500">{styleOptions.leaderColor}</span>
                         </div>
                     </div>
@@ -272,13 +239,16 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                             key={idx}
                             className="flex items-center gap-2 py-1.5 px-3 rounded-lg border"
                             style={{
-                                borderColor: row.isTitle ? '#a78bfa' : row.matchedHeadingId ? '#86efac' : '#e5e7eb',
-                                backgroundColor: row.isTitle ? '#f5f3ff' : row.matchedHeadingId ? '#f0fdf4' : '#fafafa'
+                                borderColor: row.isManual ? '#60a5fa' : row.isTitle ? '#a78bfa' : row.matchedHeadingId ? '#86efac' : '#e5e7eb',
+                                backgroundColor: row.isManual ? '#eff6ff' : row.isTitle ? '#f5f3ff' : row.matchedHeadingId ? '#f0fdf4' : '#fafafa',
+                                borderStyle: row.isManual ? 'dashed' : 'solid',
                             }}
                         >
                             {/* Status icon */}
                             <div className="flex-shrink-0 w-4">
-                                {row.isTitle ? (
+                                {row.isManual ? (
+                                    <Plus size={14} className="text-blue-500" />
+                                ) : row.isTitle ? (
                                     <Minus size={14} className="text-purple-500" />
                                 ) : row.matchedHeadingId ? (
                                     <Check size={14} className="text-green-600" />
@@ -290,11 +260,12 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                             {/* Line text */}
                             <div className="flex-1 min-w-0">
                                 <div className="text-xs text-gray-800 truncate" title={row.lineText}>
+                                    {row.isManual && <span className="text-[10px] text-blue-500 font-semibold mr-1">AUTO</span>}
                                     {row.lineText}
                                 </div>
                             </div>
 
-                            {/* Heading selector — sorted by relevance per row */}
+                            {/* Heading selector */}
                             <select
                                 value={row.isTitle ? '__title__' : (row.matchedHeadingId || '__none__')}
                                 onChange={(e) => handleHeadingChange(idx, e.target.value)}
@@ -303,6 +274,15 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                             >
                                 {renderHeadingOptions(row.lineText)}
                             </select>
+
+                            {/* Delete button */}
+                            <button
+                                onClick={() => handleDeleteRow(idx)}
+                                className="flex-shrink-0 p-1 text-red-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                title="Remove this row"
+                            >
+                                <Trash2 size={14} />
+                            </button>
                         </div>
                     ))}
                 </div>
@@ -311,18 +291,19 @@ const TOCMappingModal: React.FC<TOCMappingModalProps> = ({
                 <div className="px-6 py-3 border-t flex items-center justify-between bg-gray-50 rounded-b-lg">
                     <div className="text-xs text-gray-500">
                         {mappedCount} / {rows.length} lines mapped
+                        {rows.some(r => r.isManual) && (
+                            <span className="ml-2 text-blue-500">
+                                ({rows.filter(r => r.isManual).length} auto-added)
+                            </span>
+                        )}
                     </div>
                     <div className="flex gap-3">
-                        <button
-                            onClick={onClose}
-                            className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 rounded"
-                        >
+                        <button onClick={onClose}
+                            className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 rounded">
                             Cancel
                         </button>
-                        <button
-                            onClick={() => onConfirm(rows, styleOptions)}
-                            className="px-4 py-2 text-sm text-white bg-[#8d55f1] hover:bg-[#7539d3] rounded shadow-sm"
-                        >
+                        <button onClick={() => onConfirm(rows, styleOptions)}
+                            className="px-4 py-2 text-sm text-white bg-[#8d55f1] hover:bg-[#7539d3] rounded shadow-sm">
                             Apply TOC
                         </button>
                     </div>
