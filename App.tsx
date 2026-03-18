@@ -1133,7 +1133,7 @@ const App: React.FC = () => {
                             updateDocState(newState, true);
                             return;
                         }
-                        const changed = ensureContentIsPaginated(workspace);
+                        ensureContentIsPaginated(workspace);
                         const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
                         pages.forEach(page => {
                             // Remove legacy data-page-break attribute from page divs
@@ -1198,9 +1198,10 @@ const App: React.FC = () => {
                         // If the document already has many pre-paginated pages,
                         // skip the expensive reflow pass — the content is already
                         // laid out by the author. Running reflow on large docs
-                        // (e.g. 350+ pages, 150+ base64 images) crashes the browser.
+                        // causes content scrambling (pullUp cascades across pages
+                        // and mixes unrelated sections) and performance issues.
                         const PRE_PAGINATED_THRESHOLD = 3;
-                        if (pages.length >= PRE_PAGINATED_THRESHOLD && !changed) {
+                        if (pages.length >= PRE_PAGINATED_THRESHOLD) {
                             console.log(`[Import] Skipping reflow: ${pages.length} pre-paginated pages detected`);
                             commitFinalState();
                         } else {
