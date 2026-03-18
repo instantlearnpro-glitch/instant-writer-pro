@@ -65,6 +65,12 @@ export const insertPageBreak = ({ docState, updateDocState }: PageBreakParams) =
                 nextSib = nextSib.nextSibling;
             }
             toMove.forEach(n => newPage.appendChild(n));
+            // Stamp the first flow element so the break follows it through reflow
+            const firstFlow = Array.from(newPage.children).find(c => {
+                const el = c as HTMLElement;
+                return el.tagName !== 'DIV' || el.getAttribute('data-user-page-break') !== 'true';
+            }) as HTMLElement | undefined;
+            if (firstFlow) firstFlow.setAttribute('data-page-break-before', 'true');
             currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);
             marker.remove();
             const rangeNew = document.createRange();
@@ -157,6 +163,12 @@ export const insertPageBreak = ({ docState, updateDocState }: PageBreakParams) =
                 node = next;
             }
             nodesToMove.forEach(n => newPage.appendChild(n));
+            // Stamp the first flow element so the break follows it through reflow
+            const firstFlowStart = Array.from(newPage.children).find(c => {
+                const el = c as HTMLElement;
+                return el.tagName !== 'DIV' || el.getAttribute('data-user-page-break') !== 'true';
+            }) as HTMLElement | undefined;
+            if (firstFlowStart) firstFlowStart.setAttribute('data-page-break-before', 'true');
         } else if (isAtEnd) {
             let nextSibling = topBlock.nextSibling;
             const nodesToMove: Node[] = [];
@@ -199,6 +211,13 @@ export const insertPageBreak = ({ docState, updateDocState }: PageBreakParams) =
                 nextSibling = nextSibling.nextSibling;
             }
             nodesToMove.forEach(n => newPage.appendChild(n));
+
+            // Stamp the first flow element so the break follows it through reflow
+            const firstFlowMid = Array.from(newPage.children).find(c => {
+                const el = c as HTMLElement;
+                return el.tagName !== 'DIV' || el.getAttribute('data-user-page-break') !== 'true';
+            }) as HTMLElement | undefined;
+            if (firstFlowMid) firstFlowMid.setAttribute('data-page-break-before', 'true');
         }
 
         currentPage.parentNode?.insertBefore(newPage, currentPage.nextSibling);

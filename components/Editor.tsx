@@ -3114,6 +3114,32 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace.hide-overlays .page > div[data-user-page-break="true"] {
                 display: none !important;
             }
+            /* Visual indicator for elements with data-page-break-before */
+            .editor-workspace .page > [data-page-break-before="true"] {
+                position: relative;
+            }
+            .editor-workspace .page > [data-page-break-before="true"]::before {
+                content: '⤶ Page Break';
+                display: block;
+                width: 100%;
+                border-top: 2px dashed #60a5fa;
+                padding: 2px 0;
+                font-size: 10px;
+                font-family: system-ui, sans-serif;
+                color: #60a5fa;
+                text-align: center;
+                pointer-events: none;
+                user-select: none;
+                margin-bottom: 4px;
+            }
+            .editor-workspace.hide-overlays .page > [data-page-break-before="true"]::before {
+                display: none;
+            }
+            @media print {
+                .editor-workspace .page > [data-page-break-before="true"]::before {
+                    display: none;
+                }
+            }
             .cursor-crosshair, .cursor-crosshair * {
                 cursor: crosshair !important;
             }

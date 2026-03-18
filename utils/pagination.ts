@@ -495,13 +495,22 @@ const getFirstFlowChild = (page: HTMLElement): HTMLElement | null => {
 };
 
 const getPageBreakMarker = (page: HTMLElement): HTMLElement | null => {
-    // A user page break is ONLY when a child element explicitly carries data-user-page-break='true'.
-    // This is an element inserted by the user via the editor's "Insert Page Break" action.
+    // A user page break is detected in two ways:
+    // 1. A hidden marker child: <div data-user-page-break="true"> (legacy)
+    // 2. Any flow element carrying data-page-break-before="true" (new: follows the element)
     //
     // IMPORTANT: We do NOT check if the page div ITSELF has data-user-page-break='true',
     // because this attribute is set on the page div during HTML import (from CSS page-break rules).
     // That should NOT block the pullUp from filling the page's empty space.
-    return page.querySelector(':scope > [data-user-page-break="true"]') as HTMLElement | null;
+    const markerDiv = page.querySelector(':scope > [data-user-page-break="true"]') as HTMLElement | null;
+    if (markerDiv) return markerDiv;
+
+    // Check if the first flow child has data-page-break-before
+    const firstFlow = getFirstFlowChild(page);
+    if (firstFlow && firstFlow.getAttribute('data-page-break-before') === 'true') {
+        return firstFlow;
+    }
+    return null;
 };
 
 const isTextSplitTarget = (el: HTMLElement) => {
@@ -1286,6 +1295,12 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     nextPage = candidate;
                     iterations++;
                     continue;
+                }
+
+                // Stop if this element carries a page-break-before attribute
+                // (it must always start on a new page).
+                if (firstEl.getAttribute('data-page-break-before') === 'true') {
+                    break;
                 }
 
                 // Measure element height (scroll-independent via offsetHeight)
