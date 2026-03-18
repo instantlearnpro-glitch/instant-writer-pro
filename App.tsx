@@ -572,6 +572,9 @@ const App: React.FC = () => {
 
     const [showFrameTools, setShowFrameTools] = useState(false);
     const [showOverlays, setShowOverlays] = useState(true);
+    const [bwMode, setBwMode] = useState(false);
+    const [bwBrightness, setBwBrightness] = useState(100);
+    const [bwContrast, setBwContrast] = useState(100);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
     // Document sanitization review
@@ -5312,6 +5315,12 @@ ${workspace.innerHTML}
                 onToggleSmartGuides={() => setShowSmartGuides(!showSmartGuides)}
                 showOverlays={showOverlays}
                 onToggleOverlays={() => setShowOverlays(!showOverlays)}
+                bwMode={bwMode}
+                onToggleBwMode={() => setBwMode(!bwMode)}
+                bwBrightness={bwBrightness}
+                onBwBrightnessChange={setBwBrightness}
+                bwContrast={bwContrast}
+                onBwContrastChange={setBwContrast}
                 onOpenSettings={() => setIsSettingsModalOpen(true)}
                 onReloadFonts={handleReloadFonts}
                 onAddFont={handleAddFont}
@@ -5362,6 +5371,23 @@ ${workspace.innerHTML}
                 />
 
                 <div className="flex-1 relative" onScroll={handleScroll}>
+                    {bwMode && (
+                        <style>{`
+.editor-workspace .page::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: gray;
+  mix-blend-mode: saturation;
+  pointer-events: none;
+  z-index: 10000;
+}
+${(bwBrightness !== 100 || bwContrast !== 100) ? `
+.editor-workspace .page > * {
+  filter: brightness(${bwBrightness}%) contrast(${bwContrast}%);
+}` : ''}
+                        `}</style>
+                    )}
                     {/* TOC Selection Mode Banner */}
                     {isTOCSelectionMode && (
                         <div className="absolute top-0 left-0 right-0 z-40 bg-purple-600 text-white text-center py-2 px-4 text-sm font-medium shadow-lg flex items-center justify-center gap-4" style={{ fontFamily: 'system-ui, sans-serif' }}>

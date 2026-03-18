@@ -6,7 +6,7 @@ import {
     Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
     RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
     ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus, FileText,
-    Columns3, ScanSearch, Eye, EyeOff
+    Columns3, ScanSearch, Eye, EyeOff, Contrast as ContrastIcon
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
@@ -63,6 +63,12 @@ interface ToolbarProps {
     onCaptureSelection: () => void;
     onOpenLogs: () => void;
     onSanitize: () => void;
+    bwMode: boolean;
+    onToggleBwMode: () => void;
+    bwBrightness: number;
+    onBwBrightnessChange: (v: number) => void;
+    bwContrast: number;
+    onBwContrastChange: (v: number) => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -114,7 +120,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
     onAddFont,
     onCaptureSelection,
     onOpenLogs,
-    onSanitize
+    onSanitize,
+    bwMode,
+    onToggleBwMode,
+    bwBrightness,
+    onBwBrightnessChange,
+    bwContrast,
+    onBwContrastChange
 }) => {
     const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
     const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
@@ -511,6 +523,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                         title={showOverlays ? 'Hide technical overlays (page breaks, etc.)' : 'Show technical overlays'}
                                     >
                                         {showOverlays ? <Eye size={12} /> : <EyeOff size={12} />}
+                                    </button>
+                                    <button
+                                        onClick={onToggleBwMode}
+                                        className={`${ButtonClass(bwMode)} !p-1`}
+                                        title={bwMode ? 'Switch back to Color' : 'Switch to Black & White'}
+                                    >
+                                        <ContrastIcon size={12} />
                                     </button>
                                 </div>
                             </div>
@@ -1436,6 +1455,51 @@ const Toolbar: React.FC<ToolbarProps> = ({
                         </div>
 
                     </div>
+                </div>
+            )}
+
+            {/* B&W Adjustment Bar */}
+            {bwMode && (
+                <div className="flex items-center gap-4 px-4 py-1.5 bg-gray-900 border-b border-gray-700 min-h-[36px]">
+                    <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider select-none flex items-center gap-1.5 shrink-0">
+                        <ContrastIcon size={12} className="text-gray-500" />
+                        B&W
+                    </span>
+
+                    <div className="h-3 w-px bg-gray-700 shrink-0"></div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        <label className="text-[10px] text-gray-400 w-14">Brightness</label>
+                        <input
+                            type="range" min="30" max="200" step="1"
+                            value={bwBrightness}
+                            onChange={(e) => onBwBrightnessChange(Number(e.target.value))}
+                            className="w-28 h-1 accent-white bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <span className="text-[10px] text-gray-400 w-8 text-right tabular-nums">{bwBrightness}%</span>
+                    </div>
+
+                    <div className="h-3 w-px bg-gray-700 shrink-0"></div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        <label className="text-[10px] text-gray-400 w-14">Contrast</label>
+                        <input
+                            type="range" min="30" max="200" step="1"
+                            value={bwContrast}
+                            onChange={(e) => onBwContrastChange(Number(e.target.value))}
+                            className="w-28 h-1 accent-white bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <span className="text-[10px] text-gray-400 w-8 text-right tabular-nums">{bwContrast}%</span>
+                    </div>
+
+                    <div className="h-3 w-px bg-gray-700 shrink-0"></div>
+
+                    <button
+                        onClick={() => { onBwBrightnessChange(100); onBwContrastChange(100); }}
+                        className="text-[10px] text-gray-500 hover:text-white shrink-0 underline"
+                    >
+                        Reset
+                    </button>
                 </div>
             )}
         </div>
