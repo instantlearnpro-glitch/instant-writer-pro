@@ -1195,11 +1195,14 @@ const App: React.FC = () => {
                             });
                         };
 
-                        // If the document already has many pre-paginated pages
-                        // AND no orphan content was found, skip reflow — layout is
-                        // already correct from the author.
+                        // If the document already has many pre-paginated pages,
+                        // ALWAYS skip the reflow pass during import — the content is
+                        // already laid out by the author.  Running reflow on an
+                        // imported pre-paginated document cascades pushDown/pullUp
+                        // across all pages and scrambles the reading order.
+                        // Reflow remains active during editing (input, drag, etc.).
                         const PRE_PAGINATED_THRESHOLD = 3;
-                        if (pages.length >= PRE_PAGINATED_THRESHOLD && !changed) {
+                        if (pages.length >= PRE_PAGINATED_THRESHOLD) {
                             console.log(`[Import] Skipping reflow: ${pages.length} pre-paginated pages detected`);
                             commitFinalState();
                         } else {

@@ -2798,29 +2798,37 @@ const Editor: React.FC<EditorProps> = ({
             const target = (e?.target as HTMLElement | null) || null;
             const isFloatingText = !!target?.closest?.('.floating-text');
             if (contentRef.current) {
+                // Guard: skip reflow when the input event was triggered by a
+                // programmatic innerHTML assignment (import, history navigation).
+                // The innerHTML set in the useEffect sync hook updates
+                // lastEmittedHtmlRef, so if the content still matches, this
+                // input event did NOT come from user editing.
+                if (contentRef.current.innerHTML === lastEmittedHtmlRef.current) {
+                    return;
+                }
+
                 // Debounce reflow to avoid excessive calls
                 if (reflowTimeout) clearTimeout(reflowTimeout);
                 const delay = isFloatingText ? 0 : 180;
                 reflowTimeout = window.setTimeout(() => {
-                    if (contentRef.current) {
-                        const restoreSelection = preserveSelection(contentRef.current);
-                        if (!isFloatingText) {
-                            const _editor = contentRef.current;
-                            reflowPagesUntilStable(_editor, {
-                                onDone: () => {
-                                    restoreSelection();
-                                    updateTocTablePageNumbers(_editor);
-                                    lastUserEditAtRef.current = Date.now();
-                                    lastEmittedHtmlRef.current = _editor.innerHTML;
-                                    onContentChange(_editor.innerHTML);
-                                }
-                            });
-                        } else {
-                            restoreSelection();
-                            lastUserEditAtRef.current = Date.now();
-                            lastEmittedHtmlRef.current = contentRef.current.innerHTML;
-                            onContentChange(contentRef.current.innerHTML);
-                        }
+                    if (!contentRef.current) return;
+                    const restoreSelection = preserveSelection(contentRef.current);
+                    if (!isFloatingText) {
+                        const _editor = contentRef.current;
+                        reflowPagesUntilStable(_editor, {
+                            onDone: () => {
+                                restoreSelection();
+                                updateTocTablePageNumbers(_editor);
+                                lastUserEditAtRef.current = Date.now();
+                                lastEmittedHtmlRef.current = _editor.innerHTML;
+                                onContentChange(_editor.innerHTML);
+                            }
+                        });
+                    } else {
+                        restoreSelection();
+                        lastUserEditAtRef.current = Date.now();
+                        lastEmittedHtmlRef.current = contentRef.current.innerHTML;
+                        onContentChange(contentRef.current.innerHTML);
                     }
                 }, delay);
             }
