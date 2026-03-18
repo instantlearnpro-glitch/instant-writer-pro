@@ -310,51 +310,47 @@ export const ensureContentIsPaginated = (editor: HTMLElement) => {
         createdAnyPage = true;
     }
 
-    // Identify orphans
-    const orphans: Node[] = [];
+    // Identify orphans WITH their positional context (the page that precedes them).
+    // This is critical: we must append each orphan to the page that immediately
+    // precedes it in document order, NOT to the global last page.
+    const orphans: { node: Node; targetPage: HTMLElement }[] = [];
+    let contextPage: HTMLElement = currentPage;
 
-    // We iterate to find nodes that are NOT .page and NOT tool/overlay elements
     children.forEach(node => {
         if (node.nodeType === Node.ELEMENT_NODE) {
             const el = node as HTMLElement;
             if (el.classList.contains('page')) {
-                currentPage = el; // Update current context
+                contextPage = el;
             } else if (!el.classList.contains('image-overlay') && !el.classList.contains('resize-handle')) {
-                // It's an orphan element
-                orphans.push(node);
+                orphans.push({ node, targetPage: contextPage });
             }
         } else if (node.nodeType === Node.TEXT_NODE) {
             if (node.textContent?.trim()) {
-                orphans.push(node);
+                orphans.push({ node, targetPage: contextPage });
             }
         }
     });
 
     if (orphans.length > 0) {
         let madeChanges = false;
-        if (currentPage) {
-            orphans.forEach(orphan => {
-                // Check if the orphan is actually currently a child of editor (it might have been moved already)
-                if (orphan.parentNode !== editor) return;
+        orphans.forEach(({ node: orphan, targetPage }) => {
+            if (orphan.parentNode !== editor) return;
 
-                // Safety: if this orphan contains nested .page elements (e.g., imported HTML wrapper),
-                // promote those pages to workspace level first to avoid HierarchyRequestError.
-                if (orphan instanceof HTMLElement && orphan.querySelector('.page')) {
-                    const nestedPages = Array.from(orphan.querySelectorAll('.page')) as HTMLElement[];
-                    nestedPages.forEach(nestedPage => {
-                        // Insert the nested page directly into the workspace before the orphan
-                        editor.insertBefore(nestedPage, orphan);
-                        currentPage = nestedPage; // Track the last promoted page
-                    });
-                }
+            // Safety: if this orphan contains nested .page elements,
+            // promote those pages to workspace level first.
+            if (orphan instanceof HTMLElement && orphan.querySelector('.page')) {
+                const nestedPages = Array.from(orphan.querySelectorAll('.page')) as HTMLElement[];
+                nestedPages.forEach(nestedPage => {
+                    editor.insertBefore(nestedPage, orphan);
+                });
+            }
 
-                // Now move the orphan (page-free) into the current page
-                if (orphan.parentNode === editor) {
-                    currentPage!.appendChild(orphan);
-                    madeChanges = true;
-                }
-            });
-        }
+            // Append the orphan to the page that preceded it in document order
+            if (orphan.parentNode === editor) {
+                targetPage.appendChild(orphan);
+                madeChanges = true;
+            }
+        });
         return madeChanges || createdAnyPage;
     }
 
