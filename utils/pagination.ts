@@ -1205,7 +1205,15 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                             editor.appendChild(nextPage);
                             pages.push(nextPage);
                         }
-                        if (nextPage.firstChild) {
+                        // Spillover: if next page starts with page-break-before, create a new page
+                        const splitNextFlow = getFirstFlowChild(nextPage);
+                        if (splitNextFlow && splitNextFlow.getAttribute('data-page-break-before') === 'true') {
+                            const spillPage = document.createElement('div');
+                            spillPage.className = 'page';
+                            editor.insertBefore(spillPage, nextPage);
+                            pages.splice(i + 1, 0, spillPage);
+                            spillPage.appendChild(split);
+                        } else if (nextPage.firstChild) {
                             nextPage.insertBefore(split, nextPage.firstChild);
                         } else {
                             nextPage.appendChild(split);
@@ -1232,14 +1240,25 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 pages.push(nextPage);
             }
 
-            // Move the WHOLE element to the beginning of next page
-            const breakMarker = getPageBreakMarker(nextPage);
-            if (breakMarker && breakMarker.parentElement === nextPage) {
-                nextPage.insertBefore(lastEl, breakMarker.nextSibling);
-            } else if (nextPage.firstChild) {
-                nextPage.insertBefore(lastEl, nextPage.firstChild);
+            // If the next page starts with a page-break-before element,
+            // do NOT push overflow there — create a spillover page in between.
+            const nextFirstFlow = getFirstFlowChild(nextPage);
+            if (nextFirstFlow && nextFirstFlow.getAttribute('data-page-break-before') === 'true') {
+                const spillPage = document.createElement('div');
+                spillPage.className = 'page';
+                editor.insertBefore(spillPage, nextPage);
+                pages.splice(i + 1, 0, spillPage);
+                spillPage.appendChild(lastEl);
             } else {
-                nextPage.appendChild(lastEl);
+                // Normal push: move the element to the beginning of next page
+                const breakMarker = nextPage.querySelector(':scope > [data-user-page-break="true"]') as HTMLElement | null;
+                if (breakMarker && breakMarker.parentElement === nextPage) {
+                    nextPage.insertBefore(lastEl, breakMarker.nextSibling);
+                } else if (nextPage.firstChild) {
+                    nextPage.insertBefore(lastEl, nextPage.firstChild);
+                } else {
+                    nextPage.appendChild(lastEl);
+                }
             }
 
             changesMade = true;

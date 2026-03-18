@@ -1067,8 +1067,37 @@ const App: React.FC = () => {
 
                     bodyContent = tempDiv.innerHTML;
 
+                    // Restore layout metadata from a previous export (round-trip fidelity)
+                    const savedFormat = tempDiv.getAttribute('data-page-format');
+                    const savedMargins = tempDiv.getAttribute('data-page-margins');
+                    const savedCustomSize = tempDiv.getAttribute('data-custom-page-size');
+                    if (savedFormat) {
+                        handlePageSizeChange(savedFormat);
+                        tempDiv.removeAttribute('data-page-format');
+                    }
+                    if (savedMargins) {
+                        try {
+                            const m = JSON.parse(savedMargins);
+                            if (m.top !== undefined) handleMarginChange('top', m.top);
+                            if (m.bottom !== undefined) handleMarginChange('bottom', m.bottom);
+                            if (m.left !== undefined) handleMarginChange('left', m.left);
+                            if (m.right !== undefined) handleMarginChange('right', m.right);
+                        } catch { /* ignore */ }
+                        tempDiv.removeAttribute('data-page-margins');
+                    }
+                    if (savedCustomSize) {
+                        try {
+                            const cs = JSON.parse(savedCustomSize);
+                            if (cs.width && cs.height) handleCustomPageSizeChange(cs.width, cs.height);
+                        } catch { /* ignore */ }
+                        tempDiv.removeAttribute('data-custom-page-size');
+                    }
+
                     if (!tempDiv.querySelector('.page')) {
                         bodyContent = `<div class="page">${bodyContent}</div>`;
+                    } else {
+                        // Re-read bodyContent after metadata cleanup
+                        bodyContent = tempDiv.innerHTML;
                     }
 
                     const rawImportedCss = `${linkedCss}\n${inlineCss}`.trim();
@@ -4860,7 +4889,17 @@ const App: React.FC = () => {
 
         // Clean up selection attributes
         tempDiv.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
+        // Clean up editor-internal split tracking attributes (not needed for round-trip)
+        tempDiv.querySelectorAll('[data-split-source]').forEach(el => el.removeAttribute('data-split-source'));
         // Keep data-structure-status for round-trip fidelity
+        // Keep data-page-break-before and data-user-page-break for page break round-trip
+
+        // Embed layout metadata for round-trip fidelity
+        tempDiv.setAttribute('data-page-format', pageFormatId);
+        tempDiv.setAttribute('data-page-margins', JSON.stringify(pageMargins));
+        if (pageFormatId === 'custom') {
+            tempDiv.setAttribute('data-custom-page-size', JSON.stringify(customPageSize));
+        }
 
         // CRITICAL: Convert blob: URLs back to base64 data URIs.
         // During import, base64 images are converted to blob: URLs for performance,
