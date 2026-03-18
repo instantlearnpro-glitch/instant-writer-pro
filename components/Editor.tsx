@@ -2293,6 +2293,36 @@ const Editor: React.FC<EditorProps> = ({
         }
     };
 
+    const handleNativePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+        const types = Array.from(e.clipboardData.types);
+        const hasFiles = types.includes('Files');
+        const hasText = types.includes('text/plain');
+
+        // Browsers often prefer pasting the 'Files' payload (as an image) if both 
+        // text and an image representation exist on the clipboard (e.g. from Preview or Word).
+        // If text is present and non-empty, we force the browser to use the text.
+        if (hasFiles && hasText) {
+            const plainText = e.clipboardData.getData('text/plain');
+            if (plainText.trim().length > 0) {
+                e.preventDefault();
+                const hasHtml = types.includes('text/html');
+                
+                if (hasHtml) {
+                    const html = e.clipboardData.getData('text/html');
+                    const sanitizedData = sanitizeDocument(html);
+                    document.execCommand('insertHTML', false, sanitizedData);
+                } else {
+                    document.execCommand('insertText', false, plainText);
+                }
+                
+                if (contentRef.current) {
+                    scheduleReflow();
+                    onContentChange(contentRef.current.innerHTML);
+                }
+            }
+        }
+    };
+
     // Track formatting commands
     const trackFormatAction = useCallback(() => {
         const selection = window.getSelection();
@@ -3305,6 +3335,7 @@ const Editor: React.FC<EditorProps> = ({
 
                 }}
                 onKeyDown={handleKeyDown}
+                onPaste={handleNativePaste}
                 onDragStart={(e) => {
                     // ALWAYS block native element drag inside the contenteditable.
                     // This prevents ANY content from being dragged out of its .page.
