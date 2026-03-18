@@ -1427,6 +1427,7 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 if (splitA && splitB && splitA === splitB) {
                     shouldMerge = true;
                 }
+                
                 // Also merge styled containers with same tag+class, but ONLY if
                 // at least one has a split marker (i.e., was split by reflow,
                 // not two unrelated containers from the original document).
@@ -1436,33 +1437,6 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     !textTags.has(a.tagName) &&
                     isStyledContainer(a)) {
                     shouldMerge = true;
-                }
-
-                // Merge text blocks (p, h1-h6, etc.) split mid-sentence.
-                // Guards: MUST have at least one data-split-source marker (i.e.,
-                // was actually split by the reflow system, not two unrelated
-                // paragraphs from the original document), same tag, same class,
-                // same font-size, same font-weight,
-                // first must NOT end with terminal punctuation,
-                // and second must NOT start with a number (numbered list/TOC entry).
-                // NOTE: LI excluded — list items merge ONLY via data-split-source.
-                if (!shouldMerge &&
-                    (splitA || splitB) &&
-                    textTags.has(a.tagName) &&
-                    a.tagName !== 'LI' &&
-                    a.tagName === b.tagName &&
-                    a.className === b.className) {
-                    const csA = window.getComputedStyle(a);
-                    const csB = window.getComputedStyle(b);
-                    if (csA.fontSize === csB.fontSize && csA.fontWeight === csB.fontWeight) {
-                        const aText = (a.textContent || '').trimEnd();
-                        const bText = (b.textContent || '').trimStart();
-                        const lastChar = aText.slice(-1);
-                        const startsWithNumber = /^\d/.test(bText);
-                        if (lastChar && !'.!?:'.includes(lastChar) && !startsWithNumber) {
-                            shouldMerge = true;
-                        }
-                    }
                 }
 
                 if (shouldMerge) {
