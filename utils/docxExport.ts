@@ -222,12 +222,125 @@ export const exportDOCX = async (fileName: string, onProgress?: (percent: number
         return runs;
     };
 
+    const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'DIV', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'HR', 'TABLE', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'FIGURE', 'FIGCAPTION', 'PRE']);
+
+    const hasBlockChildren = (el: HTMLElement): boolean => {
+        for (const child of Array.from(el.children)) {
+            if (BLOCK_TAGS.has(child.tagName)) return true;
+        }
+        return false;
+    };
+
     // Build top-level document structure
     const docChildren: any[] = [];
+    let wasLastParagraphEmpty = false;
+
+    const processBlockElement = async (el: HTMLElement): Promise<void> => {
+        if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT' || el.classList.contains('page-footer')) return;
+
+        if (shouldRenderAsImage(el)) {
+            const imgPara = await renderElementAsImageRun(el);
+            if (imgPara) { docChildren.push(imgPara); wasLastParagraphEmpty = false; }
+            return;
+        }
+
+        if (el.tagName === 'IMG') {
+            const img = el as HTMLImageElement;
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth || img.width || 300;
+                canvas.height = img.naturalHeight || img.height || 300;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+                    const uint8Array = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+                    docChildren.push(new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 240 },
+                        children: [
+                            new ImageRun({
+                                type: 'jpg',
+                                data: uint8Array,
+                                transformation: { width: Math.min(canvas.width, 650), height: Math.min(canvas.height, Math.round(canvas.height * (650 / canvas.width))) }
+                            })
+                        ]
+                    }));
+                    wasLastParagraphEmpty = false;
+                }
+            } catch (e) { }
+            return;
+        }
+
+        if (el.tagName === 'HR') {
+            docChildren.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
+            wasLastParagraphEmpty = false;
+            return;
+        }
+
+        // If the element has block-level children, recurse instead of flattening
+        if (hasBlockChildren(el)) {
+            for (const child of Array.from(el.children)) {
+                await processBlockElement(child as HTMLElement);
+            }
+            return;
+        }
+
+        // Leaf block element — produce a single DOCX Paragraph
+        const computed = window.getComputedStyle(el);
+        let alignment: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.LEFT;
+        if (computed.textAlign === 'center') alignment = AlignmentType.CENTER;
+        if (computed.textAlign === 'right') alignment = AlignmentType.RIGHT;
+        if (computed.textAlign === 'justify') alignment = AlignmentType.JUSTIFIED;
+
+        const inlineRuns = processInlineChildren(el);
+
+        const isWhitespaceOnly = !el.textContent || !el.textContent.trim();
+        if (isWhitespaceOnly && el.tagName !== 'IMG') {
+            if (wasLastParagraphEmpty) return;
+            wasLastParagraphEmpty = true;
+        } else {
+            wasLastParagraphEmpty = false;
+        }
+
+        if (inlineRuns.length > 0 || isWhitespaceOnly) {
+            let wantsPageBreak = computed.pageBreakBefore === 'always' || computed.breakBefore === 'always' || computed.breakBefore === 'page';
+            let headingLevel = undefined;
+            let lineSpacingMultiplier = undefined;
+
+            if (el.tagName === 'H1') { headingLevel = HeadingLevel.HEADING_1; lineSpacingMultiplier = 1.1; wantsPageBreak = true; }
+            if (el.tagName === 'H2') { headingLevel = HeadingLevel.HEADING_2; lineSpacingMultiplier = 1.15; wantsPageBreak = true; }
+            if (el.tagName === 'H3') { headingLevel = HeadingLevel.HEADING_3; lineSpacingMultiplier = 1.15; }
+            if (el.tagName === 'H4') { headingLevel = HeadingLevel.HEADING_4; lineSpacingMultiplier = 1.15; }
+            if (el.tagName === 'H5') { headingLevel = HeadingLevel.HEADING_5; lineSpacingMultiplier = 1.15; }
+            if (el.tagName === 'H6') { headingLevel = HeadingLevel.HEADING_6; lineSpacingMultiplier = 1.15; }
+
+            const spacing = getSpacingOption(computed);
+            let indent = undefined;
+            const indentTwip = cssToTwip(computed.textIndent);
+            if (indentTwip > 0) {
+                indent = { firstLine: indentTwip };
+            }
+
+            if (headingLevel && spacing && (!spacing.line || spacing.line > 240 * 1.2)) {
+                spacing.line = Math.round(240 * (lineSpacingMultiplier || 1.15));
+            }
+
+            if (wantsPageBreak && docChildren.length > 0) {
+                docChildren.push(new Paragraph({ children: [new PageBreak()] }));
+            }
+
+            docChildren.push(new Paragraph({
+                children: inlineRuns,
+                alignment: alignment,
+                heading: headingLevel,
+                spacing: spacing || { after: 120 },
+                indent: indent
+            }));
+        }
+    };
 
     try {
-        let wasLastParagraphEmpty = false;
-
         for (let i = 0; i < pages.length; i++) {
             const pct = Math.round((i / pages.length) * 90);
             onProgress?.(pct);
@@ -236,100 +349,8 @@ export const exportDOCX = async (fileName: string, onProgress?: (percent: number
             await new Promise(resolve => setTimeout(resolve, 10));
 
             const page = pages[i];
-
-            // Process elements in page
-            const topLevelElements = Array.from(page.children);
-            for (const child of topLevelElements) {
-                const el = child as HTMLElement;
-                if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT' || el.classList.contains('page-footer')) continue;
-
-                if (shouldRenderAsImage(el)) {
-                    const imgPara = await renderElementAsImageRun(el);
-                    if (imgPara) docChildren.push(imgPara);
-                    continue;
-                }
-
-                if (el.tagName === 'IMG') {
-                    const img = el as HTMLImageElement;
-                    try {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.naturalWidth || img.width || 300;
-                        canvas.height = img.naturalHeight || img.height || 300;
-                        const ctx = canvas.getContext('2d');
-                        if (ctx) {
-                            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                            const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
-                            const uint8Array = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-                            docChildren.push(new Paragraph({
-                                alignment: AlignmentType.CENTER,
-                                spacing: { after: 240 },
-                                children: [
-                                    new ImageRun({
-                                        type: 'jpg',
-                                        data: uint8Array,
-                                        transformation: { width: Math.min(canvas.width, 650), height: Math.min(canvas.height, Math.round(canvas.height * (650 / canvas.width))) }
-                                    })
-                                ]
-                            }));
-                        }
-                    } catch (e) { }
-                    continue;
-                }
-
-                const computed = window.getComputedStyle(el);
-                let alignment: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.LEFT;
-                if (computed.textAlign === 'center') alignment = AlignmentType.CENTER;
-                if (computed.textAlign === 'right') alignment = AlignmentType.RIGHT;
-                if (computed.textAlign === 'justify') alignment = AlignmentType.JUSTIFIED;
-
-                const inlineRuns = processInlineChildren(el);
-
-                const isWhitespaceOnly = !el.textContent || !el.textContent.trim();
-                // Skip multiple consecutive empty paragraphs
-                if (isWhitespaceOnly && el.tagName !== 'IMG' && !shouldRenderAsImage(el)) {
-                    if (wasLastParagraphEmpty) continue;
-                    wasLastParagraphEmpty = true;
-                } else {
-                    wasLastParagraphEmpty = false;
-                }
-
-                if (inlineRuns.length > 0 || isWhitespaceOnly) {
-                    let wantsPageBreak = computed.pageBreakBefore === 'always' || computed.breakBefore === 'always' || computed.breakBefore === 'page';
-                    let headingLevel = undefined;
-                    let lineSpacingMultiplier = undefined;
-
-                    if (el.tagName === 'H1') { headingLevel = HeadingLevel.HEADING_1; lineSpacingMultiplier = 1.1; wantsPageBreak = true; }
-                    if (el.tagName === 'H2') { headingLevel = HeadingLevel.HEADING_2; lineSpacingMultiplier = 1.15; wantsPageBreak = true; }
-                    if (el.tagName === 'H3') { headingLevel = HeadingLevel.HEADING_3; lineSpacingMultiplier = 1.15; }
-                    if (el.tagName === 'H4') { headingLevel = HeadingLevel.HEADING_4; lineSpacingMultiplier = 1.15; }
-                    if (el.tagName === 'H5') { headingLevel = HeadingLevel.HEADING_5; lineSpacingMultiplier = 1.15; }
-                    if (el.tagName === 'H6') { headingLevel = HeadingLevel.HEADING_6; lineSpacingMultiplier = 1.15; }
-
-                    const spacing = getSpacingOption(computed);
-                    let indent = undefined;
-                    const indentTwip = cssToTwip(computed.textIndent);
-                    if (indentTwip > 0) {
-                        indent = { firstLine: indentTwip };
-                    }
-
-                    // Apply tighter line spacing for headings if not explicitly set
-                    if (headingLevel && spacing && (!spacing.line || spacing.line > 240 * 1.2)) {
-                        spacing.line = Math.round(240 * (lineSpacingMultiplier || 1.15));
-                    }
-
-                    // Insert an editable PageBreak before the element, except if it's the very first element in the document
-                    if (wantsPageBreak && docChildren.length > 0) {
-                        docChildren.push(new Paragraph({ children: [new PageBreak()] }));
-                    }
-
-                    docChildren.push(new Paragraph({
-                        children: inlineRuns,
-                        alignment: alignment,
-                        heading: headingLevel,
-                        spacing: spacing || { after: 120 },
-                        indent: indent
-                    }));
-                }
+            for (const child of Array.from(page.children)) {
+                await processBlockElement(child as HTMLElement);
             }
         }
 

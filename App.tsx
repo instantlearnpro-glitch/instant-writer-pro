@@ -3850,34 +3850,74 @@ const App: React.FC = () => {
 
     /** Process a clicked block as the TOC container — fuzzy-match lines to headings */
     const processSelectedTOCPages = (pages: HTMLElement[]) => {
-        // Extract lines from ALL selected pages — deep scan for all block-level text elements
+        // Extract every visible "line" of text from ALL selected pages.
+        // Strategy: walk every element inside the page, keep only "leaf" text
+        // nodes — elements whose own *direct* textContent is substantive AND
+        // that do NOT contain other qualifying children (to avoid double-counting
+        // a parent container AND each child inside it).
+        const SKIP_TAGS = new Set(['STYLE', 'SCRIPT', 'BR', 'HR', 'IMG', 'SVG']);
+        const SKIP_CLASSES = new Set(['page-footer', 'toc-container', 'toc-refresh-btn', 'page-break-indicator']);
+
         const lineElements: HTMLElement[] = [];
-        const blockSelector = 'p, h1, h2, h3, h4, h5, h6, li, [data-toc-row]';
         pages.forEach(page => {
-            // First try deep block-level elements
-            const deepBlocks = page.querySelectorAll(blockSelector);
-            if (deepBlocks.length > 0) {
-                deepBlocks.forEach(child => {
-                    const el = child as HTMLElement;
-                    const dynText = el.querySelector('.toc-dyn-text');
-                    const text = dynText ? (dynText.textContent?.trim() || '') : (el.textContent?.trim() || '');
-                    if (text && text.length > 1
-                        && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
-                        lineElements.push(el);
-                    }
+            // Collect ALL elements inside the page
+            const allEls = Array.from(page.querySelectorAll('*')) as HTMLElement[];
+            const picked = new Set<HTMLElement>();
+
+            allEls.forEach(el => {
+                if (SKIP_TAGS.has(el.tagName)) return;
+                if (Array.from(el.classList).some(c => SKIP_CLASSES.has(c))) return;
+                // Skip the page element itself
+                if (el.classList.contains('page')) return;
+
+                const dynText = el.querySelector('.toc-dyn-text');
+                const text = dynText ? (dynText.textContent?.trim() || '') : (el.textContent?.trim() || '');
+                if (!text || text.length <= 1) return;
+
+                // "Leaf" check: if this element has child elements that themselves
+                // have qualifying text, skip it — we'll pick the children instead.
+                const childTextEls = Array.from(el.children).filter(child => {
+                    const ch = child as HTMLElement;
+                    if (SKIP_TAGS.has(ch.tagName)) return false;
+                    if (Array.from(ch.classList).some(c => SKIP_CLASSES.has(c))) return false;
+                    const ct = ch.textContent?.trim() || '';
+                    return ct.length > 1;
                 });
-            } else {
-                // Fallback: direct children (for plain div/span structures)
-                page.querySelectorAll(':scope > *').forEach(child => {
-                    const el = child as HTMLElement;
-                    const dynText = el.querySelector('.toc-dyn-text');
-                    const text = dynText ? (dynText.textContent?.trim() || '') : (el.textContent?.trim() || '');
-                    if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
-                        && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
-                        lineElements.push(el);
-                    }
+
+                // Exception: elements with data-toc-row are always picked directly
+                if (el.hasAttribute('data-toc-row')) {
+                    picked.add(el);
+                    return;
+                }
+
+                // If all child text is contained in inline-level children (span, strong, em, a, b, i, u, small, sub, sup),
+                // treat THIS element as the line (don't descend into inline wrappers).
+                const allChildrenInline = childTextEls.every(ch => {
+                    const tag = (ch as HTMLElement).tagName;
+                    return /^(SPAN|STRONG|EM|A|B|I|U|SMALL|SUB|SUP|MARK|CODE|LABEL)$/.test(tag);
                 });
-            }
+
+                if (childTextEls.length === 0 || allChildrenInline) {
+                    // Leaf or inline-wrapped text — pick this element if an ancestor isn't already picked
+                    let dominated = false;
+                    picked.forEach(ancestor => {
+                        if (ancestor.contains(el) && ancestor !== el) dominated = true;
+                    });
+                    if (!dominated) {
+                        // Also remove any descendants we may have picked earlier
+                        picked.forEach(prev => {
+                            if (el.contains(prev) && el !== prev) picked.delete(prev);
+                        });
+                        picked.add(el);
+                    }
+                }
+                // else: has block-level children → don't pick, let children get picked individually
+            });
+
+            // Maintain DOM order
+            allEls.forEach(el => {
+                if (picked.has(el)) lineElements.push(el);
+            });
         });
 
         if (lineElements.length === 0) {
@@ -4073,30 +4113,57 @@ const App: React.FC = () => {
 
         const leaderCss = buildLeaderCss();
 
-        // Get all line elements from ALL selected pages — deep scan
+        // Get all line elements from ALL selected pages — same universal approach as processSelectedTOCPages
         const lineElements: HTMLElement[] = [];
-        const blockSel = 'p, h1, h2, h3, h4, h5, h6, li, [data-toc-row]';
+        const SKIP_TAGS2 = new Set(['STYLE', 'SCRIPT', 'BR', 'HR', 'IMG', 'SVG']);
+        const SKIP_CLASSES2 = new Set(['page-footer', 'toc-container', 'toc-refresh-btn', 'page-break-indicator']);
         selectedPages.forEach(page => {
-            const deepBlocks = page.querySelectorAll(blockSel);
-            if (deepBlocks.length > 0) {
-                deepBlocks.forEach(child => {
-                    const el = child as HTMLElement;
-                    const text = el.textContent?.trim();
-                    if (text && text.length > 1
-                        && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
-                        lineElements.push(el);
-                    }
+            const allEls = Array.from(page.querySelectorAll('*')) as HTMLElement[];
+            const picked = new Set<HTMLElement>();
+
+            allEls.forEach(el => {
+                if (SKIP_TAGS2.has(el.tagName)) return;
+                if (Array.from(el.classList).some(c => SKIP_CLASSES2.has(c))) return;
+                if (el.classList.contains('page')) return;
+
+                const text = el.textContent?.trim() || '';
+                if (!text || text.length <= 1) return;
+
+                const childTextEls = Array.from(el.children).filter(child => {
+                    const ch = child as HTMLElement;
+                    if (SKIP_TAGS2.has(ch.tagName)) return false;
+                    if (Array.from(ch.classList).some(c => SKIP_CLASSES2.has(c))) return false;
+                    const ct = ch.textContent?.trim() || '';
+                    return ct.length > 1;
                 });
-            } else {
-                page.querySelectorAll(':scope > *').forEach(child => {
-                    const el = child as HTMLElement;
-                    const text = el.textContent?.trim();
-                    if (text && text.length > 1 && el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
-                        && !el.classList.contains('page-footer') && !el.classList.contains('toc-container')) {
-                        lineElements.push(el);
-                    }
+
+                if (el.hasAttribute('data-toc-row')) {
+                    picked.add(el);
+                    return;
+                }
+
+                const allChildrenInline = childTextEls.every(ch => {
+                    const tag = (ch as HTMLElement).tagName;
+                    return /^(SPAN|STRONG|EM|A|B|I|U|SMALL|SUB|SUP|MARK|CODE|LABEL)$/.test(tag);
                 });
-            }
+
+                if (childTextEls.length === 0 || allChildrenInline) {
+                    let dominated = false;
+                    picked.forEach(ancestor => {
+                        if (ancestor.contains(el) && ancestor !== el) dominated = true;
+                    });
+                    if (!dominated) {
+                        picked.forEach(prev => {
+                            if (el.contains(prev) && el !== prev) picked.delete(prev);
+                        });
+                        picked.add(el);
+                    }
+                }
+            });
+
+            allEls.forEach(el => {
+                if (picked.has(el)) lineElements.push(el);
+            });
         });
 
         const pages = workspace.querySelectorAll('.page');
