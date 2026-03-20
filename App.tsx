@@ -583,7 +583,6 @@ const App: React.FC = () => {
 
     // Zoom and View Mode
     const [zoom, setZoom] = useState(100);
-    const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
 
     const handleZoomChange = (nextZoom: number) => {
         const container = editorContainerRef.current;
@@ -5903,7 +5902,6 @@ ${(bwBrightness !== 100 || bwContrast !== 100) ? `
                         suppressSelectionRef={suppressSelectionRef}
                         isTextLayerMode={isTextLayerMode}
                         zoom={zoom}
-                        viewMode={viewMode}
                         onToggleMultiSelect={handleToggleMultiSelect}
                         onClearMultiSelect={handleClearMultiSelect}
                         multiSelectedElements={multiSelectedElements}
@@ -5918,9 +5916,7 @@ ${(bwBrightness !== 100 || bwContrast !== 100) ? `
                     />
                     <ZoomControls
                         zoom={zoom}
-                        viewMode={viewMode}
                         onZoomChange={handleZoomChange}
-                        onViewModeChange={setViewMode}
                     />
                 </div>
             </div>

@@ -58,7 +58,7 @@ interface EditorProps {
     onBlockSelection?: (id: string) => void;
     suppressSelectionRef?: React.MutableRefObject<boolean>;
     zoom: number;
-    viewMode: 'single' | 'double';
+
     onCopyStyle: () => void;
     onPasteStyle: () => void;
     hasStyleClipboard: boolean;
@@ -382,7 +382,7 @@ const Editor: React.FC<EditorProps> = ({
     onStartDistributeAdjust = (_axis: 'x' | 'y') => { },
     onEndDistributeAdjust = () => { },
     zoom,
-    viewMode,
+
     onCopyStyle,
     onPasteStyle,
     hasStyleClipboard
@@ -2988,13 +2988,21 @@ const Editor: React.FC<EditorProps> = ({
         return () => window.removeEventListener('keydown', handleKey);
     }, [distributeAdjustAxis, onEndDistributeAdjust]);
 
-    const zoomStyle = {
-        transform: `scale(${zoom / 100})`,
-        transformOrigin: 'top center',
-    };
+    const isMultiPageGrid = zoom <= 50;
 
-    const workspaceClasses = (viewMode === 'double'
-        ? 'editor-workspace flex flex-row flex-wrap justify-center gap-4 outline-none relative'
+    const zoomStyle: React.CSSProperties = isMultiPageGrid
+        ? {
+            transform: `scale(${zoom / 100})`,
+            transformOrigin: 'top left',
+            width: `${10000 / zoom}%`,
+        }
+        : {
+            transform: `scale(${zoom / 100})`,
+            transformOrigin: 'top center',
+        };
+
+    const workspaceClasses = (isMultiPageGrid
+        ? 'editor-workspace multi-page-grid outline-none relative'
         : 'editor-workspace w-full flex flex-col items-center outline-none relative')
         + (showOverlays ? '' : ' hide-overlays');
 
@@ -3229,20 +3237,18 @@ const Editor: React.FC<EditorProps> = ({
                 outline: 2px dashed #8d55f1;
                 outline-offset: 2px;
             }
-            ${viewMode === 'double' ? `
-            .editor-workspace {
+            .editor-workspace.multi-page-grid {
                 display: flex !important;
                 flex-direction: row !important;
                 flex-wrap: wrap !important;
-                justify-content: center !important;
+                justify-content: flex-start !important;
                 align-items: flex-start !important;
                 gap: 1.5rem !important;
             }
-            .editor-workspace .page {
+            .editor-workspace.multi-page-grid .page {
                 flex-shrink: 0 !important;
                 margin-bottom: 0 !important;
             }
-            ` : ''}
         `}</style>
 
             {isTextLayerMode && (
