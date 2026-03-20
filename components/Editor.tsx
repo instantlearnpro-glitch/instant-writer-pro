@@ -2453,6 +2453,32 @@ const Editor: React.FC<EditorProps> = ({
                 return;
             }
 
+            // Click on the page-break-before indicator bar → remove the break
+            // The ::before indicator bar occupies the top ~20px of the element.
+            const pbElement = target.closest('[data-page-break-before="true"]') as HTMLElement | null;
+            if (pbElement) {
+                const rect = pbElement.getBoundingClientRect();
+                const indicatorHeight = 20; // approx height of the ::before bar
+                const clickY = e.clientY - rect.top;
+                if (clickY <= indicatorHeight) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    pbElement.removeAttribute('data-page-break-before');
+                    // Also remove the page-level marker if this was the only break element
+                    const breakPage = pbElement.closest('.page') as HTMLElement | null;
+                    if (breakPage) {
+                        breakPage.removeAttribute('data-user-page-break');
+                        const childMarker = breakPage.querySelector(':scope > [data-user-page-break="true"]') as HTMLElement | null;
+                        if (childMarker) childMarker.remove();
+                    }
+                    if (contentRef.current) {
+                        reflowPagesUntilStable(contentRef.current);
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                    return;
+                }
+            }
+
             if (!isTextLayerMode && !imageProperties.isCropping && !selectionMode?.active && !(e.metaKey || e.ctrlKey)) {
                 const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
                 const hasInteractive = elementsAtPoint.some(el =>
@@ -3054,72 +3080,13 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace li[data-list-continuation] {
                 list-style-type: none;
             }
-            /* Visual page-break indicator — show the hidden marker div as a label */
+            /* Page-level break marker div — always hidden visually (logic kept in DOM for reflow) */
             .editor-workspace .page > div[data-user-page-break="true"] {
-                display: flex !important;
-                align-items: center;
-                justify-content: center;
-                gap: 6px;
-                height: auto !important;
-                overflow: visible !important;
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                z-index: 10;
-                border-top: 2px dashed #60a5fa;
-                margin: 0;
-                padding: 3px 0;
-                font-size: 10px;
-                font-family: system-ui, sans-serif;
-                color: #60a5fa;
-                text-align: center;
-                pointer-events: auto;
-                user-select: none;
-                cursor: pointer;
-                transition: background-color 0.15s;
-            }
-            .editor-workspace .page > div[data-user-page-break="true"]:hover {
-                background-color: rgba(96, 165, 250, 0.08);
-            }
-            .editor-workspace .page > div[data-user-page-break="true"]::after {
-                content: '⤶ Page Break';
-            }
-            .editor-workspace .page > div[data-user-page-break="true"]::before {
-                content: '✕';
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                width: 16px;
-                height: 16px;
-                border-radius: 50%;
-                background: #ef4444;
-                color: white;
-                font-size: 10px;
-                font-weight: 700;
-                line-height: 1;
-                cursor: pointer;
-                transition: background-color 0.15s;
-            }
-            .editor-workspace .page > div[data-user-page-break="true"]:hover::before {
-                background: #dc2626;
-            }
-            /* Hide page break indicators in print */
-            @media print {
-                .editor-workspace .page > div[data-user-page-break="true"] {
-                    display: none !important;
-                }
-            }
-            /* Toggle: hide technical overlays when .hide-overlays is set */
-            .editor-workspace.hide-overlays .page > div[data-user-page-break="true"] {
                 display: none !important;
             }
             /* Visual indicator for elements with data-page-break-before */
-            .editor-workspace .page > [data-page-break-before="true"] {
-                position: relative;
-            }
             .editor-workspace .page > [data-page-break-before="true"]::before {
-                content: '⤶ Page Break';
+                content: '✕  ⤶ Page Break';
                 display: block;
                 width: 100%;
                 border-top: 2px dashed #60a5fa;
@@ -3128,9 +3095,14 @@ const Editor: React.FC<EditorProps> = ({
                 font-family: system-ui, sans-serif;
                 color: #60a5fa;
                 text-align: center;
-                pointer-events: none;
+                pointer-events: auto;
                 user-select: none;
                 margin-bottom: 4px;
+                cursor: pointer;
+                transition: background-color 0.15s;
+            }
+            .editor-workspace .page > [data-page-break-before="true"]:hover::before {
+                background-color: rgba(96, 165, 250, 0.08);
             }
             .editor-workspace.hide-overlays .page > [data-page-break-before="true"]::before {
                 display: none;

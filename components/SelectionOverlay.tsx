@@ -73,7 +73,7 @@ function getBoxChain(target: EventTarget | null, workspace: HTMLElement | null):
          el.parentElement &&
          (
            insideColumn ||
-           el.parentElement.classList.contains('page') ||
+           !!el.closest('.page') ||
            el.parentElement === workspace
          ))
       )

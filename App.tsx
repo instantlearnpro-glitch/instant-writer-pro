@@ -16,6 +16,7 @@ import { exportDOCX } from './utils/docxExport';
 import { insertPageBreak } from './utils/pageBreak';
 import { PatternTracker, findSimilarElements, getElementSignature, PatternMatch, ActionType } from './utils/patternDetector';
 const PatternModal = lazy(() => import('./components/PatternModal'));
+const StyleGroupPanel = lazy(() => import('./components/StyleGroupPanel'));
 const ExportModal = lazy(() => import('./components/ExportModal'));
 const SettingsModal = lazy(() => import('./components/SettingsModal'));
 const AutoLogModal = lazy(() => import('./components/AutoLogModal'));
@@ -628,6 +629,22 @@ const App: React.FC = () => {
         applyStyle?: (el: HTMLElement) => void;
     }>({ isOpen: false, actionType: '', matches: [] });
 
+    // --- Style Groups state ---
+    interface StyleGroupDef {
+        id: string;
+        name: string;
+        elementIds: string[];
+    }
+    const [styleGroups, setStyleGroups] = useState<StyleGroupDef[]>([]);
+    const [activeGroupIds, setActiveGroupIds] = useState<string[]>([]);
+    const [isStylePanelOpen, setIsStylePanelOpen] = useState(false);
+    const [stylePickingGroupId, setStylePickingGroupId] = useState<string | null>(null);
+    const [pickedElementIds, setPickedElementIds] = useState<string[]>([]);
+    const stylePickingGroupIdRef = useRef<string | null>(null);
+    const pickedElementIdsRef = useRef<string[]>([]);
+    useEffect(() => { stylePickingGroupIdRef.current = stylePickingGroupId; }, [stylePickingGroupId]);
+    useEffect(() => { pickedElementIdsRef.current = pickedElementIds; }, [pickedElementIds]);
+
     // --- HISTORY MANAGEMENT (Undo/Redo) ---
 
     const latestDocStateRef = useRef(docState);
@@ -719,6 +736,23 @@ const App: React.FC = () => {
 
 
     const handleUndo = () => {
+        // Flush any pending debounced history save so the current state
+        // is captured before stepping backward.
+        if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current);
+            debounceTimeoutRef.current = null;
+            // Push the current live DOM state into history
+            const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+            if (workspace) {
+                const liveHtml = workspace.innerHTML;
+                const liveState = { ...latestDocStateRef.current, htmlContent: liveHtml };
+                // Only push if it differs from the current history entry
+                const currentEntry = historyRef.current[historyIndexRef.current];
+                if (!currentEntry || currentEntry.htmlContent !== liveHtml) {
+                    pushHistoryState(liveState, { skipIfSameHtml: liveHtml });
+                }
+            }
+        }
         const currentIndex = historyIndexRef.current;
         if (currentIndex > 0) {
             const newIndex = currentIndex - 1;
@@ -732,6 +766,11 @@ const App: React.FC = () => {
     };
 
     const handleRedo = () => {
+        // Flush pending debounce for consistency
+        if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current);
+            debounceTimeoutRef.current = null;
+        }
         const currentIndex = historyIndexRef.current;
         const maxIndex = historyRef.current.length - 1;
         if (currentIndex < maxIndex) {
@@ -2324,6 +2363,13 @@ const App: React.FC = () => {
             return;
         }
 
+        // ─── Style Groups interception: if groups are active, apply to all elements ───
+        if (activeGroupIds.length > 0 && command !== 'formatBlock') {
+            if (applyRelativeStyleToGroups(command, value)) {
+                return;
+            }
+        }
+
         if (command === 'deleteFooter') {
             handleRemoveFooter();
             return;
@@ -2390,6 +2436,7 @@ const App: React.FC = () => {
         if (command === 'fontName' && value) {
             if (applyStyleToSelectionRange({ 'font-family': value })) {
                 setSelectionState(prev => ({ ...prev, fontName: value }));
+
                 return;
             }
         }
@@ -2400,33 +2447,45 @@ const App: React.FC = () => {
             if (!sv.includes('pt') && !sv.includes('px') && !sv.includes('em')) sf = `${sv}pt`;
             if (applyStyleToSelectionRange({ 'font-size': sf })) {
                 setSelectionState(prev => ({ ...prev, fontSize: sv.replace('pt', '').replace('px', '') }));
+
                 return;
             }
         }
 
         if (command === 'lineHeight') {
-            if (applyStyleToSelectionRange({ 'line-height': value || 'normal' })) return;
+            if (applyStyleToSelectionRange({ 'line-height': value || 'normal' })) {
+
+                return;
+            }
         }
 
         if (command === 'letterSpacing') {
             if (applyStyleToSelectionRange({ 'letter-spacing': value || 'normal' })) {
                 setSelectionState(prev => ({ ...prev, letterSpacing: value || 'normal' }));
+
                 return;
             }
         }
 
         if (command === 'textTransform') {
-            if (applyStyleToSelectionRange({ 'text-transform': value || 'none' })) return;
+            if (applyStyleToSelectionRange({ 'text-transform': value || 'none' })) {
+
+                return;
+            }
         }
 
         if (command === 'foreColor' && value) {
-            if (applyStyleToSelectionRange({ 'color': value })) return;
+            if (applyStyleToSelectionRange({ 'color': value })) {
+
+                return;
+            }
         }
 
         if (command === 'bold') {
             const next = selectionState.bold ? 'normal' : 'bold';
             if (applyStyleToSelectionRange({ 'font-weight': next })) {
                 setSelectionState(prev => ({ ...prev, bold: !prev.bold }));
+
                 return;
             }
         }
@@ -2435,6 +2494,7 @@ const App: React.FC = () => {
             const next = selectionState.italic ? 'normal' : 'italic';
             if (applyStyleToSelectionRange({ 'font-style': next })) {
                 setSelectionState(prev => ({ ...prev, italic: !prev.italic }));
+
                 return;
             }
         }
@@ -2443,6 +2503,7 @@ const App: React.FC = () => {
             const next = selectionState.underline ? 'none' : 'underline';
             if (applyStyleToSelectionRange({ 'text-decoration': next })) {
                 setSelectionState(prev => ({ ...prev, underline: !prev.underline }));
+
                 return;
             }
         }
@@ -2701,6 +2762,7 @@ const App: React.FC = () => {
                     updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
                 }
             }
+
             return;
         }
 
@@ -2786,6 +2848,7 @@ const App: React.FC = () => {
             if (workspace) {
                 updateDocStatePreserveScroll(workspace.innerHTML);
             }
+
             return;
         }
 
@@ -2840,6 +2903,7 @@ const App: React.FC = () => {
                 if (workspace) {
                     updateDocStatePreserveScroll(workspace.innerHTML);
                 }
+
             }
             return;
         }
@@ -4865,6 +4929,299 @@ const App: React.FC = () => {
         }, 500);
     };
 
+    // ─── Style Group Handlers ───────────────────────────────────────────
+    const ensureElementIdForStyle = (el: HTMLElement): string => {
+        if (!el.id) {
+            el.id = `sg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        }
+        return el.id;
+    };
+
+    const handleCreateStyleGroup = () => {
+        const id = `group-${Date.now()}`;
+        const newGroup: StyleGroupDef = {
+            id,
+            name: `Group ${styleGroups.length + 1}`,
+            elementIds: []
+        };
+        setStyleGroups(prev => [...prev, newGroup]);
+        // Immediately start picking for this group
+        handleStartStylePicking(id);
+    };
+
+    const handleDeleteStyleGroup = (groupId: string) => {
+        // Remove highlight from elements of this group
+        const group = styleGroups.find(g => g.id === groupId);
+        if (group) {
+            group.elementIds.forEach(eid => {
+                const el = document.getElementById(eid);
+                if (el) {
+                    el.removeAttribute('data-style-group');
+                    el.style.outline = '';
+                }
+            });
+        }
+        setStyleGroups(prev => prev.filter(g => g.id !== groupId));
+        setActiveGroupIds(prev => prev.filter(id => id !== groupId));
+    };
+
+    const handleRenameStyleGroup = (groupId: string, newName: string) => {
+        setStyleGroups(prev => prev.map(g => g.id === groupId ? { ...g, name: newName } : g));
+    };
+
+    const handleToggleStyleGroup = (groupId: string) => {
+        setActiveGroupIds(prev => {
+            const group = styleGroups.find(g => g.id === groupId);
+            if (prev.includes(groupId)) {
+                // Deactivate — remove outlines
+                group?.elementIds.forEach(eid => {
+                    const el = document.getElementById(eid);
+                    if (el) el.style.outline = '';
+                });
+                return prev.filter(id => id !== groupId);
+            } else {
+                // Activate — show purple outlines
+                group?.elementIds.forEach(eid => {
+                    const el = document.getElementById(eid);
+                    if (el) el.style.outline = '2px solid #8d55f1';
+                });
+                return [...prev, groupId];
+            }
+        });
+    };
+
+    const handleStartStylePicking = (groupId: string) => {
+        setStylePickingGroupId(groupId);
+        setPickedElementIds([]);
+        // Clear any previous highlights from picking
+        document.querySelectorAll('[data-style-picking]').forEach(el => {
+            (el as HTMLElement).removeAttribute('data-style-picking');
+            (el as HTMLElement).style.outline = '';
+        });
+    };
+
+    const handleStopPicking = () => {
+        // Remove picking highlights
+        pickedElementIdsRef.current.forEach(eid => {
+            const el = document.getElementById(eid);
+            if (el) {
+                el.removeAttribute('data-style-picking');
+                el.style.outline = '';
+            }
+        });
+        setStylePickingGroupId(null);
+        setPickedElementIds([]);
+    };
+
+    const handleFinalizePicking = () => {
+        const groupId = stylePickingGroupIdRef.current;
+        if (!groupId) return;
+        const ids = pickedElementIdsRef.current;
+        if (ids.length === 0) {
+            handleStopPicking();
+            return;
+        }
+
+        // Save element IDs into the group
+        setStyleGroups(prev => prev.map(g => {
+            if (g.id !== groupId) return g;
+            const merged = Array.from(new Set([...g.elementIds, ...ids]));
+            return { ...g, elementIds: merged };
+        }));
+
+        // Mark elements with data attribute and remove picking highlight
+        ids.forEach(eid => {
+            const el = document.getElementById(eid);
+            if (el) {
+                el.setAttribute('data-style-group', groupId);
+                el.removeAttribute('data-style-picking');
+                el.style.outline = '';
+            }
+        });
+
+        setStylePickingGroupId(null);
+        setPickedElementIds([]);
+    };
+
+    const handleScrollToStyleElement = (elementId: string) => {
+        const el = document.getElementById(elementId);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.style.outline = '3px solid #f59e0b';
+            setTimeout(() => { el.style.outline = ''; }, 2000);
+        }
+    };
+
+    // --- Cmd+Click element picking useEffect ---
+    useEffect(() => {
+        if (!stylePickingGroupId) return;
+
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement;
+        if (!workspace) return;
+
+        workspace.style.cursor = 'crosshair';
+
+        const handleClick = (e: MouseEvent) => {
+            if (!e.metaKey && !e.ctrlKey) return; // Must hold Cmd/Ctrl
+            e.preventDefault();
+            e.stopPropagation();
+
+            const target = e.target as HTMLElement;
+            // Find the nearest meaningful block element
+            const block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote, img, table, hr') as HTMLElement | null;
+            if (!block) return;
+            if (block.closest('.page-footer')) return;
+
+            const elId = ensureElementIdForStyle(block);
+
+            setPickedElementIds(prev => {
+                // Toggle: if already picked, unpick it
+                if (prev.includes(elId)) {
+                    block.removeAttribute('data-style-picking');
+                    block.style.outline = '';
+                    return prev.filter(id => id !== elId);
+                }
+
+                // Pick it — show amber outline
+                block.setAttribute('data-style-picking', 'true');
+                block.style.outline = '2px dashed #f59e0b';
+
+                const newPicked = [...prev, elId];
+
+                // After 3 picks, auto-detect similar elements
+                if (newPicked.length === 3) {
+                    setTimeout(() => {
+                        autoDetectSimilarForGroup(newPicked);
+                    }, 100);
+                }
+
+                return newPicked;
+            });
+        };
+
+        workspace.addEventListener('click', handleClick, true);
+
+        return () => {
+            workspace.style.cursor = '';
+            workspace.removeEventListener('click', handleClick, true);
+        };
+    }, [stylePickingGroupId]);
+
+    const autoDetectSimilarForGroup = (pickedIds: string[]) => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement;
+        if (!workspace) return;
+
+        // Get signatures of all picked elements
+        const pickedElements = pickedIds.map(id => document.getElementById(id)).filter(Boolean) as HTMLElement[];
+        if (pickedElements.length === 0) return;
+
+        // Use the first element's signature to find similar elements
+        const signature = getElementSignature(pickedElements[0], true);
+        const allMatches = findSimilarElements(signature, null, workspace, true);
+
+        // Filter out elements already picked, footers, etc.
+        const newIds: string[] = [];
+        allMatches.forEach(match => {
+            const el = match.element;
+            if (el.closest('.page-footer')) return;
+            const elId = ensureElementIdForStyle(el);
+            if (!pickedIds.includes(elId)) {
+                el.setAttribute('data-style-picking', 'true');
+                el.style.outline = '2px dashed #f59e0b';
+                newIds.push(elId);
+            }
+        });
+
+        if (newIds.length > 0) {
+            setPickedElementIds(prev => [...prev, ...newIds]);
+        }
+    };
+
+    // Apply relative style changes to all elements in the active groups
+    const applyRelativeStyleToGroups = (command: string, value?: string): boolean => {
+        if (activeGroupIds.length === 0) return false;
+
+        // Collect all element IDs from active groups
+        const allElementIds: string[] = activeGroupIds.flatMap(gid => {
+            const group = styleGroups.find(g => g.id === gid);
+            return group ? group.elementIds : [];
+        });
+        const uniqueIds: string[] = Array.from(new Set(allElementIds));
+
+        if (uniqueIds.length === 0) return false;
+
+        const elements = uniqueIds.map(id => document.getElementById(id)).filter(Boolean) as HTMLElement[];
+        if (elements.length === 0) return false;
+
+        // Detect relative vs absolute commands
+        if (command === 'fontSize' && value) {
+            // Relative font size: compute delta from selectionState
+            const currentFontSize = parseFloat(selectionState.fontSize || '12');
+            let targetValue = value.replace('pt', '').replace('px', '');
+            const targetSize = parseFloat(targetValue);
+            if (Number.isFinite(targetSize) && Number.isFinite(currentFontSize)) {
+                const delta = targetSize - currentFontSize;
+                elements.forEach(el => {
+                    const computed = window.getComputedStyle(el);
+                    const elCurrentSize = parseFloat(computed.fontSize) || 12;
+                    const ptSize = elCurrentSize * 0.75; // px to pt
+                    const newPt = Math.max(1, ptSize + delta);
+                    el.style.setProperty('font-size', `${newPt}pt`, 'important');
+                });
+            }
+        } else if (command === 'fontName' && value) {
+            elements.forEach(el => {
+                el.style.setProperty('font-family', value);
+            });
+        } else if (command === 'foreColor' && value) {
+            elements.forEach(el => {
+                el.style.setProperty('color', value);
+            });
+        } else if (command === 'bold') {
+            const nextWeight = selectionState.bold ? 'normal' : 'bold';
+            elements.forEach(el => {
+                el.style.setProperty('font-weight', nextWeight);
+            });
+        } else if (command === 'italic') {
+            const nextStyle = selectionState.italic ? 'normal' : 'italic';
+            elements.forEach(el => {
+                el.style.setProperty('font-style', nextStyle);
+            });
+        } else if (command === 'underline') {
+            const nextDec = selectionState.underline ? 'none' : 'underline';
+            elements.forEach(el => {
+                el.style.setProperty('text-decoration', nextDec);
+            });
+        } else if (command === 'lineHeight' && value) {
+            elements.forEach(el => {
+                el.style.setProperty('line-height', value);
+            });
+        } else if (command === 'letterSpacing' && value) {
+            elements.forEach(el => {
+                el.style.setProperty('letter-spacing', value);
+            });
+        } else if (command === 'textTransform' && value) {
+            elements.forEach(el => {
+                el.style.setProperty('text-transform', value);
+            });
+        } else if (command === 'justifyLeft' || command === 'justifyCenter' || command === 'justifyRight' || command === 'justifyFull') {
+            const align = command.replace('justify', '').toLowerCase();
+            const alignValue = align === 'full' ? 'justify' : align;
+            elements.forEach(el => {
+                el.style.setProperty('text-align', alignValue);
+            });
+        } else {
+            return false; // Command not handled by style groups
+        }
+
+        // Save to doc state
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement;
+        if (workspace) {
+            updateDocStatePreserveScroll(workspace.innerHTML);
+        }
+        return true;
+    };
+
     // Pattern modal handlers
     const handlePatternConfirmApp = (selectedIds: string[]) => {
         const { applyStyle, actionType } = patternModal;
@@ -5432,6 +5789,8 @@ ${workspace.innerHTML}
                         }
                     }
                 }}
+                onOpenStylePanel={() => setIsStylePanelOpen(true)}
+                activeStyleGroupCount={activeGroupIds.length}
             />
 
             {fontUploadMessage && (
@@ -5617,6 +5976,23 @@ ${(bwBrightness !== 100 || bwContrast !== 100) ? `
                     onExportPDF={handleExportPDF}
                     onExportHTML={handleExportHTML}
                     onExportDOCX={handleExportDOCX}
+                />
+
+                <StyleGroupPanel
+                    isOpen={isStylePanelOpen}
+                    onClose={() => { setIsStylePanelOpen(false); handleStopPicking(); }}
+                    groups={styleGroups as any}
+                    activeGroupIds={activeGroupIds}
+                    pickingGroupId={stylePickingGroupId}
+                    pickedCount={pickedElementIds.length}
+                    onCreateGroup={handleCreateStyleGroup}
+                    onDeleteGroup={handleDeleteStyleGroup}
+                    onRenameGroup={handleRenameStyleGroup}
+                    onToggleGroup={handleToggleStyleGroup}
+                    onStartPicking={handleStartStylePicking}
+                    onStopPicking={handleStopPicking}
+                    onFinalizePicking={handleFinalizePicking}
+                    onScrollToElement={handleScrollToStyleElement}
                 />
             </Suspense>
 

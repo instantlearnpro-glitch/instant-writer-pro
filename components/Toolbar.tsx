@@ -6,7 +6,7 @@ import {
     Square, Minus, PaintBucket, Minimize, MoveHorizontal, Shapes, Hash,
     RotateCcw, RotateCw, RefreshCw, LayoutTemplate, ChevronDown,
     ArrowUpDown, Type, Ruler, ListOrdered, TableOfContents, Plus, FileText,
-    Columns3, ScanSearch, Eye, EyeOff, Contrast as ContrastIcon
+    Columns3, ScanSearch, Eye, EyeOff, Contrast as ContrastIcon, Palette
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { SelectionState, ImageProperties, HRProperties } from '../types';
@@ -69,6 +69,8 @@ interface ToolbarProps {
     onBwBrightnessChange: (v: number) => void;
     bwContrast: number;
     onBwContrastChange: (v: number) => void;
+    onOpenStylePanel?: () => void;
+    activeStyleGroupCount?: number;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -126,7 +128,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
     bwBrightness,
     onBwBrightnessChange,
     bwContrast,
-    onBwContrastChange
+    onBwContrastChange,
+    onOpenStylePanel,
+    activeStyleGroupCount
 }) => {
     const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
     const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
@@ -938,6 +942,20 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 )}
                             </div>
                         </div>
+                        {onOpenStylePanel && (
+                            <button
+                                onClick={onOpenStylePanel}
+                                className={`relative ${ButtonClass(false)} ${(activeStyleGroupCount || 0) > 0 ? 'ring-2 ring-purple-400 bg-purple-50' : ''}`}
+                                title="Style Groups"
+                            >
+                                <Palette size={18} />
+                                {(activeStyleGroupCount || 0) > 0 && (
+                                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-purple-600 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                                        {activeStyleGroupCount}
+                                    </span>
+                                )}
+                            </button>
+                        )}
                         <button
                             onClick={onSanitize}
                             className={ButtonClass(false)}
