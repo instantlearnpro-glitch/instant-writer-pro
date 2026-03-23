@@ -8,6 +8,7 @@ interface ImageOverlayProps {
   onCropComplete: (newSrc: string, width: number, height: number) => void;
   onCancelCrop: () => void;
   onResize?: () => void;
+  onToggleCrop?: () => void;
   multiSelectedElements?: string[];
   pageMargins?: { top: number; bottom: number; left: number; right: number };
 }
@@ -20,6 +21,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   onCropComplete,
   onCancelCrop,
   onResize,
+  onToggleCrop,
   multiSelectedElements,
   pageMargins
 }) => {
@@ -252,31 +254,65 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             return;
     }
 
+    // --- Compute zoom scale so mouse deltas are corrected ---
+    const workspace = image.closest('.editor-workspace') as HTMLElement | null;
+    let zoomScale = 1;
+    if (workspace) {
+        const wsTx = window.getComputedStyle(workspace).transform;
+        if (wsTx && wsTx !== 'none') {
+            const m = wsTx.match(/matrix\(([^)]+)\)/);
+            if (m) { zoomScale = parseFloat(m[1].split(',')[0]) || 1; }
+        }
+    }
+
     let startX = e.clientX;
     let startY = e.clientY;
-    const elementRect = image.getBoundingClientRect();
-    const offsetX = e.clientX - elementRect.left;
-    const offsetY = e.clientY - elementRect.top;
-    const startRect = image.getBoundingClientRect();
-    const startWidth = startRect.width;
-    const startHeight = startRect.height;
+    // Use offset dimensions (unscaled CSS px) — immune to transform scale
+    const startWidth = image.offsetWidth;
+    const startHeight = image.offsetHeight;
     const startLeft = parseFloat(image.style.left) || 0;
     const startTop = parseFloat(image.style.top) || 0;
     const allowOverflow = (image as HTMLElement).getAttribute('data-ignore-margins') === 'true';
     const bounds = allowOverflow ? null : getMarginBounds((image as HTMLElement).closest('.page') as HTMLElement | null);
 
-    image.style.setProperty('max-width', 'none', 'important');
-    image.style.setProperty('max-height', 'none', 'important');
-    image.style.setProperty('min-width', '0', 'important');
-    image.style.setProperty('min-height', '0', 'important');
-    image.style.setProperty('aspect-ratio', 'auto', 'important');
-    image.style.setProperty('object-fit', 'fill', 'important');
-    image.style.setProperty('width', `${startWidth}px`);
-    image.style.setProperty('height', `${startHeight}px`);
+    // Determine if this is a side-only drag on an image (direct crop)
+    const isCorner = (direction.length === 2); // 'nw','ne','se','sw'
+    const isSideOnly = !isCorner; // 'n','e','s','w'
+    const directCrop = isSideOnly && isImage;
+
+    if (!directCrop) {
+        // Normal proportional / free resize
+        image.style.setProperty('max-width', 'none', 'important');
+        image.style.setProperty('max-height', 'none', 'important');
+        image.style.setProperty('min-width', '0', 'important');
+        image.style.setProperty('min-height', '0', 'important');
+        image.style.setProperty('aspect-ratio', 'auto', 'important');
+        image.style.setProperty('object-fit', 'fill', 'important');
+        image.style.setProperty('width', `${startWidth}px`);
+        image.style.setProperty('height', `${startHeight}px`);
+    } else {
+        // Direct crop preview: object-fit:cover + object-position anchored
+        // to the OPPOSITE edge of the handle being dragged
+        image.style.setProperty('max-width', 'none', 'important');
+        image.style.setProperty('max-height', 'none', 'important');
+        image.style.setProperty('min-width', '0', 'important');
+        image.style.setProperty('min-height', '0', 'important');
+        image.style.setProperty('object-fit', 'cover', 'important');
+        image.style.setProperty('width', `${startWidth}px`);
+        image.style.setProperty('height', `${startHeight}px`);
+        // Anchor to opposite edge so the correct side gets cropped
+        let objPos = 'center center';
+        if (direction === 'n') objPos = 'center bottom';  // crop from top, anchor bottom
+        else if (direction === 's') objPos = 'center top'; // crop from bottom, anchor top
+        else if (direction === 'w') objPos = 'right center'; // crop from left, anchor right
+        else if (direction === 'e') objPos = 'left center';  // crop from right, anchor left
+        image.style.setProperty('object-position', objPos, 'important');
+    }
 
     const onMove = (moveEvent: MouseEvent) => {
-        const dx = moveEvent.clientX - startX;
-        const dy = moveEvent.clientY - startY;
+        // Scale-correct deltas
+        const dx = (moveEvent.clientX - startX) / zoomScale;
+        const dy = (moveEvent.clientY - startY) / zoomScale;
         
         let newWidth = startWidth;
         let newHeight = startHeight;
@@ -302,22 +338,21 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
         const minSize = 20;
 
         if (bounds) {
-            let nextLeft = startRect.left;
-            if (hasW) nextLeft = startRect.left + dx;
-            if (nextLeft < bounds.left) {
-                const diff = bounds.left - nextLeft;
-                nextLeft = bounds.left;
+            const imgRect = image.getBoundingClientRect();
+            let nextLeft = imgRect.left / zoomScale;
+            if (hasW) nextLeft = (imgRect.left + (moveEvent.clientX - startX)) / zoomScale;
+            const bLeft = bounds.left / zoomScale;
+            const bRight = bounds.right / zoomScale;
+            if (nextLeft < bLeft) {
+                const diff = bLeft - nextLeft;
                 newWidth = Math.max(minSize, newWidth - diff);
             }
-            if (nextLeft + newWidth > bounds.right) {
-                newWidth = Math.max(minSize, bounds.right - nextLeft);
-            }
-            if (image.classList.contains('floating-text') && hasW) {
-                newLeft = startLeft + (nextLeft - startRect.left);
+            if (nextLeft + newWidth > bRight) {
+                newWidth = Math.max(minSize, bRight - nextLeft);
             }
         }
 
-        if (lockAspect && isImage) {
+        if (!directCrop && lockAspect && isImage) {
             const aspect = startWidth / startHeight;
             const hasH = hasE || hasW;
             const hasV = hasN || hasS;
@@ -335,7 +370,7 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
             }
         }
 
-        if (lockAspect && isImage) {
+        if (!directCrop && lockAspect && isImage) {
             const aspect = startWidth / startHeight;
             if (newWidth < minSize) {
                 newWidth = minSize;
@@ -372,6 +407,69 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
     const onUp = () => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+
+        // For direct crop: apply real canvas-based pixel crop
+        if (directCrop && isImage) {
+            const imgEl = image as HTMLImageElement;
+            const finalW = imgEl.offsetWidth;
+            const finalH = imgEl.offsetHeight;
+            const natW = imgEl.naturalWidth;
+            const natH = imgEl.naturalHeight;
+
+            if (natW > 0 && natH > 0 && (finalW !== startWidth || finalH !== startHeight)) {
+                try {
+                    // Direction-aware crop: map the removed display pixels
+                    // to the corresponding region of the natural image
+                    const scaleX = natW / startWidth;
+                    const scaleY = natH / startHeight;
+
+                    let sx = 0, sy = 0, sw = natW, sh = natH;
+
+                    if (direction === 'n') {
+                        // Cropped from top: removed (startHeight - finalH) from top
+                        const cropPx = startHeight - finalH;
+                        sy = cropPx * scaleY;
+                        sh = natH - sy;
+                    } else if (direction === 's') {
+                        // Cropped from bottom: keep top finalH pixels
+                        sh = finalH * scaleY;
+                    } else if (direction === 'w') {
+                        // Cropped from left: removed (startWidth - finalW) from left
+                        const cropPx = startWidth - finalW;
+                        sx = cropPx * scaleX;
+                        sw = natW - sx;
+                    } else if (direction === 'e') {
+                        // Cropped from right: keep left finalW pixels
+                        sw = finalW * scaleX;
+                    }
+
+                    // Clamp
+                    sx = Math.max(0, Math.round(sx));
+                    sy = Math.max(0, Math.round(sy));
+                    sw = Math.max(1, Math.round(Math.min(sw, natW - sx)));
+                    sh = Math.max(1, Math.round(Math.min(sh, natH - sy)));
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = sw;
+                    canvas.height = sh;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.drawImage(imgEl, sx, sy, sw, sh, 0, 0, sw, sh);
+                        // Reset object-fit/position before applying crop
+                        imgEl.style.removeProperty('object-fit');
+                        imgEl.style.removeProperty('object-position');
+                        onCropComplete(canvas.toDataURL('image/png'), finalW, finalH);
+                        return; // onCropComplete handles state save
+                    }
+                } catch (err) {
+                    console.warn('Direct crop failed, falling back to resize', err);
+                }
+            }
+            // If crop wasn't needed (no size change) or failed, just reset
+            imgEl.style.removeProperty('object-fit');
+            imgEl.style.removeProperty('object-position');
+        }
+
         if (onResize) onResize();
     };
 
@@ -732,17 +830,34 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
   };
 
   const Handle = ({ dir, cursor, onStart }: { dir: string, cursor: string, onStart: any }) => {
-      const style: React.CSSProperties = { position: 'absolute', width: '10px', height: '10px', backgroundColor: 'white', border: '1px solid #8d55f1', zIndex: 50, cursor };
+      const isSide = dir.length === 1; // 'n','e','s','w' = side; 'nw','ne' etc = corner
+      const isHoriz = dir === 'n' || dir === 's';
+      const cropHandle = isSide && isImage;
+      const w = isSide ? (isHoriz ? '28px' : '8px') : '10px';
+      const h = isSide ? (isHoriz ? '8px' : '28px') : '10px';
+      const bg = cropHandle ? '#fb923c' : 'white';
+      const borderClr = cropHandle ? '#ea580c' : '#8d55f1';
+      const handleCursor = cropHandle ? (isHoriz ? 'ns-resize' : 'ew-resize') : cursor;
+      const style: React.CSSProperties = {
+          position: 'absolute', width: w, height: h,
+          backgroundColor: bg, border: `2px solid ${borderClr}`,
+          borderRadius: isSide ? '4px' : '2px',
+          zIndex: 50, cursor: handleCursor,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
+      };
       
-      if (dir.includes('n')) style.top = '-5px';
-      else if (dir.includes('s')) style.bottom = '-5px';
-      else style.top = 'calc(50% - 5px)';
+      const hw = parseFloat(w) / 2;
+      const hh = parseFloat(h) / 2;
 
-      if (dir.includes('w')) style.left = '-5px';
-      else if (dir.includes('e')) style.right = '-5px';
-      else style.left = 'calc(50% - 5px)';
+      if (dir.includes('n')) style.top = `${-hh}px`;
+      else if (dir.includes('s')) style.bottom = `${-hh}px`;
+      else style.top = `calc(50% - ${hh}px)`;
 
-      return <div style={style} onMouseDown={(e) => onStart(e, dir)} />;
+      if (dir.includes('w')) style.left = `${-hw}px`;
+      else if (dir.includes('e')) style.right = `${-hw}px`;
+      else style.left = `calc(50% - ${hw}px)`;
+
+      return <div style={style} onMouseDown={(e) => onStart(e, dir)} title={cropHandle ? '✂ Drag to crop' : 'Drag to resize'} />;
   };
 
   // --- RENDER ---
@@ -855,8 +970,28 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
                     fontWeight: 600
                 }}
             >
-                {lockAspect ? 'Lock ratio' : 'Unlock ratio'}
+                {lockAspect ? '🔒 Lock ratio' : '🔓 Free'}
             </button>
+        )}
+
+        {/* Double-click border to enter full crop mode */}
+        {isImage && (
+            <div
+                style={{
+                    position: 'absolute',
+                    inset: '-4px',
+                    border: '4px solid transparent',
+                    cursor: 'crosshair',
+                    pointerEvents: 'auto',
+                    zIndex: 39
+                }}
+                onDoubleClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (onToggleCrop) onToggleCrop();
+                }}
+                title="Double-click to enter crop mode"
+            />
         )}
         
         <div style={{ pointerEvents: 'auto' }}>

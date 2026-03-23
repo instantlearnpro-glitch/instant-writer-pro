@@ -36,6 +36,7 @@ interface EditorProps {
     imageProperties: ImageProperties;
     onCropComplete: (newSrc: string, width: number, height: number) => void;
     onCancelCrop: () => void;
+    onToggleCrop?: () => void;
     onPageBreak: () => void;
     onInsertHorizontalRule: () => void;
     onInsertImage: () => void;
@@ -368,6 +369,7 @@ const Editor: React.FC<EditorProps> = ({
     imageProperties,
     onCropComplete,
     onCancelCrop,
+    onToggleCrop,
     onPageBreak,
     onInsertHorizontalRule,
     onInsertImage,
@@ -3492,6 +3494,7 @@ const Editor: React.FC<EditorProps> = ({
                     showSmartGuides={showSmartGuides}
                     onCropComplete={onCropComplete}
                     onCancelCrop={onCancelCrop}
+                    onToggleCrop={onToggleCrop}
                     multiSelectedElements={multiSelectedElements}
                     pageMargins={pageMargins}
                     onResize={() => {

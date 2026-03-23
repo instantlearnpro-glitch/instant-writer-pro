@@ -90,6 +90,8 @@ const shouldAvoidBreak = (el: HTMLElement): boolean => {
         tag === 'h4' || tag === 'h5' || tag === 'h6') {
         return false;
     }
+    // TOC containers must split row-by-row across pages, never push whole.
+    if (el.classList.contains('toc-container')) return false;
     // ALL other elements (divs, images, tables, etc.) are kept together.
     return true;
 };
@@ -602,7 +604,6 @@ const isSplitContainer = (el: HTMLElement, availableHeight?: number) => {
     if (el.classList.contains('mission-box') || el.classList.contains('shape-rectangle')
         || el.classList.contains('shape-circle') || el.classList.contains('shape-pill')
         || el.classList.contains('shape-speech') || el.classList.contains('shape-cloud')
-        || el.classList.contains('toc-container')
         || el.classList.contains('writing-lines')
         || el.classList.contains('tracing-line')
         || el.classList.contains('exercise-block')) return false;

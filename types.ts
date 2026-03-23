@@ -63,12 +63,47 @@ export interface TOCEntry {
   level: string; // h1 or h2
 }
 
+export interface TOCLevelStyle {
+  enabled: boolean;
+  color?: string;
+  fontSize?: number; // Relative or absolute size
+  fontWeight?: string;
+  fontFamily?: string;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  leaderStyle?: 'dots' | 'dashes' | 'line' | 'none';
+  leaderColor?: string;
+  borderBottom?: string; // e.g. '1px solid black'
+  borderTop?: string;
+  paddingTop?: number;
+  paddingBottom?: number;
+}
+
 export interface TOCSettings {
   includeH1: boolean;
   includeH2: boolean;
   includeH3: boolean;
-  style: 'classic' | 'modern' | 'dotted';
-  dotSpacing: number;
+  
+  // Overall Layout
+  theme: 'classic' | 'modern' | 'minimalist' | 'centered';
+  useBookInheritance: boolean; // If true, auto-extracts colors/lines from document headings
+  
+  // Global text settings (if not overridden per level)
+  globalFontFamily: string;
+  textFontSize: number;
+  pageNumberFontSize: number;
+  rowGap: number;
+  
+  // Global leader settings (if not overridden)
+  leaderStyle: 'dots' | 'dashes' | 'line' | 'none';
+  leaderColor: string;
+  leaderSpacing: number;
+  
+  // Per-level explicit overrides (used when inheritance is off or mixed)
+  levelStyles: {
+    h1: TOCLevelStyle;
+    h2: TOCLevelStyle;
+    h3: TOCLevelStyle;
+  };
 }
 
 export interface BorderSettings {

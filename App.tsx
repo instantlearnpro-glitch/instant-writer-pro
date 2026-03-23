@@ -560,6 +560,7 @@ const App: React.FC = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
     const [isTOCModalOpen, setIsTOCModalOpen] = useState(false);
+    const [savedTOCRange, setSavedTOCRange] = useState<Range | null>(null);
     const [isTOCMappingModalOpen, setIsTOCMappingModalOpen] = useState(false);
     const [isTOCSelectionMode, setIsTOCSelectionMode] = useState(false);
     const [tocSelectedPages, setTocSelectedPages] = useState<HTMLElement[]>([]);
@@ -4433,6 +4434,7 @@ const App: React.FC = () => {
             return null;
         };
 
+        // --- Try from structureEntries first ---
         const approvedEntries = structureEntries.filter(entry => entry.status !== 'rejected');
         approvedEntries.forEach(entry => {
             const level = resolveLevel(entry.type);
@@ -4458,49 +4460,243 @@ const App: React.FC = () => {
             });
         });
 
+        // --- Fallback: if no entries from structure, scan DOM headings directly ---
         if (tocEntries.length === 0) {
-            alert("No approved Structure entries found.");
+            // First try scanStructure auto-fill
+            const { entries: scannedEntries, modifiedHtml } = scanStructure(workspace);
+            if (modifiedHtml) {
+                // IDs were assigned, update the workspace
+            }
+
+            scannedEntries.filter(e => e.status !== 'rejected').forEach(entry => {
+                const level = resolveLevel(entry.type);
+                if (!level || !include[level]) return;
+
+                const element = workspace.querySelector(`#${CSS.escape(entry.elementId)}`) as HTMLElement | null;
+                if (!element) return;
+
+                const pageEl = element.closest('.page');
+                const pages = workspace.querySelectorAll('.page');
+                let pageNum = entry.page || 1;
+                pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+
+                tocEntries.push({
+                    id: element.id,
+                    text: entry.text || element.textContent || 'Untitled Section',
+                    page: pageNum,
+                    level
+                });
+            });
+        }
+
+        // --- Last resort: direct DOM heading query ---
+        if (tocEntries.length === 0) {
+            const headingSelector = [
+                include.h1 ? 'h1' : '',
+                include.h2 ? 'h2' : '',
+                include.h3 ? 'h3' : ''
+            ].filter(Boolean).join(', ');
+
+            if (headingSelector) {
+                const headingEls = workspace.querySelectorAll(headingSelector);
+                const pages = workspace.querySelectorAll('.page');
+
+                headingEls.forEach((heading) => {
+                    const el = heading as HTMLElement;
+                    const tag = el.tagName.toLowerCase();
+                    // Skip headings inside toc-container
+                    if (el.closest('.toc-container')) return;
+
+                    const text = el.textContent?.trim();
+                    if (!text || text.length > 150) return;
+
+                    if (!el.id) {
+                        el.id = `toc-heading-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                    }
+
+                    const pageEl = el.closest('.page');
+                    let pageNum = 1;
+                    pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+
+                    tocEntries.push({
+                        id: el.id,
+                        text,
+                        page: pageNum,
+                        level: tag as string
+                    });
+                });
+            }
+        }
+
+        if (tocEntries.length === 0) {
+            alert("No headings found in the document. Make sure your text uses H1, H2, or H3 heading tags.");
             setIsTOCModalOpen(false);
             return;
         }
 
-        tocEntries.sort((a, b) => a.page - b.page);
+        // Tag with initial document order to ensure stable sorting.
+        const stableEntries = tocEntries.map((e, idx) => ({ ...e, _originalIndex: idx }));
+        stableEntries.sort((a, b) => {
+            if (a.page !== b.page) return a.page - b.page;
+            return a._originalIndex - b._originalIndex;
+        });
+        tocEntries.length = 0;
+        tocEntries.push(...stableEntries);
 
-        const tocBg = settings.style === 'modern' ? '#f8f9fa' : 'transparent';
-        const leaderStyle = settings.style === 'dotted'
-            ? `flex:1 1 auto; height:2px; min-height:2px; display:block; align-self:center; background-image: radial-gradient(circle at 1px 1px, #9ca3af 1px, transparent 1.5px); background-size: ${settings.dotSpacing}px 2px; background-repeat: repeat-x; background-position: left center;`
-            : settings.style === 'modern'
-                ? 'flex:1 1 auto; height:1px; min-height:1px; display:block; align-self:center; border-bottom: 1px solid #e2e5ea;'
-                : 'flex:1 1 auto; height:1px;';
+        // --- Extract heading styles from the book ---
+        type HeadingStyleInfo = { color: string; fontFamily: string; fontWeight: string; borderBottom: string; fontSize: string };
+        const headingStyles: Record<string, HeadingStyleInfo> = {};
 
+        (['h1', 'h2', 'h3'] as const).forEach(level => {
+            if (!include[level]) return;
+            // Find first exemplar of this heading level NOT inside the TOC itself
+            const exemplars = workspace.querySelectorAll(level);
+            for (let i = 0; i < exemplars.length; i++) {
+                const el = exemplars[i] as HTMLElement;
+                if (el.closest('.toc-container')) continue;
+                const cs = window.getComputedStyle(el);
+                headingStyles[level] = {
+                    color: cs.color,
+                    fontFamily: cs.fontFamily.split(',')[0].replace(/['"]/g, '').trim(),
+                    fontWeight: cs.fontWeight,
+                    borderBottom: cs.borderBottomWidth !== '0px' ? `${cs.borderBottomWidth} ${cs.borderBottomStyle} ${cs.borderBottomColor}` : '',
+                    fontSize: cs.fontSize,
+                };
+                break;
+            }
+        });
+
+        // Build CSS rules combining book inheritance (if active) and explicit modal overrides
+        const renderTocRow = (entry: any) => {
+            const level = entry.level as 'h1' | 'h2' | 'h3';
+            const indent = level === 'h2' ? 24 : level === 'h3' ? 48 : 0;
+            const lStyle = settings.levelStyles[level];
+            const hs = headingStyles[level];
+            
+            // Check inheritance rules
+            const isInherited = settings.useBookInheritance && !lStyle.enabled;
+
+            const color = lStyle.enabled && lStyle.color ? lStyle.color : 
+                          isInherited && hs && hs.color !== 'rgb(0, 0, 0)' ? hs.color : 'inherit';
+            
+            const fontFamily = lStyle.enabled && lStyle.fontFamily ? `'${lStyle.fontFamily}', sans-serif` : 
+                               (settings.useBookInheritance && hs && hs.fontFamily ? `'${hs.fontFamily.replace(/['"]/g, '')}', sans-serif` : `'${settings.globalFontFamily}', sans-serif`);
+
+            const fw = lStyle.enabled && lStyle.fontWeight ? lStyle.fontWeight : 
+                       (isInherited && hs && Number(hs.fontWeight) >= 600 ? hs.fontWeight : 
+                       (level === 'h1' ? '700' : level === 'h2' ? '500' : '400'));
+
+            const fs = lStyle.enabled && lStyle.fontSize ? lStyle.fontSize :
+                       (level === 'h1' ? Math.max(settings.textFontSize, settings.textFontSize + 2) : 
+                        level === 'h3' ? Math.max(settings.textFontSize - 1, 8) : settings.textFontSize);
+
+            const textTransform = lStyle.enabled && lStyle.textTransform ? lStyle.textTransform : 'none';
+
+            // Borders
+            const bTop = lStyle.enabled && lStyle.borderTop ? lStyle.borderTop : '';
+            const bBot = lStyle.enabled && lStyle.borderBottom ? lStyle.borderBottom : 
+                         (isInherited && hs && hs.borderBottom ? hs.borderBottom : '');
+
+            // Leader
+            const rowLeaderStyle = lStyle.enabled && lStyle.leaderStyle ? lStyle.leaderStyle : settings.leaderStyle;
+            const rowLeaderColor = lStyle.enabled && lStyle.leaderColor ? lStyle.leaderColor : settings.leaderColor;
+            const hasLineLeader = bBot ? true : false;
+            const showLeader = rowLeaderStyle !== 'none' || hasLineLeader;
+
+            let leaderNode = '';
+            if (showLeader) {
+              if (hasLineLeader) {
+                 leaderNode = `<div style="flex:1 1 auto; align-self:center; height:0; border-bottom:${bBot}; min-width:20px;"></div>`;
+              } else {
+                 let bg = '';
+                 let lH = 0;
+                 let lB = 'none';
+                 if (rowLeaderStyle === 'dots') {
+                   bg = `radial-gradient(circle at 1px 1px, ${rowLeaderColor} 1px, transparent 1.5px)`;
+                   lH = 2;
+                 } else if (rowLeaderStyle === 'dashes') {
+                   bg = `repeating-linear-gradient(90deg, ${rowLeaderColor} 0, ${rowLeaderColor} 6px, transparent 6px, transparent ${settings.leaderSpacing + 6}px)`;
+                   lH = 1;
+                 } else if (rowLeaderStyle === 'line') {
+                   lB = `1px solid ${rowLeaderColor}`;
+                 }
+                 const bgSize = rowLeaderStyle === 'dots' ? `${settings.leaderSpacing}px 2px` : 'auto';
+                 leaderNode = `<div style="flex:1 1 auto; display:block; align-self:center; min-width:20px; height:${lH}px; border-bottom:${lB}; background-image:${bg}; background-size:${bgSize}; background-repeat:repeat-x; background-position:left center;"></div>`;
+              }
+            }
+
+            const atag = `<a href="#${entry.id}" onclick="const el = document.getElementById('${entry.id}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;" style="color:inherit; text-decoration:none;">${entry.text}</a>`;
+
+            if (settings.theme === 'classic') {
+               return `
+                 <div class="toc-row toc-${level}" style="display: table-row; color:${color}; font-family:${fontFamily};">
+                   <div class="toc-title-cell" style="display: table-cell; padding-left:${indent}px; padding-right:12px; padding-bottom:${settings.rowGap}px; font-size:${fs}px; font-weight:${fw}; text-transform:${textTransform}; vertical-align: bottom; border-top:${bTop}; line-height: 1.5;">
+                      ${atag}
+                   </div>
+                   ${showLeader ? `<div class="toc-leader-cell" style="display: table-cell; width: 100%; vertical-align: bottom; padding-bottom:${settings.rowGap + 6}px;">${leaderNode}</div>` : ''}
+                   <div class="toc-page-cell" style="display: table-cell; padding-left: 12px; padding-bottom: ${settings.rowGap}px; font-size: ${settings.pageNumberFontSize}px; text-align: right; vertical-align: bottom; white-space: nowrap; line-height: 1.5;">
+                     ${entry.page}
+                   </div>
+                 </div>
+               `;
+            }
+
+            if (settings.theme === 'modern') {
+              return `
+                <div class="toc-row toc-${level}" style="display: flex; align-items: baseline; gap: 16px; margin-bottom: ${settings.rowGap}px; padding-left: ${indent}px; color:${color}; font-family:${fontFamily}; border-top:${bTop};">
+                  <div class="toc-page-cell" style="flex: 0 0 auto; width: 3ch; text-align: right; font-size: ${settings.pageNumberFontSize}px; font-weight: 700; color: ${settings.leaderColor};">${entry.page}</div>
+                  <div class="toc-title-cell" style="flex: 1 1 auto; font-size: ${fs}px; font-weight: ${fw}; text-transform: ${textTransform}; border-bottom: ${bBot};">${atag}</div>
+                </div>
+              `;
+            }
+
+            if (settings.theme === 'minimalist') {
+              return `
+                <div class="toc-row toc-${level}" style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: ${settings.rowGap * 1.5}px; padding-left: ${indent}px; color:${color}; font-family:${fontFamily}; border-top:${bTop};">
+                  <div class="toc-title-cell" style="font-size: ${fs}px; font-weight: ${fw}; text-transform: ${textTransform}; border-bottom: ${bBot};">${atag}</div>
+                  <div class="toc-page-cell" style="flex: 0 0 auto; font-size: ${settings.pageNumberFontSize}px; color: ${settings.leaderColor};">${entry.page}</div>
+                </div>
+              `;
+            }
+            
+            if (settings.theme === 'centered') {
+              return `
+                <div class="toc-row toc-${level}" style="display: flex; flex-direction: column; align-items: center; margin-bottom: ${settings.rowGap * 2}px; color:${color}; font-family:${fontFamily}; border-top:${bTop}; text-align:center;">
+                  <div class="toc-title-cell" style="font-size: ${fs}px; font-weight: ${fw}; text-transform: ${textTransform}; border-bottom: ${bBot};">${atag}</div>
+                  <div class="toc-page-cell" style="font-size: ${settings.pageNumberFontSize}px; margin-top: 4px; color: ${settings.leaderColor};">— ${entry.page} —</div>
+                </div>
+              `;
+            }
+            return '';
+        };
+
+        // Serialise settings for data-attribute storage (for refresh)
+        const modalSettingsJson = JSON.stringify(settings);
+        const headingStylesJson = JSON.stringify(headingStyles);
+
+        const containerWrapStyle = 'display: flex; flex-direction: column; width: 100%;';
+        
         let tocHtml = `
-      <div class="toc-container toc-style-${settings.style}" data-toc-id="${tocId}" data-toc-h1="${settings.includeH1 ? '1' : '0'}" data-toc-h2="${settings.includeH2 ? '1' : '0'}" data-toc-h3="${settings.includeH3 ? '1' : '0'}" data-toc-dot-spacing="${settings.dotSpacing}" style="--toc-dot-gap: ${settings.dotSpacing}px; background:${tocBg};">
-          <div class="toc-rows">
+      <div class="toc-container toc-theme-${settings.theme}" data-toc-id="${tocId}" data-toc-h1="${settings.includeH1 ? '1' : '0'}" data-toc-h2="${settings.includeH2 ? '1' : '0'}" data-toc-h3="${settings.includeH3 ? '1' : '0'}" data-toc-settings="${modalSettingsJson.replace(/"/g, '&quot;')}" data-toc-heading-styles="${headingStylesJson.replace(/"/g, '&quot;')}" style="${containerWrapStyle} padding: 12px 0;">
       `;
 
         tocEntries.forEach(entry => {
-            const indent = entry.level === 'h2' ? 20 : entry.level === 'h3' ? 40 : 0;
-            tocHtml += `
-            <div class="toc-row toc-${entry.level}" style="display:flex; align-items:baseline; gap:8px; margin:0 0 8px 0; width:100%;">
-                <span class="toc-title-cell" style="flex:0 1 auto; min-width:0; padding-left:${indent}px; padding-right:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                    <a href="#${entry.id}" onclick="const el = document.getElementById('${entry.id}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;" style="color:inherit; text-decoration:none; display:block;">
-                        <span class="toc-text" style="background:${tocBg}; padding-right:6px; display:inline-block;">${entry.text}</span>
-                    </a>
-                </span>
-                <span class="toc-leader-cell" aria-hidden="true" style="${leaderStyle}"></span>
-                <span class="toc-page-cell" style="flex:0 0 auto; min-width:4ch; text-align:right; white-space:nowrap; padding-left:8px; background:${tocBg};">${entry.page}</span>
-            </div>
-          `;
+            tocHtml += renderTocRow(entry);
         });
 
-        tocHtml += `</div></div><br/>`;
+        tocHtml += `</div>`;
 
-        const selection = window.getSelection();
-        let range: Range | null = null;
-        if (selection && selection.rangeCount > 0) {
-            const candidate = selection.getRangeAt(0);
-            if (workspace.contains(candidate.commonAncestorContainer)) {
-                range = candidate;
+
+
+
+        let range: Range | null = savedTOCRange;
+        if (!range) {
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0) {
+                const candidate = selection.getRangeAt(0);
+                if (workspace.contains(candidate.commonAncestorContainer)) {
+                    range = candidate;
+                }
             }
         }
 
@@ -4519,15 +4715,18 @@ const App: React.FC = () => {
 
         reflowPages(workspace, { pullUp: true });
         updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+        setSavedTOCRange(null);
         setIsTOCModalOpen(false);
     };
+
 
     const handleRefreshTOC = (tocId?: string) => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (!workspace) return;
         const selector = tocId ? `.toc-container[data-toc-id="${tocId}"]` : '.toc-container';
-        const container = workspace.querySelector(selector) as HTMLElement | null;
-        if (!container) return;
+        const containers = workspace.querySelectorAll(selector);
+        if (containers.length === 0) return;
+        const container = containers[0] as HTMLElement;
 
         const include = {
             h1: container.getAttribute('data-toc-h1') !== '0',
@@ -4541,7 +4740,31 @@ const App: React.FC = () => {
             return null;
         };
 
+        // Read stored style settings from data attributes
+        let settings: TOCSettings | null = null;
+        try {
+            const settingsJson = container.getAttribute('data-toc-settings');
+            if (settingsJson) settings = JSON.parse(settingsJson);
+        } catch (_) {}
+
+        if (!settings) {
+            // Fallback if settings are missing (e.g., old TOC)
+            settings = {
+                includeH1: true, includeH2: true, includeH3: false,
+                theme: 'classic', useBookInheritance: true, globalFontFamily: 'sans-serif',
+                textFontSize: Number(container.getAttribute('data-toc-text-size')) || 12,
+                pageNumberFontSize: Number(container.getAttribute('data-toc-page-size')) || 12,
+                leaderStyle: (container.getAttribute('data-toc-leader-style') as any) || 'dots',
+                leaderColor: container.getAttribute('data-toc-leader-color') || '#9ca3af',
+                leaderSpacing: Number(container.getAttribute('data-toc-dot-spacing')) || 8,
+                rowGap: Number(container.getAttribute('data-toc-row-gap')) || 8,
+                levelStyles: { h1: {enabled:false}, h2:{enabled:false}, h3:{enabled:false} }
+            };
+        }
+
         const tocEntries: TOCEntry[] = [];
+
+        // Try from structureEntries first
         const approvedEntries = structureEntries.filter(entry => entry.status !== 'rejected');
         approvedEntries.forEach(entry => {
             const level = resolveLevel(entry.type);
@@ -4561,54 +4784,186 @@ const App: React.FC = () => {
             });
         });
 
-        if (tocEntries.length === 0) return;
-        tocEntries.sort((a, b) => a.page - b.page);
+        // Fallback: direct DOM query if structureEntries produced nothing
+        if (tocEntries.length === 0) {
+            const headingSelector = [
+                include.h1 ? 'h1' : '',
+                include.h2 ? 'h2' : '',
+                include.h3 ? 'h3' : ''
+            ].filter(Boolean).join(', ');
 
-        const dotSpacingAttr = container.getAttribute('data-toc-dot-spacing');
-        const dotSpacing = dotSpacingAttr ? Number(dotSpacingAttr) : 6;
-        if (Number.isFinite(dotSpacing)) {
-            container.style.setProperty('--toc-dot-gap', `${dotSpacing}px`);
-        }
-        const tocBg = container.classList.contains('toc-style-modern') ? '#f8f9fa' : 'transparent';
-        const leaderStyle = container.classList.contains('toc-style-dotted')
-            ? `flex:1 1 auto; height:2px; min-height:2px; display:block; align-self:center; background-image: radial-gradient(circle at 1px 1px, #9ca3af 1px, transparent 1.5px); background-size: ${dotSpacing}px 2px; background-repeat: repeat-x; background-position: left center;`
-            : container.classList.contains('toc-style-modern')
-                ? 'flex:1 1 auto; height:1px; min-height:1px; display:block; align-self:center; border-bottom: 1px solid #e2e5ea;'
-                : 'flex:1 1 auto; height:1px;';
+            if (headingSelector) {
+                const headingEls = workspace.querySelectorAll(headingSelector);
+                const pages = workspace.querySelectorAll('.page');
 
-        const rowsHtml = tocEntries.map(entry => {
-            const indent = entry.level === 'h2' ? 20 : entry.level === 'h3' ? 40 : 0;
-            return `
-          <div class="toc-row toc-${entry.level}" style="display:flex; align-items:baseline; gap:8px; margin:0 0 8px 0; width:100%;">
-              <span class="toc-title-cell" style="flex:0 1 auto; min-width:0; padding-left:${indent}px; padding-right:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                  <a href="#${entry.id}" onclick="const el = document.getElementById('${entry.id}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;" style="color:inherit; text-decoration:none; display:block;">
-                      <span class="toc-text" style="background:${tocBg}; padding-right:6px; display:inline-block;">${entry.text}</span>
-                  </a>
-              </span>
-              <span class="toc-leader-cell" aria-hidden="true" style="${leaderStyle}"></span>
-              <span class="toc-page-cell" style="flex:0 0 auto; min-width:4ch; text-align:right; white-space:nowrap; padding-left:8px; background:${tocBg};">${entry.page}</span>
-          </div>
-        `;
-        }).join('');
-
-        const rowsContainer = container.querySelector('.toc-rows') as HTMLElement | null;
-        if (rowsContainer) {
-            rowsContainer.innerHTML = rowsHtml;
-        } else {
-            container.querySelector('table.toc-table')?.remove();
-            const newRows = document.createElement('div');
-            newRows.className = 'toc-rows';
-            newRows.innerHTML = rowsHtml;
-            const actions = container.querySelector('.toc-actions');
-            if (actions && actions.nextSibling) {
-                container.insertBefore(newRows, actions.nextSibling);
-            } else {
-                container.appendChild(newRows);
+                headingEls.forEach((heading) => {
+                    const el = heading as HTMLElement;
+                    const tag = el.tagName.toLowerCase();
+                    if (el.closest('.toc-container')) return;
+                    const text = el.textContent?.trim();
+                    if (!text || text.length > 150) return;
+                    if (!el.id) {
+                        el.id = `toc-heading-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                    }
+                    const pageEl = el.closest('.page');
+                    let pageNum = 1;
+                    pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+                    tocEntries.push({ id: el.id, text, page: pageNum, level: tag });
+                });
             }
         }
 
+        if (tocEntries.length === 0) return;
+        const stableEntries = tocEntries.map((e, idx) => ({ ...e, _originalIndex: idx }));
+        stableEntries.sort((a, b) => {
+            if (a.page !== b.page) return a.page - b.page;
+            return a._originalIndex - b._originalIndex;
+        });
+        tocEntries.length = 0;
+        tocEntries.push(...stableEntries);
+
+        // --- Extract heading styles from stored data or DOM ---
+        type HeadingStyleInfo = { color: string; fontFamily: string; fontWeight: string; borderBottom: string; fontSize: string };
+        let headingStyles: Record<string, HeadingStyleInfo> = {};
+        const storedStylesJson = container.getAttribute('data-toc-heading-styles');
+        if (storedStylesJson) {
+            try { headingStyles = JSON.parse(storedStylesJson); } catch (_) { /* ignore */ }
+        }
+        // If no stored styles, extract from DOM live
+        if (Object.keys(headingStyles).length === 0) {
+            (['h1', 'h2', 'h3'] as const).forEach(level => {
+                if (!include[level]) return;
+                const exemplars = workspace.querySelectorAll(level);
+                for (let i = 0; i < exemplars.length; i++) {
+                    const el = exemplars[i] as HTMLElement;
+                    if (el.closest('.toc-container')) continue;
+                    const cs = window.getComputedStyle(el);
+                    headingStyles[level] = {
+                        color: cs.color,
+                        fontFamily: cs.fontFamily.split(',')[0].replace(/['"]/g, '').trim(),
+                        fontWeight: cs.fontWeight,
+                        borderBottom: cs.borderBottomWidth !== '0px' ? `${cs.borderBottomWidth} ${cs.borderBottomStyle} ${cs.borderBottomColor}` : '',
+                        fontSize: cs.fontSize,
+                    };
+                    break;
+                }
+            });
+        }
+
+        const renderTocRow = (entry: any) => {
+            const level = entry.level as 'h1' | 'h2' | 'h3';
+            const indent = level === 'h2' ? 24 : level === 'h3' ? 48 : 0;
+            if (!settings) return ''; 
+            
+            const lStyle = settings.levelStyles[level] || { enabled: false };
+            const hs = headingStyles[level];
+            
+            // Check inheritance rules
+            const isInherited = settings.useBookInheritance && !lStyle.enabled;
+
+            const color = lStyle.enabled && lStyle.color ? lStyle.color : 
+                          isInherited && hs && hs.color !== 'rgb(0, 0, 0)' ? hs.color : 'inherit';
+            
+            const fontFamily = lStyle.enabled && lStyle.fontFamily ? `'${lStyle.fontFamily}', sans-serif` : 
+                               (settings.useBookInheritance && hs && hs.fontFamily ? `'${hs.fontFamily.replace(/['"]/g, '')}', sans-serif` : `'${settings.globalFontFamily || 'sans-serif'}', sans-serif`);
+
+            const fw = lStyle.enabled && lStyle.fontWeight ? lStyle.fontWeight : 
+                       (isInherited && hs && Number(hs.fontWeight) >= 600 ? hs.fontWeight : 
+                       (level === 'h1' ? '700' : level === 'h2' ? '500' : '400'));
+
+            const fs = lStyle.enabled && lStyle.fontSize ? lStyle.fontSize :
+                       (level === 'h1' ? Math.max(settings.textFontSize, settings.textFontSize + 2) : 
+                        level === 'h3' ? Math.max(settings.textFontSize - 1, 8) : settings.textFontSize);
+
+            const textTransform = lStyle.enabled && lStyle.textTransform ? lStyle.textTransform : 'none';
+
+            // Borders
+            const bTop = lStyle.enabled && lStyle.borderTop ? lStyle.borderTop : '';
+            const bBot = lStyle.enabled && lStyle.borderBottom ? lStyle.borderBottom : 
+                         (isInherited && hs && hs.borderBottom ? hs.borderBottom : '');
+
+            // Leader
+            const rowLeaderStyle = lStyle.enabled && lStyle.leaderStyle ? lStyle.leaderStyle : settings.leaderStyle;
+            const rowLeaderColor = lStyle.enabled && lStyle.leaderColor ? lStyle.leaderColor : settings.leaderColor;
+            const hasLineLeader = bBot ? true : false;
+            const showLeader = rowLeaderStyle !== 'none' || hasLineLeader;
+
+            let leaderNode = '';
+            if (showLeader) {
+              if (hasLineLeader) {
+                 leaderNode = `<div class="toc-leader" style="flex:1 1 auto; align-self:flex-end; height:0; border-bottom:${bBot}; min-width:20px; margin-bottom: 6px;"></div>`;
+              } else {
+                 let bg = '';
+                 let lH = 0;
+                 let lB = 'none';
+                 if (rowLeaderStyle === 'dots') {
+                   bg = `radial-gradient(circle at 1px 1px, ${rowLeaderColor} 1px, transparent 1.5px)`;
+                   lH = 2;
+                 } else if (rowLeaderStyle === 'dashes') {
+                   bg = `repeating-linear-gradient(90deg, ${rowLeaderColor} 0, ${rowLeaderColor} 6px, transparent 6px, transparent ${settings.leaderSpacing + 6}px)`;
+                   lH = 1;
+                 } else if (rowLeaderStyle === 'line') {
+                   lB = `1px solid ${rowLeaderColor}`;
+                 }
+                 const bgSize = rowLeaderStyle === 'dots' ? `${settings.leaderSpacing}px 2px` : 'auto';
+                 leaderNode = `<div class="toc-leader" style="flex:1 1 auto; align-self:flex-end; min-width:20px; height:${lH}px; border-bottom:${lB}; background-image:${bg}; background-size:${bgSize}; background-repeat:repeat-x; background-position:left center; margin-bottom: 6px;"></div>`;
+              }
+            } else {
+                 leaderNode = `<div class="toc-leader" style="flex:1 1 auto; min-width:20px;"></div>`;
+            }
+
+            const atag = `<a href="#${entry.id}" onclick="const el = document.getElementById('${entry.id}'); if(el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); } return false;" style="color:inherit; text-decoration:none;">${entry.text}</a>`;
+
+            let titleStyles = `text-transform:${textTransform}; border-top:${bTop}; border-bottom:${bBot};`;
+            let pageStyles = ``;
+            let rowMargin = settings.rowGap;
+
+            if (settings.theme === 'modern') {
+                pageStyles = `font-weight: 700; color: ${settings.leaderColor};`;
+                rowMargin = settings.rowGap * 1.2;
+            } else if (settings.theme === 'minimalist') {
+                rowMargin = settings.rowGap * 1.5;
+            } else if (settings.theme === 'centered') {
+                titleStyles += ` text-align: center;`;
+                rowMargin = settings.rowGap * 1.2;
+            }
+
+            return `
+              <div class="toc-row toc-${level}" style="display: flex; align-items: flex-end; width: 100%; margin-bottom: ${rowMargin}px; color:${color}; font-family:${fontFamily}; page-break-inside: avoid;">
+                <div class="toc-title-cell" style="padding-left:${indent}px; padding-right:12px; font-size:${fs}px; font-weight:${fw}; line-height: 1.5; flex: 0 1 auto; max-width: 85%; ${titleStyles}">
+                   ${atag}
+                </div>
+                ${leaderNode}
+                <div class="toc-page-cell" style="padding-left: 12px; font-size: ${settings.pageNumberFontSize}px; text-align: right; white-space: nowrap; line-height: 1.5; flex: 0 0 auto; ${pageStyles}">
+                  ${entry.page}
+                </div>
+              </div>
+            `;
+            return '';
+        };
+
+        const containerWrapStyle = 'display: flex; flex-direction: column; width: 100%;';
+        const modalSettingsJson = JSON.stringify(settings);
+        const headingStylesJson = JSON.stringify(headingStyles);
+        
+        for (let i = 1; i < containers.length; i++) {
+            containers[i].remove();
+        }
+
+        let tocHtml = `
+      <div class="toc-container toc-theme-${settings.theme}" data-toc-id="${tocId || 'default'}" data-toc-h1="${settings.includeH1 ? '1' : '0'}" data-toc-h2="${settings.includeH2 ? '1' : '0'}" data-toc-h3="${settings.includeH3 ? '1' : '0'}" data-toc-settings="${modalSettingsJson.replace(/"/g, '&quot;')}" data-toc-heading-styles="${headingStylesJson.replace(/"/g, '&quot;')}" style="${containerWrapStyle} padding: 12px 0;">
+      `;
+        tocEntries.forEach(entry => {
+            tocHtml += renderTocRow(entry);
+        });
+        tocHtml += `</div>`;
+
+        container.outerHTML = tocHtml;
+
+        reflowPages(workspace, { pullUp: true });
         updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
     };
+
 
     const handleRemoveTOC = () => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
@@ -5798,7 +6153,21 @@ ${workspace.innerHTML}
                 customPageSize={customPageSize}
                 onCustomPageSizeChange={handleCustomPageSizeChange}
                 onUpdateStyle={handleUpdateStyle}
-                onOpenTOCModal={() => setIsTOCModalOpen(true)}
+                onOpenTOCModal={() => {
+                    const selection = window.getSelection();
+                    if (selection && selection.rangeCount > 0) {
+                        const workspace = document.querySelector('.editor-workspace');
+                        const range = selection.getRangeAt(0);
+                        if (workspace && workspace.contains(range.commonAncestorContainer)) {
+                            setSavedTOCRange(range.cloneRange());
+                        } else {
+                            setSavedTOCRange(null);
+                        }
+                    } else {
+                        setSavedTOCRange(null);
+                    }
+                    setIsTOCModalOpen(true);
+                }}
                 onConvertToTOC={handleConvertToTOC}
                 onOpenPageNumberModal={preparePageAnchors}
                 onInsertHorizontalRule={handleInsertHorizontalRule}
@@ -5954,6 +6323,7 @@ ${(bwBrightness !== 100 || bwContrast !== 100) ? `
                         imageProperties={imageProperties}
                         onCropComplete={handleCropComplete}
                         onCancelCrop={handleCancelCrop}
+                        onToggleCrop={handleToggleCrop}
                         onPageBreak={handlePageBreak}
                         onInsertHorizontalRule={handleInsertHorizontalRule}
                         onInsertImage={handleInsertImage}

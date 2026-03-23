@@ -393,10 +393,7 @@ span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.sh
     padding-left: 10px;
 }
 
-/* Indentation levels */
-.toc-h1 { font-weight: bold; }
-.toc-h2 .toc-title-cell { padding-left: 20px; font-size: 0.95em; }
-.toc-h3 .toc-title-cell { padding-left: 40px; font-size: 0.9em; font-style: italic; }
+/* Indentation handled automatically via flex gap and inline styles */
 
 /* Classic: no leaders */
 .toc-style-classic .toc-leader-cell { background: none; }
