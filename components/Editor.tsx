@@ -63,6 +63,7 @@ interface EditorProps {
     onCopyStyle: () => void;
     onPasteStyle: () => void;
     hasStyleClipboard: boolean;
+    isMultiPageView: boolean;
 }
 
 // Helper to convert RGB/RGBA to Hex
@@ -387,7 +388,8 @@ const Editor: React.FC<EditorProps> = ({
 
     onCopyStyle,
     onPasteStyle,
-    hasStyleClipboard
+    hasStyleClipboard,
+    isMultiPageView
 }) => {
     const contentRef = useRef<HTMLDivElement>(null);
     const [pageRects, setPageRects] = useState<{ top: number; left: number; width: number; height: number }[]>([]);
@@ -2296,6 +2298,36 @@ const Editor: React.FC<EditorProps> = ({
     };
 
     const handleNativePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+        // --- IMAGE PASTE-REPLACE: if an image is selected and clipboard has an image,
+        //     replace only the src, preserving all styles/dimensions/position ---
+        if (selectedImage && e.clipboardData.files.length > 0) {
+            const files = e.clipboardData.files;
+            let imageFile: File | null = null;
+            for (let i = 0; i < files.length; i++) {
+                if (files[i].type.startsWith('image/')) {
+                    imageFile = files[i];
+                    break;
+                }
+            }
+            if (imageFile) {
+                e.preventDefault();
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const dataUrl = reader.result as string;
+                    selectedImage.src = dataUrl;
+                    // Ensure the new image fills the existing frame without distortion
+                    if (!selectedImage.style.objectFit) {
+                        selectedImage.style.objectFit = 'cover';
+                    }
+                    if (contentRef.current) {
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                };
+                reader.readAsDataURL(imageFile);
+                return;
+            }
+        }
+
         const types = Array.from(e.clipboardData.types);
         const hasFiles = types.includes('Files');
         const hasText = types.includes('text/plain');
@@ -2455,14 +2487,17 @@ const Editor: React.FC<EditorProps> = ({
                 return;
             }
 
-            // Click on the page-break-before indicator bar → remove the break
-            // The ::before indicator bar occupies the top ~20px of the element.
+            // Click on the page-break-before indicator ✕ button → remove the break
+            // The ::before indicator is positioned above the element via negative margin.
+            // Since getBoundingClientRect() includes the pseudo-element's space,
+            // the indicator bar occupies the first ~22px from the element's rect.top.
             const pbElement = target.closest('[data-page-break-before="true"]') as HTMLElement | null;
             if (pbElement) {
                 const rect = pbElement.getBoundingClientRect();
-                const indicatorHeight = 20; // approx height of the ::before bar
+                const indicatorHeight = 22; // height of the ::before bar
                 const clickY = e.clientY - rect.top;
-                if (clickY <= indicatorHeight) {
+                // Click is within the indicator bar zone (top of the element)
+                if (clickY >= 0 && clickY <= indicatorHeight) {
                     e.preventDefault();
                     e.stopPropagation();
                     pbElement.removeAttribute('data-page-break-before');
@@ -2921,6 +2956,48 @@ const Editor: React.FC<EditorProps> = ({
         };
 
         container.addEventListener('click', handleClick);
+
+        // --- NEW: Double-click interceptor for images ---
+        const handleDoubleClick = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'IMG') {
+                e.preventDefault();
+                onImageSelect(target as HTMLImageElement);
+                if (onToggleCrop) onToggleCrop();
+            }
+        };
+        container.addEventListener('dblclick', handleDoubleClick);
+
+        // Intercept mousedown on page-break indicator so that the click is handled
+        // BEFORE the block-selection / selectionchange handlers kick in.
+        const handlePageBreakMouseDown = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            const pbElement = target.closest('[data-page-break-before="true"]') as HTMLElement | null;
+            if (pbElement) {
+                const rect = pbElement.getBoundingClientRect();
+                const indicatorHeight = 22;
+                const clickY = e.clientY - rect.top;
+                if (clickY >= 0 && clickY <= indicatorHeight) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    pbElement.removeAttribute('data-page-break-before');
+                    const breakPage = pbElement.closest('.page') as HTMLElement | null;
+                    if (breakPage) {
+                        breakPage.removeAttribute('data-user-page-break');
+                        const childMarker = breakPage.querySelector(':scope > [data-user-page-break="true"]') as HTMLElement | null;
+                        if (childMarker) childMarker.remove();
+                    }
+                    if (contentRef.current) {
+                        reflowPagesUntilStable(contentRef.current);
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                    return;
+                }
+            }
+        };
+        container.addEventListener('mousedown', handlePageBreakMouseDown, true); // capture phase
+
         container.addEventListener('input', handleInput);
         container.addEventListener('keyup', handleInput);
         container.addEventListener('copy', handleCopyEvent as EventListener);
@@ -2932,6 +3009,8 @@ const Editor: React.FC<EditorProps> = ({
         return () => {
             if (reflowTimeout) clearTimeout(reflowTimeout);
             container.removeEventListener('click', handleClick);
+            container.removeEventListener('dblclick', handleDoubleClick);
+            container.removeEventListener('mousedown', handlePageBreakMouseDown, true);
             container.removeEventListener('input', handleInput);
             container.removeEventListener('keyup', handleInput);
             container.removeEventListener('copy', handleCopyEvent as EventListener);
@@ -2990,7 +3069,7 @@ const Editor: React.FC<EditorProps> = ({
         return () => window.removeEventListener('keydown', handleKey);
     }, [distributeAdjustAxis, onEndDistributeAdjust]);
 
-    const isMultiPageGrid = zoom <= 50;
+    const isMultiPageGrid = isMultiPageView;
 
     const zoomStyle: React.CSSProperties = isMultiPageGrid
         ? {
@@ -3071,7 +3150,7 @@ const Editor: React.FC<EditorProps> = ({
     return (
         <div
             ref={containerRef}
-            className={`editor-container flex-1 bg-gray-200 overflow-auto h-[calc(100vh-68px)] relative p-8 flex flex-col items-center ${isTextLayerMode ? 'text-layer-mode' : ''}`}
+            className={`editor-container flex-1 bg-gray-200 overflow-auto h-[calc(100vh-68px)] relative p-8 flex flex-col ${isMultiPageGrid ? 'items-start' : 'items-center'} ${isTextLayerMode ? 'text-layer-mode' : ''}`}
         >
             <style dangerouslySetInnerHTML={{ __html: cssContent }} />
             <style>{selectionStyle}</style>
@@ -3095,6 +3174,9 @@ const Editor: React.FC<EditorProps> = ({
                 display: none !important;
             }
             /* Visual indicator for elements with data-page-break-before */
+            .editor-workspace .page > [data-page-break-before="true"] {
+                position: relative;
+            }
             .editor-workspace .page > [data-page-break-before="true"]::before {
                 content: '✕  ⤶ Page Break';
                 display: block;
@@ -3105,10 +3187,11 @@ const Editor: React.FC<EditorProps> = ({
                 font-family: system-ui, sans-serif;
                 color: #60a5fa;
                 text-align: center;
-                pointer-events: auto;
+                pointer-events: none;
                 user-select: none;
+                margin-top: -24px;
                 margin-bottom: 4px;
-                cursor: pointer;
+                cursor: default;
                 transition: background-color 0.15s;
             }
             .editor-workspace .page > [data-page-break-before="true"]:hover::before {
@@ -3245,11 +3328,14 @@ const Editor: React.FC<EditorProps> = ({
                 flex-wrap: wrap !important;
                 justify-content: flex-start !important;
                 align-items: flex-start !important;
+                align-content: flex-start !important;
                 gap: 1.5rem !important;
+                max-width: none !important;
+                width: 100% !important;
             }
             .editor-workspace.multi-page-grid .page {
                 flex-shrink: 0 !important;
-                margin-bottom: 0 !important;
+                margin: 0 !important;
             }
         `}</style>
 

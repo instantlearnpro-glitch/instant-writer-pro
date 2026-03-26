@@ -31,11 +31,13 @@ const MAX_ROW_ELEMENTS = 3;
 /** Return true if element has an interactive class (mission-box, shape-*, etc.) */
 function isInteractiveBlock(el: HTMLElement): boolean {
   const cls = el.classList;
+  const tag = el.tagName.toLowerCase();
   return cls.contains('mission-box') || cls.contains('shape-rectangle') ||
     cls.contains('shape-circle') || cls.contains('shape-pill') ||
     cls.contains('shape-speech') || cls.contains('shape-cloud') ||
     cls.contains('writing-lines') || cls.contains('floating-text') ||
-    cls.contains('toc-container') || cls.contains('worksheet');
+    cls.contains('toc-container') || cls.contains('worksheet') ||
+    tag === 'ul' || tag === 'ol';
 }
 
 /** Return the ancestry chain of a DOM element up to the editor workspace */
@@ -197,6 +199,17 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
     if (!ws) return;
 
     const onClick = (e: MouseEvent) => {
+      // Skip selection if clicking on a page-break indicator zone
+      const target = e.target as HTMLElement;
+      const pbElement = target.closest('[data-page-break-before="true"]') as HTMLElement | null;
+      if (pbElement) {
+        const rect = pbElement.getBoundingClientRect();
+        const clickY = e.clientY - rect.top;
+        if (clickY >= 0 && clickY <= 22) {
+          return; // Let the Editor's handler deal with page-break deletion
+        }
+      }
+
       const chain = getBoxChain(e.target, ws);
       
       // Alt+click → select the parent column or container (skip the inner element)
@@ -655,16 +668,38 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
   const handleDelete = () => {
     if (!selectedEl) return;
     const ws = workspace();
-    const row = selectedEl.closest('.column-row, .image-row') as HTMLElement | null;
-    selectedEl.remove();
-    if (row) {
-      const children = row.querySelectorAll(':scope > .column, :scope > img');
-      if (children.length === 0) row.remove();
-      else if (children.length === 1 && !children[0].classList.contains('column')) {
-        row.parentNode?.insertBefore(children[0], row);
-        row.remove();
+
+    // If deleting a list, unwrap it into paragraphs instead of destroying the text
+    if (selectedEl.tagName === 'UL' || selectedEl.tagName === 'OL') {
+      const fragment = document.createDocumentFragment();
+      Array.from(selectedEl.children).forEach((child: Element) => {
+        const htmlChild = child as HTMLElement;
+        if (htmlChild.tagName === 'LI') {
+          const p = document.createElement('p');
+          p.innerHTML = htmlChild.innerHTML;
+          // Preserve any inline styles from the li
+          const style = htmlChild.getAttribute('style');
+          if (style) p.setAttribute('style', style);
+          fragment.appendChild(p);
+        } else {
+          // Keep non-li elements if any somehow exist inside
+          fragment.appendChild(htmlChild.cloneNode(true));
+        }
+      });
+      selectedEl.replaceWith(fragment);
+    } else {
+      const row = selectedEl.closest('.column-row, .image-row') as HTMLElement | null;
+      selectedEl.remove();
+      if (row) {
+        const children = row.querySelectorAll(':scope > .column, :scope > img');
+        if (children.length === 0) row.remove();
+        else if (children.length === 1 && !children[0].classList.contains('column')) {
+          row.parentNode?.insertBefore(children[0], row);
+          row.remove();
+        }
       }
     }
+
     setSelectedEl(null);
     setSelectedRect(null);
     if (ws) onContentChange(ws.innerHTML);

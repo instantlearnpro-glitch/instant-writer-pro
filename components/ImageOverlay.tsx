@@ -915,6 +915,13 @@ const ImageOverlay: React.FC<ImageOverlayProps> = ({
       );
   }
 
+  // If it's an image and we are NOT cropping, render ONLY the SelectionOverlay
+  // so we don't have overlapping purple and red resize boxes.
+  // We already intercept double clicks on the image in Editor.tsx to start crop.
+  if (isImage && !isCropping) {
+      return null;
+  }
+
   return (
         <div 
             style={{ 

@@ -443,6 +443,28 @@ const buildSelectionStateFromElement = (element: HTMLElement): SelectionState =>
     };
 };
 
+/**
+ * Returns the "real" page number for an element, matching the visible footer.
+ * If the page has a .page-footer whose text is a valid number, return that;
+ * otherwise fall back to the 1-based DOM index among all pages.
+ */
+const getPageNumber = (element: HTMLElement, pages: Element[] | NodeListOf<Element>): number => {
+    const pageEl = element.closest('.page') as HTMLElement | null;
+    if (!pageEl) return 1;
+
+    // Try footer text first (this is what the user actually sees)
+    const footer = pageEl.querySelector('.page-footer') as HTMLElement | null;
+    if (footer) {
+        const footerNum = parseInt(footer.textContent?.trim() || '', 10);
+        if (!isNaN(footerNum) && footerNum > 0) return footerNum;
+    }
+
+    // Fallback: DOM index
+    const pagesArr = Array.from(pages);
+    const idx = pagesArr.indexOf(pageEl);
+    return idx >= 0 ? idx + 1 : 1;
+};
+
 const App: React.FC = () => {
     const [docState, setDocState] = useState<DocumentState>({
         htmlContent: DEFAULT_HTML,
@@ -584,6 +606,7 @@ const App: React.FC = () => {
 
     // Zoom and View Mode
     const [zoom, setZoom] = useState(100);
+    const [isMultiPageView, setIsMultiPageView] = useState(false);
 
     const handleZoomChange = (nextZoom: number) => {
         const container = editorContainerRef.current;
@@ -1228,9 +1251,7 @@ const App: React.FC = () => {
                                 const elId = htmlEl.id || `struct-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
                                 if (!htmlEl.id) htmlEl.id = elId;
 
-                                const page = htmlEl.closest('.page');
-                                let pageNum = 1;
-                                allPages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+                                const pageNum = getPageNumber(htmlEl, allPages);
 
                                 rebuiltEntries.push({
                                     id: elId,
@@ -1630,10 +1651,8 @@ const App: React.FC = () => {
 
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (workspace) {
-            const page = target.closest('.page');
             const pages = workspace.querySelectorAll('.page');
-            let pageNum = 1;
-            pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+            const pageNum = getPageNumber(target, pages);
 
             setStructureEntries(prev => {
                 const existing = prev.find(e => e.elementId === target.id);
@@ -3189,10 +3208,8 @@ const App: React.FC = () => {
                         newElement.setAttribute('data-structure-status', 'approved');
 
                         // Add to structure entries
-                        const page = newElement.closest('.page');
                         const pages = workspace.querySelectorAll('.page');
-                        let pageNum = 1;
-                        pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+                        const pageNum = getPageNumber(newElement, pages);
                         setStructureEntries(prev => {
                             const exists = prev.find(e => e.elementId === newElement.id);
                             if (exists) {
@@ -3383,10 +3400,8 @@ const App: React.FC = () => {
             htmlModified = true;
 
             // Add to structure entries
-            const page = newElement.closest('.page');
             const pages = workspace?.querySelectorAll('.page') || [];
-            let pageNum = 1;
-            pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+            const pageNum = getPageNumber(newElement, pages);
             setStructureEntries(prev => {
                 const exists = prev.find(e => e.elementId === newElement.id);
                 if (exists) {
@@ -4272,6 +4287,7 @@ const App: React.FC = () => {
 
         // Reflow and save
         reflowPages(workspace, { pullUp: true });
+        refreshDynamicTOC(); // Post-reflow: recalculate page numbers
         updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
         setIsTOCMappingModalOpen(false);
     };
@@ -4342,6 +4358,34 @@ const App: React.FC = () => {
         return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [docState.fileName]);
+
+    // Keep sidebar structure entry page numbers in sync after reflow / page count changes
+    useEffect(() => {
+        if (structureEntries.length === 0) return;
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return;
+        const pages = workspace.querySelectorAll('.page');
+        if (pages.length === 0) return;
+
+        const timer = setTimeout(() => {
+            setStructureEntries(prev => {
+                let changed = false;
+                const updated = prev.map(entry => {
+                    const el = document.getElementById(entry.elementId);
+                    if (!el) return entry;
+                    const newPage = getPageNumber(el, pages);
+                    if (newPage !== entry.page) {
+                        changed = true;
+                        return { ...entry, page: newPage };
+                    }
+                    return entry;
+                });
+                return changed ? updated : prev;
+            });
+        }, 300);
+        return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pageCount]);
 
     // Inject floating refresh buttons on TOC pages (uses MutationObserver, not htmlContent)
     useEffect(() => {
@@ -4447,10 +4491,8 @@ const App: React.FC = () => {
                 element.id = entry.elementId || `toc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
             }
 
-            const pageEl = element.closest('.page');
             const pages = workspace.querySelectorAll('.page');
-            let pageNum = entry.page || 1;
-            pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+            const pageNum = getPageNumber(element, pages);
 
             tocEntries.push({
                 id: element.id,
@@ -4475,10 +4517,8 @@ const App: React.FC = () => {
                 const element = workspace.querySelector(`#${CSS.escape(entry.elementId)}`) as HTMLElement | null;
                 if (!element) return;
 
-                const pageEl = element.closest('.page');
                 const pages = workspace.querySelectorAll('.page');
-                let pageNum = entry.page || 1;
-                pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+                const pageNum = getPageNumber(element, pages);
 
                 tocEntries.push({
                     id: element.id,
@@ -4514,9 +4554,7 @@ const App: React.FC = () => {
                         el.id = `toc-heading-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
                     }
 
-                    const pageEl = el.closest('.page');
-                    let pageNum = 1;
-                    pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+                    const pageNum = getPageNumber(el, pages);
 
                     tocEntries.push({
                         id: el.id,
@@ -4714,6 +4752,21 @@ const App: React.FC = () => {
         }
 
         reflowPages(workspace, { pullUp: true });
+
+        // Post-reflow correction: reflow may have shifted headings to different pages
+        const freshPages = workspace.querySelectorAll('.page');
+        workspace.querySelectorAll('.toc-container .toc-row').forEach(row => {
+            const anchor = row.querySelector('.toc-title-cell a[href^="#"]') as HTMLAnchorElement | null;
+            const pageCell = row.querySelector('.toc-page-cell') as HTMLElement | null;
+            if (!anchor || !pageCell) return;
+            const targetId = anchor.getAttribute('href')?.slice(1);
+            if (!targetId) return;
+            const targetEl = document.getElementById(targetId);
+            if (!targetEl) return;
+            const newPage = getPageNumber(targetEl, freshPages);
+            pageCell.textContent = String(newPage);
+        });
+
         updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
         setSavedTOCRange(null);
         setIsTOCModalOpen(false);
@@ -4772,10 +4825,8 @@ const App: React.FC = () => {
             const element = workspace.querySelector(`#${CSS.escape(entry.elementId)}`) as HTMLElement | null;
             if (!element) return;
             if (!element.id) element.id = entry.elementId || `toc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            const pageEl = element.closest('.page');
             const pages = workspace.querySelectorAll('.page');
-            let pageNum = entry.page || 1;
-            pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+            const pageNum = getPageNumber(element, pages);
             tocEntries.push({
                 id: element.id,
                 text: entry.text || element.textContent || 'Untitled Section',
@@ -4805,9 +4856,7 @@ const App: React.FC = () => {
                     if (!el.id) {
                         el.id = `toc-heading-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
                     }
-                    const pageEl = el.closest('.page');
-                    let pageNum = 1;
-                    pages.forEach((p, idx) => { if (p === pageEl) pageNum = idx + 1; });
+                    const pageNum = getPageNumber(el, pages);
                     tocEntries.push({ id: el.id, text, page: pageNum, level: tag });
                 });
             }
@@ -4961,6 +5010,21 @@ const App: React.FC = () => {
         container.outerHTML = tocHtml;
 
         reflowPages(workspace, { pullUp: true });
+
+        // Post-reflow correction: reflow may have shifted headings to different pages
+        const freshPages = workspace.querySelectorAll('.page');
+        workspace.querySelectorAll('.toc-container .toc-row').forEach(row => {
+            const anchor = row.querySelector('.toc-title-cell a[href^="#"]') as HTMLAnchorElement | null;
+            const pageCell = row.querySelector('.toc-page-cell') as HTMLElement | null;
+            if (!anchor || !pageCell) return;
+            const targetId = anchor.getAttribute('href')?.slice(1);
+            if (!targetId) return;
+            const targetEl = document.getElementById(targetId);
+            if (!targetEl) return;
+            const newPage = getPageNumber(targetEl, freshPages);
+            pageCell.textContent = String(newPage);
+        });
+
         updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
     };
 
@@ -5933,10 +5997,8 @@ ${workspace.innerHTML}
                 if (!structureEntries.some(e => e.id === id)) {
                     // Use the updated element (old one may be detached from DOM after replaceChild)
                     const liveEl = document.getElementById(id) as HTMLElement | null;
-                    const page = liveEl?.closest('.page');
                     const pages = document.querySelectorAll('.page');
-                    let pageNum = 1;
-                    pages.forEach((p, idx) => { if (p === page) pageNum = idx + 1; });
+                    const pageNum = liveEl ? getPageNumber(liveEl, pages) : 1;
 
                     newEntries.push({
                         id: id,
@@ -6350,10 +6412,13 @@ ${(bwBrightness !== 100 || bwContrast !== 100) ? `
                         onCopyStyle={handleCopyStyle}
                         onPasteStyle={handlePasteStyle}
                         hasStyleClipboard={!!styleClipboard}
+                        isMultiPageView={isMultiPageView}
                     />
                     <ZoomControls
                         zoom={zoom}
                         onZoomChange={handleZoomChange}
+                        isMultiPageView={isMultiPageView}
+                        onToggleMultiPageView={() => setIsMultiPageView(prev => !prev)}
                     />
                 </div>
             </div>

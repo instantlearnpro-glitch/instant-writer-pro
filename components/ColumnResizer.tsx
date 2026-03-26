@@ -13,6 +13,7 @@ interface ColumnResizerProps {
 const ColumnResizer: React.FC<ColumnResizerProps> = ({ containerRef, onContentChange }) => {
   const [dividers, setDividers] = useState<{ rowEl: HTMLElement; leftCol: HTMLElement; rightCol: HTMLElement; x: number; top: number; height: number }[]>([]);
   const isDragging = useRef(false);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
   const updateDividers = useCallback(() => {
     if (!containerRef.current) return;
@@ -52,10 +53,11 @@ const ColumnResizer: React.FC<ColumnResizerProps> = ({ containerRef, onContentCh
     };
   }, [updateDividers]);
 
-  const handleDividerDrag = (e: React.MouseEvent, leftCol: HTMLElement, rightCol: HTMLElement, rowEl: HTMLElement) => {
+  const handleDividerDrag = (e: React.MouseEvent, leftCol: HTMLElement, rightCol: HTMLElement, rowEl: HTMLElement, index: number) => {
     e.preventDefault();
     e.stopPropagation();
     isDragging.current = true;
+    setDraggingIndex(index);
 
     const startX = e.clientX;
     const leftStartWidth = leftCol.getBoundingClientRect().width;
@@ -86,6 +88,7 @@ const ColumnResizer: React.FC<ColumnResizerProps> = ({ containerRef, onContentCh
 
     const onUp = () => {
       isDragging.current = false;
+      setDraggingIndex(null);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       updateDividers();
@@ -106,7 +109,8 @@ const ColumnResizer: React.FC<ColumnResizerProps> = ({ containerRef, onContentCh
       {dividers.map((d, i) => (
         <div
           key={i}
-          onMouseDown={(e) => handleDividerDrag(e, d.leftCol, d.rightCol, d.rowEl)}
+          className="group"
+          onMouseDown={(e) => handleDividerDrag(e, d.leftCol, d.rightCol, d.rowEl, i)}
           style={{
             position: 'absolute',
             left: d.x - 8,
@@ -128,10 +132,8 @@ const ColumnResizer: React.FC<ColumnResizerProps> = ({ containerRef, onContentCh
               height: Math.min(d.height, 60),
               background: '#3b82f6',
               borderRadius: 3,
-              transition: 'background 0.15s, opacity 0.15s',
-              opacity: 0.7,
             }}
-            className="column-divider-bar"
+            className={`column-divider-bar transition-opacity duration-150 ${draggingIndex === i ? 'opacity-100' : 'opacity-0 group-hover:opacity-70'}`}
           />
         </div>
       ))}
