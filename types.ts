@@ -119,6 +119,7 @@ export interface PageAnchor {
   id: string;
   text: string;
   tagName: string;
+  page?: number;
 }
 
 export type StructureStatus = 'pending' | 'approved' | 'rejected';
@@ -140,6 +141,7 @@ export interface DocumentHeading {
   text: string;
   level: string; // 'h1' | 'h2' | 'h3' | 'h4' | 'h5'
   page: number;
+  editorPage?: number;
 }
 
 /** A row in the TOC mapping modal – links a TOC line to a document heading */

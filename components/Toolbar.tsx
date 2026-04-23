@@ -456,7 +456,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                                 ref={fileUploadRef}
                                 type="file"
                                 multiple
-                                accept=".html,.htm,.docx,image/*"
+                                accept=".html,.htm,.docx,.pdf,image/*,.ttf,.otf,.woff,.woff2,.css"
                                 onChange={onFileUpload}
                                 className="hidden"
                             />

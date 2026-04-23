@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { SelectionState, ImageProperties, HRProperties, StructureEntry } from '../types';
 import ImageOverlay from './ImageOverlay';
-import { reflowPages, reflowPagesUntilStable } from '../utils/pagination';
+import { getPageBreakMarker, reflowPages, reflowPagesUntilStable } from '../utils/pagination';
 import { mergeAdjacentTables, mergeSplitTableParts } from '../utils/tableMerge';
 import MarginGuides from './MarginGuides';
 import PageRuler from './PageRuler';
@@ -20,6 +20,7 @@ import { sanitizeDocument } from '../utils/documentSanitizer';
 interface EditorProps {
     htmlContent: string;
     cssContent: string;
+    renderMode: 'native' | 'preserve-layout';
     onContentChange: (html: string) => void;
     onSelectionChange: (state: SelectionState, activeBlock: HTMLElement | null) => void;
     onBlockClick?: (block: HTMLElement | null) => void;
@@ -76,6 +77,23 @@ const rgbToHex = (rgb: string) => {
     const g = parseInt(result[1]).toString(16).padStart(2, '0');
     const b = parseInt(result[2]).toString(16).padStart(2, '0');
     return `#${r}${g}${b}`;
+};
+
+const getEffectiveTextAlign = (element: HTMLElement, computedBlock: CSSStyleDeclaration): string => {
+    const overlay = element.closest('[data-pdf-toc-overlay="true"]') as HTMLElement | null;
+    if (!overlay) return computedBlock.textAlign || 'left';
+
+    const savedAlign = overlay.getAttribute('data-pdf-toc-align');
+    if (savedAlign === 'left' || savedAlign === 'center' || savedAlign === 'right') {
+        return savedAlign;
+    }
+
+    const justify = overlay.style.justifyContent || window.getComputedStyle(overlay).justifyContent || '';
+    if (justify.includes('center')) return 'center';
+    if (justify.includes('flex-start') || justify === 'start' || justify === 'left') return 'left';
+    if (justify.includes('flex-end') || justify === 'end' || justify === 'right') return 'right';
+
+    return computedBlock.textAlign || 'left';
 };
 
 const mapFontSizeToCommandValue = (fontSizePt: number) => {
@@ -347,6 +365,7 @@ const preserveSelection = (root: HTMLElement) => {
 const Editor: React.FC<EditorProps> = ({
     htmlContent,
     cssContent,
+    renderMode,
     onContentChange,
     onSelectionChange,
     onBlockClick,
@@ -414,12 +433,15 @@ const Editor: React.FC<EditorProps> = ({
     const lastUserEditAtRef = useRef<number>(0);
     const lastEmittedHtmlRef = useRef<string>('');
     const [pageIndicator, setPageIndicator] = useState<{ current: number; total: number }>({ current: 1, total: 1 });
+    const shouldAutoReflow = true;
+    const showMarginOverflowWarnings = renderMode === 'native' && showOverlays;
     const [tableTocModal, setTableTocModal] = useState<{
         isOpen: boolean;
         tableId: string;
         rows: { index: number; label: string; selectedId: string }[];
         anchors: { id: string; label: string; page: number }[];
     }>({ isOpen: false, tableId: '', rows: [], anchors: [] });
+    const isMultiPageGrid = isMultiPageView;
 
     // State for the "Extend Writing Lines" page picker modal
     const [extendLinesModal, setExtendLinesModal] = useState<{
@@ -514,6 +536,179 @@ const Editor: React.FC<EditorProps> = ({
         // Persist changes
         onContentChange(contentRef.current.innerHTML);
     };
+
+    const getWorkspacePages = useCallback((): HTMLElement[] => {
+        const workspace = contentRef.current;
+        if (!workspace) return [];
+        return Array.from(workspace.children).filter((child): child is HTMLElement =>
+            child instanceof HTMLElement && child.classList.contains('page')
+        );
+    }, []);
+
+    const measurePageRects = useCallback(() => {
+        if (!contentRef.current || !containerRef.current) return;
+
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const pages = getWorkspacePages();
+        const rects = pages.map(page => {
+            const pageRect = page.getBoundingClientRect();
+            return {
+                top: pageRect.top - containerRect.top + containerRef.current!.scrollTop,
+                left: pageRect.left - containerRect.left + containerRef.current!.scrollLeft,
+                width: pageRect.width,
+                height: pageRect.height
+            };
+        });
+        setPageRects(rects);
+    }, [containerRef, getWorkspacePages]);
+
+    const clearEditorSelections = useCallback(() => {
+        const workspace = contentRef.current;
+        if (workspace) {
+            workspace.querySelectorAll('[data-selected="true"], [data-multi-selected="true"]').forEach(node => {
+                const el = node as HTMLElement;
+                el.removeAttribute('data-selected');
+                el.removeAttribute('data-multi-selected');
+            });
+        }
+        window.getSelection()?.removeAllRanges();
+        setContextMenu(null);
+        setActiveBlock(null);
+        setActiveLink(null);
+        setShowBulletOverlay(false);
+        onClearMultiSelect();
+        onImageSelect(null);
+        onTextLayerSelect(null);
+        onHRSelect(null);
+        onFooterSelect(null);
+    }, [onClearMultiSelect, onFooterSelect, onHRSelect, onImageSelect, onTextLayerSelect]);
+
+    const emitWorkspaceHtml = useCallback(() => {
+        if (!contentRef.current) return;
+        const html = contentRef.current.innerHTML;
+        lastEmittedHtmlRef.current = html;
+        onContentChange(html);
+        requestAnimationFrame(() => measurePageRects());
+    }, [measurePageRects, onContentChange]);
+
+    const sanitizeDuplicatedPage = useCallback((pageClone: HTMLElement) => {
+        const idMap = new Map<string, string>();
+        const copySuffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        const nodesWithIds = [pageClone, ...Array.from(pageClone.querySelectorAll('[id]')) as HTMLElement[]];
+
+        nodesWithIds.forEach(node => {
+            if (!node.id) return;
+            const oldId = node.id;
+            const newId = `${oldId}--copy-${copySuffix}`;
+            idMap.set(oldId, newId);
+            node.id = newId;
+        });
+
+        pageClone.querySelectorAll('[data-selected], [data-multi-selected]').forEach(node => {
+            const el = node as HTMLElement;
+            el.removeAttribute('data-selected');
+            el.removeAttribute('data-multi-selected');
+        });
+
+        const remapReferenceList = (value: string) =>
+            value
+                .split(/\s+/)
+                .filter(Boolean)
+                .map(token => idMap.get(token) ?? token)
+                .join(' ');
+
+        const replaceMappedIds = (value: string) => {
+            let nextValue = value;
+            idMap.forEach((newId, oldId) => {
+                nextValue = nextValue.replaceAll(oldId, newId);
+            });
+            return nextValue;
+        };
+
+        pageClone.querySelectorAll<HTMLElement>('*').forEach(node => {
+            const href = node.getAttribute('href');
+            if (href?.startsWith('#')) {
+                const targetId = href.slice(1);
+                const nextTarget = idMap.get(targetId);
+                if (nextTarget) node.setAttribute('href', `#${nextTarget}`);
+            }
+
+            const htmlFor = node.getAttribute('for');
+            if (htmlFor && idMap.has(htmlFor)) {
+                node.setAttribute('for', idMap.get(htmlFor)!);
+            }
+
+            const labelledBy = node.getAttribute('aria-labelledby');
+            if (labelledBy) {
+                node.setAttribute('aria-labelledby', remapReferenceList(labelledBy));
+            }
+
+            const describedBy = node.getAttribute('aria-describedby');
+            if (describedBy) {
+                node.setAttribute('aria-describedby', remapReferenceList(describedBy));
+            }
+
+            const tocTarget = node.getAttribute('data-toc-target');
+            if (tocTarget && idMap.has(tocTarget)) {
+                node.setAttribute('data-toc-target', idMap.get(tocTarget)!);
+            }
+
+            const onclick = node.getAttribute('onclick');
+            if (onclick) {
+                node.setAttribute('onclick', replaceMappedIds(onclick));
+            }
+        });
+    }, []);
+
+    const handleDuplicatePage = useCallback((pageIndex: number) => {
+        const pages = getWorkspacePages();
+        const page = pages[pageIndex];
+        if (!page || !page.parentElement) return;
+
+        clearEditorSelections();
+        const clone = page.cloneNode(true) as HTMLElement;
+        sanitizeDuplicatedPage(clone);
+        page.parentElement.insertBefore(clone, page.nextSibling);
+        emitWorkspaceHtml();
+        requestAnimationFrame(() => {
+            clone.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        });
+    }, [clearEditorSelections, emitWorkspaceHtml, getWorkspacePages, sanitizeDuplicatedPage]);
+
+    const handleDeletePage = useCallback((pageIndex: number) => {
+        const pages = getWorkspacePages();
+        if (pages.length <= 1) return;
+        const page = pages[pageIndex];
+        if (!page) return;
+        const fallbackPage = pages[pageIndex + 1] || pages[pageIndex - 1] || null;
+
+        clearEditorSelections();
+        page.remove();
+        emitWorkspaceHtml();
+        if (fallbackPage) {
+            requestAnimationFrame(() => {
+                fallbackPage.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            });
+        }
+    }, [clearEditorSelections, emitWorkspaceHtml, getWorkspacePages]);
+
+    const handleMovePage = useCallback((pageIndex: number, direction: -1 | 1) => {
+        const pages = getWorkspacePages();
+        const page = pages[pageIndex];
+        const sibling = pages[pageIndex + direction];
+        if (!page || !sibling || !page.parentElement) return;
+
+        clearEditorSelections();
+        if (direction < 0) {
+            page.parentElement.insertBefore(page, sibling);
+        } else {
+            page.parentElement.insertBefore(sibling, page);
+        }
+        emitWorkspaceHtml();
+        requestAnimationFrame(() => {
+            page.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        });
+    }, [clearEditorSelections, emitWorkspaceHtml, getWorkspacePages]);
 
     /** Apply the extend lines to the selected pages from the modal */
     const handleApplyExtendLinesToPages = () => {
@@ -748,37 +943,32 @@ const Editor: React.FC<EditorProps> = ({
 
     // Measure pages for overlays
     useEffect(() => {
-        if (!showMarginGuides || !contentRef.current || !containerRef.current) return;
+        if (!contentRef.current || !containerRef.current) return;
+        if (!showMarginGuides && !isMultiPageGrid) {
+            setPageRects([]);
+            return;
+        }
 
-        const updateRects = () => {
-            if (!contentRef.current || !containerRef.current) return;
-
-            const containerRect = containerRef.current.getBoundingClientRect();
-            const pages = Array.from(contentRef.current.querySelectorAll('.page')) as HTMLElement[];
-
-            const rects = pages.map(page => {
-                const pageRect = page.getBoundingClientRect();
-                return {
-                    top: pageRect.top - containerRect.top + containerRef.current!.scrollTop,
-                    left: pageRect.left - containerRect.left + containerRef.current!.scrollLeft,
-                    width: pageRect.width,
-                    height: pageRect.height
-                };
-            });
-            setPageRects(rects);
-        };
-
+        const updateRects = () => measurePageRects();
         updateRects();
 
-        const observer = new ResizeObserver(updateRects);
-        observer.observe(contentRef.current);
+        const resizeObserver = new ResizeObserver(updateRects);
+        resizeObserver.observe(contentRef.current);
+        getWorkspacePages().forEach(page => resizeObserver.observe(page));
+
+        const mutationObserver = new MutationObserver(() => {
+            updateRects();
+        });
+        mutationObserver.observe(contentRef.current, { childList: true, subtree: false });
+
         window.addEventListener('resize', updateRects);
 
         return () => {
-            observer.disconnect();
+            resizeObserver.disconnect();
+            mutationObserver.disconnect();
             window.removeEventListener('resize', updateRects);
         };
-    }, [htmlContent, showMarginGuides, containerRef, zoom, cssContent]);
+    }, [htmlContent, showMarginGuides, containerRef, zoom, cssContent, isMultiPageGrid, measurePageRects, getWorkspacePages]);
 
     // Scroll-based page indicator: "Page X / Y"
     useEffect(() => {
@@ -857,7 +1047,7 @@ const Editor: React.FC<EditorProps> = ({
         const underlineTag = hasAncestorTag(range.startContainer, ['U'], block) || hasAncestorTag(range.endContainer, ['U'], block);
         const ulTag = block.tagName === 'LI' && block.parentElement?.tagName === 'UL';
         const olTag = block.tagName === 'LI' && block.parentElement?.tagName === 'OL';
-        const textAlign = computedBlock.textAlign || 'left';
+        const textAlign = getEffectiveTextAlign(block, computedBlock);
 
         const shapeClass = block.classList.contains('shape-circle')
             ? 'circle'
@@ -972,7 +1162,7 @@ const Editor: React.FC<EditorProps> = ({
         const textDecoration = computedText.textDecorationLine || computedText.textDecoration;
         const isUnderline = textDecoration.includes('underline');
         const fontStyle = computedText.fontStyle || 'normal';
-        const textAlign = computedBlock.textAlign || 'left';
+        const textAlign = getEffectiveTextAlign(element, computedBlock);
 
         const shapeClass = element.classList.contains('shape-circle')
             ? 'circle'
@@ -1176,6 +1366,11 @@ const Editor: React.FC<EditorProps> = ({
     }, []);
 
     const updateMarginOverflows = useCallback(() => {
+        if (!showMarginOverflowWarnings) {
+            setMarginOverflowRects([]);
+            return;
+        }
+
         if (!contentRef.current || !containerRef.current) {
             setMarginOverflowRects([]);
             return;
@@ -1229,9 +1424,14 @@ const Editor: React.FC<EditorProps> = ({
         });
 
         setMarginOverflowRects(overflows);
-    }, [getMarginCandidates, pageMargins, containerRef]);
+    }, [containerRef, getMarginCandidates, pageMargins, showMarginOverflowWarnings]);
 
     useEffect(() => {
+        if (!showMarginOverflowWarnings) {
+            setMarginOverflowRects([]);
+            return;
+        }
+
         if (!contentRef.current || !containerRef.current) return;
 
         const container = containerRef.current;
@@ -1270,7 +1470,7 @@ const Editor: React.FC<EditorProps> = ({
                 marginCheckRafRef.current = null;
             }
         };
-    }, [updateMarginOverflows, htmlContent, zoom, pageMargins]);
+    }, [containerRef, htmlContent, pageMargins, showMarginOverflowWarnings, updateMarginOverflows, zoom]);
 
     // True if caret is at position 0 inside block (ignoring empty text nodes, <br>, zero-width spaces)
     const isAtBlockStart = (range: Range, block: HTMLElement): boolean => {
@@ -1359,7 +1559,84 @@ const Editor: React.FC<EditorProps> = ({
         return null;
     };
 
+    const getReflowBounds = useCallback((source?: Node | null) => {
+        if (!contentRef.current) {
+            return { startPage: 0, stopBeforePage: null as HTMLElement | null };
+        }
+
+        const pages = Array.from(contentRef.current.querySelectorAll('.page')) as HTMLElement[];
+        if (pages.length === 0) {
+            return { startPage: 0, stopBeforePage: null as HTMLElement | null };
+        }
+
+        const selection = window.getSelection();
+        const selectionNode = selection && selection.rangeCount > 0
+            ? selection.getRangeAt(0).commonAncestorContainer
+            : null;
+
+        const resolvePage = (node: Node | null | undefined) => {
+            if (!node) return null;
+            const el = node.nodeType === Node.ELEMENT_NODE
+                ? node as HTMLElement
+                : node.parentElement;
+            return el?.closest('.page') as HTMLElement | null;
+        };
+
+        const startPageEl = resolvePage(source)
+            || resolvePage(selectionNode)
+            || (activeBlock?.closest('.page') as HTMLElement | null)
+            || pages[0];
+
+        const startIndex = Math.max(0, pages.indexOf(startPageEl));
+        let stopBeforePage: HTMLElement | null = null;
+        for (let i = startIndex + 1; i < pages.length; i += 1) {
+            if (getPageBreakMarker(pages[i])) {
+                stopBeforePage = pages[i];
+                break;
+            }
+        }
+
+        return { startPage: startIndex, stopBeforePage };
+    }, [activeBlock]);
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (!shouldAutoReflow) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                onPageBreak();
+                return;
+            }
+
+            if ((e.key === 'Delete' || e.key === 'Backspace') && activeBlock) {
+                const sel = window.getSelection();
+                const cursorNode = sel && sel.rangeCount > 0
+                    ? sel.getRangeAt(0).commonAncestorContainer
+                    : null;
+
+                // In preserve-layout, text editing must stay native.
+                // Only allow block-level delete for non-text objects explicitly selected.
+                if (isTextBlock(activeBlock) || (cursorNode && activeBlock.contains(cursorNode))) {
+                    return;
+                }
+
+                e.preventDefault();
+                activeBlock.remove();
+                setActiveBlock(null);
+                onImageSelect(null);
+                onTextLayerSelect(null);
+                onHRSelect(null);
+                onFooterSelect(null);
+                if (contentRef.current) {
+                    lastUserEditAtRef.current = Date.now();
+                    lastEmittedHtmlRef.current = contentRef.current.innerHTML;
+                    onContentChange(contentRef.current.innerHTML);
+                }
+                return;
+            }
+
+            return;
+        }
+
         if (e.key === 'Delete' || e.key === 'Backspace') {
             const selection = window.getSelection();
             if (selection && selection.rangeCount > 0) {
@@ -1677,6 +1954,12 @@ const Editor: React.FC<EditorProps> = ({
 
     const scheduleReflow = useCallback(() => {
         if (!contentRef.current) return;
+        if (!shouldAutoReflow) {
+            lastUserEditAtRef.current = Date.now();
+            lastEmittedHtmlRef.current = contentRef.current.innerHTML;
+            onContentChange(contentRef.current.innerHTML);
+            return;
+        }
         if (reflowDebounceRef.current) {
             window.clearTimeout(reflowDebounceRef.current);
         }
@@ -1711,7 +1994,10 @@ const Editor: React.FC<EditorProps> = ({
             // ------------------------------
 
             const restoreSelection = preserveSelection(contentRef.current);
+            const { startPage, stopBeforePage } = getReflowBounds();
             reflowPagesUntilStable(contentRef.current, {
+                startPage,
+                stopBeforePage,
                 onDone: () => {
                     restoreSelection();
                     lastUserEditAtRef.current = Date.now();
@@ -1722,7 +2008,7 @@ const Editor: React.FC<EditorProps> = ({
                 }
             });
         }, 120);
-    }, [onContentChange]);
+    }, [getReflowBounds, onContentChange, shouldAutoReflow]);
 
     const insertParagraphAtPoint = useCallback((clientX: number, clientY: number) => {
         if (!contentRef.current) return false;
@@ -1853,7 +2139,7 @@ const Editor: React.FC<EditorProps> = ({
         }
 
         // Try to find any selectable block element - prioritize special elements
-        let block = target.closest('.tracing-line, .writing-lines, .mission-box, .shape-rectangle, .shape-circle, .shape-pill, textarea') as HTMLElement | null;
+        let block = target.closest('[data-pdf-toc-overlay="true"], .tracing-line, .writing-lines, .mission-box, .shape-rectangle, .shape-circle, .shape-pill, textarea') as HTMLElement | null;
         if (!block) {
             block = target.closest('hr') as HTMLElement | null;
         }
@@ -2328,9 +2614,48 @@ const Editor: React.FC<EditorProps> = ({
             }
         }
 
+        // --- IMAGE PASTE-REPLACE via HTML: if an image is selected and clipboard
+        //     has HTML containing an <img>, extract the src and replace ---
+        if (selectedImage) {
+            const clipboardHtml = e.clipboardData.getData('text/html');
+            if (clipboardHtml) {
+                const doc = new DOMParser().parseFromString(clipboardHtml, 'text/html');
+                const img = doc.querySelector('img');
+                if (img && img.src) {
+                    e.preventDefault();
+                    selectedImage.src = img.src;
+                    if (!selectedImage.style.objectFit) {
+                        selectedImage.style.objectFit = 'cover';
+                    }
+                    if (contentRef.current) {
+                        onContentChange(contentRef.current.innerHTML);
+                    }
+                    return;
+                }
+            }
+        }
+
         const types = Array.from(e.clipboardData.types);
         const hasFiles = types.includes('Files');
         const hasText = types.includes('text/plain');
+        const hasHtml = types.includes('text/html');
+
+        // --- HTML PASTE: intercept text/html to prevent native contentEditable paste
+        //     which often produces garbled page-screenshot artifacts ---
+        if (hasHtml) {
+            const clipboardHtml = e.clipboardData.getData('text/html');
+            if (clipboardHtml.trim()) {
+                e.preventDefault();
+                e.stopPropagation();
+                const sanitizedData = sanitizeDocument(clipboardHtml);
+                document.execCommand('insertHTML', false, sanitizedData);
+                if (contentRef.current) {
+                    scheduleReflow();
+                    onContentChange(contentRef.current.innerHTML);
+                }
+                return;
+            }
+        }
 
         // Browsers often prefer pasting the 'Files' payload (as an image) if both 
         // text and an image representation exist on the clipboard (e.g. from Preview or Word).
@@ -2339,20 +2664,22 @@ const Editor: React.FC<EditorProps> = ({
             const plainText = e.clipboardData.getData('text/plain');
             if (plainText.trim().length > 0) {
                 e.preventDefault();
-                const hasHtml = types.includes('text/html');
-                
-                if (hasHtml) {
-                    const html = e.clipboardData.getData('text/html');
-                    const sanitizedData = sanitizeDocument(html);
-                    document.execCommand('insertHTML', false, sanitizedData);
-                } else {
-                    document.execCommand('insertText', false, plainText);
-                }
-                
+                document.execCommand('insertText', false, plainText);
                 if (contentRef.current) {
                     scheduleReflow();
                     onContentChange(contentRef.current.innerHTML);
                 }
+            }
+        }
+
+        // --- PLAIN TEXT ONLY: prevent native paste for plain-text-only clipboard ---
+        if (hasText && !hasFiles && !hasHtml) {
+            e.preventDefault();
+            const plainText = e.clipboardData.getData('text/plain');
+            document.execCommand('insertText', false, plainText);
+            if (contentRef.current) {
+                scheduleReflow();
+                onContentChange(contentRef.current.innerHTML);
             }
         }
     };
@@ -2519,7 +2846,7 @@ const Editor: React.FC<EditorProps> = ({
             if (!isTextLayerMode && !imageProperties.isCropping && !selectionMode?.active && !(e.metaKey || e.ctrlKey)) {
                 const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
                 const hasInteractive = elementsAtPoint.some(el =>
-                    (el as HTMLElement).closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, img, table, hr, .floating-text, .writing-lines, textarea, .toc-container')
+                    (el as HTMLElement).closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, img, table, hr, .floating-text, .writing-lines, textarea, .toc-container, [data-pdf-toc-overlay="true"]')
                 );
                 if (!hasInteractive) {
                     const inserted = insertParagraphAtPoint(e.clientX, e.clientY);
@@ -2538,7 +2865,7 @@ const Editor: React.FC<EditorProps> = ({
                     block = (selectedTextLayer || selectedImage) as HTMLElement | null;
                 }
                 if (!block) {
-                    block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace):not(.image-row):not(.column-row):not(.column), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img, .floating-text, .writing-lines') as HTMLElement | null;
+                    block = target.closest('[data-pdf-toc-overlay="true"], p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace):not(.image-row):not(.column-row):not(.column), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img, .floating-text, .writing-lines') as HTMLElement | null;
                 }
                 if (block) {
                     e.preventDefault();
@@ -2761,9 +3088,10 @@ const Editor: React.FC<EditorProps> = ({
                 }
             }
 
-            // Clear previous block selection
-            if (activeBlock) {
-                activeBlock.removeAttribute('data-selected');
+            // Clear previous block selection (use DOM query, not stale closure)
+            const prevSelectedBlock = contentRef.current?.querySelector('[data-selected="true"]') as HTMLElement | null;
+            if (prevSelectedBlock) {
+                prevSelectedBlock.removeAttribute('data-selected');
             }
 
             if (target.tagName === 'IMG') {
@@ -2788,7 +3116,7 @@ const Editor: React.FC<EditorProps> = ({
             // Find and select block elements
             let block = target.closest('hr') as HTMLElement | null;
             if (!block) {
-                block = target.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace):not(.image-row):not(.column-row):not(.column), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img') as HTMLElement | null;
+                block = target.closest('[data-pdf-toc-overlay="true"], p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace):not(.image-row):not(.column-row):not(.column), blockquote, li, span.mission-box, span.shape-circle, span.shape-pill, span.shape-speech, span.shape-cloud, span.shape-rectangle, table, img') as HTMLElement | null;
             }
 
             if (block) {
@@ -2818,7 +3146,10 @@ const Editor: React.FC<EditorProps> = ({
                     return;
                 }
 
-                block.setAttribute('data-selected', 'true');
+                // Skip selection outline for elements inside toc-container
+                if (!block.closest('.toc-container')) {
+                    block.setAttribute('data-selected', 'true');
+                }
                 setActiveBlock(block);
                 const selection = window.getSelection();
                 const hasSelection = selection && selection.rangeCount > 0 && !selection.isCollapsed;
@@ -2860,6 +3191,7 @@ const Editor: React.FC<EditorProps> = ({
         const handleInput = (e?: Event) => {
             const target = (e?.target as HTMLElement | null) || null;
             const isFloatingText = !!target?.closest?.('.floating-text');
+            const shouldReflowThisInput = shouldAutoReflow && !isFloatingText;
             if (contentRef.current) {
                 // Guard: skip reflow when the input event was triggered by a
                 // programmatic innerHTML assignment (import, history navigation).
@@ -2872,13 +3204,16 @@ const Editor: React.FC<EditorProps> = ({
 
                 // Debounce reflow to avoid excessive calls
                 if (reflowTimeout) clearTimeout(reflowTimeout);
-                const delay = isFloatingText ? 0 : 180;
+                const delay = shouldReflowThisInput ? 180 : 80;
                 reflowTimeout = window.setTimeout(() => {
                     if (!contentRef.current) return;
-                    const restoreSelection = preserveSelection(contentRef.current);
-                    if (!isFloatingText) {
+                    if (shouldReflowThisInput) {
+                        const restoreSelection = preserveSelection(contentRef.current);
                         const _editor = contentRef.current;
+                        const { startPage, stopBeforePage } = getReflowBounds(target);
                         reflowPagesUntilStable(_editor, {
+                            startPage,
+                            stopBeforePage,
                             onDone: () => {
                                 restoreSelection();
                                 updateTocTablePageNumbers(_editor);
@@ -2888,7 +3223,6 @@ const Editor: React.FC<EditorProps> = ({
                             }
                         });
                     } else {
-                        restoreSelection();
                         lastUserEditAtRef.current = Date.now();
                         lastEmittedHtmlRef.current = contentRef.current.innerHTML;
                         onContentChange(contentRef.current.innerHTML);
@@ -3019,7 +3353,7 @@ const Editor: React.FC<EditorProps> = ({
             document.removeEventListener('selectionchange', handleSelectionChange);
             document.removeEventListener('selectionchange', handleSelectionForCleanup);
         };
-    }, [handleSelectionChange, onImageSelect, onContentChange, selectionMode, onBlockSelection, buildSelectionStateFromElement, onSelectionChange, isTextLayerMode, onInsertTextLayerAt]);
+    }, [buildSelectionStateFromElement, getReflowBounds, handleSelectionChange, isTextLayerMode, onBlockSelection, onContentChange, onImageSelect, onInsertTextLayerAt, onSelectionChange, selectionMode, shouldAutoReflow]);
 
     useEffect(() => {
         if (!isTextLayerMode) return;
@@ -3068,8 +3402,6 @@ const Editor: React.FC<EditorProps> = ({
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
     }, [distributeAdjustAxis, onEndDistributeAdjust]);
-
-    const isMultiPageGrid = isMultiPageView;
 
     const zoomStyle: React.CSSProperties = isMultiPageGrid
         ? {
@@ -3200,6 +3532,33 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace.hide-overlays .page > [data-page-break-before="true"]::before {
                 display: none;
             }
+            .editor-workspace.hide-overlays [data-selected="true"] {
+                outline: none !important;
+            }
+            .editor-workspace.hide-overlays [data-multi-selected="true"] {
+                outline: none !important;
+            }
+            .editor-workspace.hide-overlays table:hover,
+            .editor-workspace.hide-overlays img:hover,
+            .editor-workspace.hide-overlays hr:hover,
+            .editor-workspace.hide-overlays .mission-box:hover,
+            .editor-workspace.hide-overlays .shape-circle:hover,
+            .editor-workspace.hide-overlays .shape-pill:hover,
+            .editor-workspace.hide-overlays .shape-speech:hover,
+            .editor-workspace.hide-overlays .shape-cloud:hover,
+            .editor-workspace.hide-overlays .shape-rectangle:hover,
+            .editor-workspace.hide-overlays .toc-container:hover,
+            .editor-workspace.hide-overlays [data-pdf-toc-overlay="true"]:hover,
+            .editor-workspace.hide-overlays .writing-lines:hover,
+            .editor-workspace.hide-overlays .floating-text:hover {
+                outline: none !important;
+            }
+            .editor-workspace.hide-overlays .spacer:hover {
+                border-color: transparent !important;
+            }
+            .editor-workspace.hide-overlays hr:hover {
+                background-color: transparent !important;
+            }
             @media print {
                 .editor-workspace .page > [data-page-break-before="true"]::before {
                     display: none;
@@ -3243,6 +3602,8 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace hr {
                 cursor: pointer;
                 transition: outline 0.2s;
+            }
+            .editor-workspace[data-render-mode="native"] hr {
                 /* Enlarge click target: HRs are only 1-2px tall, making them
                    nearly impossible to click. Transparent padding expands the
                    hit area without changing the visual line position. */
@@ -3275,6 +3636,14 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace table.toc-table th[data-toc-page] {
                 cursor: pointer;
             }
+            .editor-workspace [data-pdf-toc-overlay="true"] {
+                cursor: pointer;
+                transition: outline 0.15s;
+            }
+            .editor-workspace [data-pdf-toc-overlay="true"]:hover {
+                outline: 2px dashed #8d55f1;
+                outline-offset: 2px;
+            }
             .editor-workspace.toc-modal-open * {
                 outline: none !important;
                 outline-offset: 0 !important;
@@ -3293,6 +3662,10 @@ const Editor: React.FC<EditorProps> = ({
             .editor-workspace [data-selected="true"] {
                 outline: 2px solid #8d55f1 !important;
                 outline-offset: 2px !important;
+            }
+            .editor-workspace .toc-container [data-selected="true"],
+            .editor-workspace .toc-container[data-selected="true"] {
+                outline: none !important;
             }
             .editor-workspace [data-multi-selected="true"] {
                 outline: 2px dashed #10b981 !important;
@@ -3322,6 +3695,11 @@ const Editor: React.FC<EditorProps> = ({
                 outline: 2px dashed #8d55f1;
                 outline-offset: 2px;
             }
+            .editor-workspace .toc-container table,
+            .editor-workspace .toc-container table:hover {
+                cursor: text;
+                outline: none !important;
+            }
             .editor-workspace.multi-page-grid {
                 display: flex !important;
                 flex-direction: row !important;
@@ -3346,6 +3724,7 @@ const Editor: React.FC<EditorProps> = ({
             <div
                 ref={contentRef}
                 className={`${workspaceClasses} ${selectionMode?.active ? 'cursor-crosshair' : ''} ${isTextLayerMode ? 'text-layer-mode' : ''} ${tableTocModal.isOpen ? 'toc-modal-open' : ''}`}
+                data-render-mode={renderMode}
                 style={zoomStyle}
                 contentEditable={!imageProperties.isCropping && !selectionMode?.active}
                 suppressContentEditableWarning={true}
@@ -3535,6 +3914,83 @@ const Editor: React.FC<EditorProps> = ({
                 );
             })()}
 
+            {isMultiPageGrid && pageRects.length > 0 && (
+                <div className="absolute inset-0 pointer-events-none z-[65]">
+                    {pageRects.map((rect, index) => {
+                        const isFirst = index === 0;
+                        const isLast = index === pageRects.length - 1;
+                        const isOnlyPage = pageRects.length <= 1;
+                        const buttonBaseClass = 'pointer-events-auto rounded-full px-2 py-1 text-[11px] font-semibold transition';
+                        const enabledButtonClass = 'bg-white text-gray-700 shadow-sm ring-1 ring-black/10 hover:bg-gray-50';
+                        const disabledButtonClass = 'bg-gray-100 text-gray-400 ring-1 ring-gray-200 cursor-not-allowed';
+
+                        return (
+                            <div
+                                key={`page-controls-${index}`}
+                                className="absolute pointer-events-none"
+                                style={{
+                                    top: Math.max(8, rect.top - 36),
+                                    left: rect.left + 10
+                                }}
+                            >
+                                <div className="flex items-center gap-1 rounded-full bg-white/95 px-2 py-1 shadow-md ring-1 ring-black/10 backdrop-blur-sm">
+                                    <span className="px-1 text-[11px] font-semibold text-gray-500">
+                                        Pagina {index + 1}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        className={`${buttonBaseClass} ${enabledButtonClass}`}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                        }}
+                                        onClick={() => handleDuplicatePage(index)}
+                                    >
+                                        Duplica
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`${buttonBaseClass} ${isOnlyPage ? disabledButtonClass : enabledButtonClass}`}
+                                        disabled={isOnlyPage}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                        }}
+                                        onClick={() => handleDeletePage(index)}
+                                    >
+                                        Elimina
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`${buttonBaseClass} ${isFirst ? disabledButtonClass : enabledButtonClass}`}
+                                        disabled={isFirst}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                        }}
+                                        onClick={() => handleMovePage(index, -1)}
+                                    >
+                                        Su
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`${buttonBaseClass} ${isLast ? disabledButtonClass : enabledButtonClass}`}
+                                        disabled={isLast}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                        }}
+                                        onClick={() => handleMovePage(index, 1)}
+                                    >
+                                        Giu
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
             {showMarginGuides && (
                 <div className="absolute inset-0 pointer-events-none">
                     <div className="relative w-full h-full">
@@ -3552,7 +4008,7 @@ const Editor: React.FC<EditorProps> = ({
                 </div>
             )}
 
-            {marginOverflowRects.length > 0 && (
+            {showMarginOverflowWarnings && marginOverflowRects.length > 0 && (
                 <div className="absolute inset-0 pointer-events-none">
                     {marginOverflowRects.map((rect, i) => (
                         <div
@@ -3710,7 +4166,7 @@ const Editor: React.FC<EditorProps> = ({
             />
 
             {/* SelectionOverlay — multi-level hover boxes, resize handles, drag */}
-            <SelectionOverlay
+            {showOverlays && <SelectionOverlay
                 containerRef={containerRef}
                 onContentChange={onContentChange}
                 onUpdate={() => {
@@ -3721,7 +4177,7 @@ const Editor: React.FC<EditorProps> = ({
                         });
                     }
                 }}
-            />
+            />}
 
             {activeLink && (
                 <LinkToolbar

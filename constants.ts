@@ -1,5 +1,5 @@
 
-export const DEFAULT_CSS = `
+const BASE_DOCUMENT_CSS = `
 @page {
     size: 8.5in 11in;
     margin: 0.5in 0.5in 0.5in 0.45in;
@@ -92,7 +92,9 @@ img:not([src]), img[src=""], img.broken-image {
     font-size: 12px;
     font-family: sans-serif;
 }
+`;
 
+const APP_EDITORIAL_CSS = `
 h1, h2, h3, h4, h5 {
     overflow-wrap: break-word;
     word-break: break-word;
@@ -153,7 +155,9 @@ hr:focus, hr[data-selected="true"] {
     outline: 2px dashed #8d55f1;
     outline-offset: 2px;
 }
+`;
 
+const APP_OBJECT_CSS = `
 /* --- Shapes --- */
 .shape-circle {
     border-radius: 50%;
@@ -442,11 +446,23 @@ li {
     margin-bottom: 5px;
     padding-left: 5px;
 }
+/* Orphan LIs (not inside ul/ol) — suppress phantom ::marker */
+.page > li, div:not(ul):not(ol) > li:not(ul li):not(ol li) {
+    display: block !important;
+    list-style-type: none !important;
+}
 /* Continuation LIs (split across pages) — hide bullet but keep indentation */
 li[data-list-continuation="true"] {
     list-style-type: none !important;
 }
 `;
+
+export const DEFAULT_CSS = `${BASE_DOCUMENT_CSS}
+${APP_EDITORIAL_CSS}
+${APP_OBJECT_CSS}`;
+
+export const PRESERVE_LAYOUT_CSS = `${BASE_DOCUMENT_CSS}
+${APP_OBJECT_CSS}`;
 
 export const DEFAULT_HTML = `
 <div class="page">

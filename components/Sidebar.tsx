@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layers, FileText, ListTree, Check, X, Search, RefreshCw, Plus, MousePointer, Sparkles } from 'lucide-react';
+import { Layers, FileText, ListTree, Check, X, Search, RefreshCw, Plus, MousePointer, Sparkles, Copy, Trash2, ChevronUp, ChevronDown, FilePlus, MoreHorizontal } from 'lucide-react';
 import { StructureEntry } from '../types';
 
 interface SidebarProps {
@@ -33,6 +33,16 @@ interface SidebarProps {
     autoStructureSuggestionLevel?: string | null;
     onApplyAutoStructureSuggestion: () => void;
     onDismissAutoStructureSuggestion: () => void;
+    // Page management
+    onDuplicatePage?: (pageIndex: number) => void;
+    onDeletePage?: (pageIndex: number) => void;
+    onMovePage?: (fromIndex: number, toIndex: number) => void;
+    onInsertBlankPage?: (afterIndex: number) => void;
+    // PDF heading detection
+    hasPdfTextData?: boolean;
+    onDetectPdfHeadings?: () => void;
+    onAddManualPdfHeading?: () => void;
+    onGeneratePdfTOC?: (pageIndex: number) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -56,9 +66,18 @@ const Sidebar: React.FC<SidebarProps> = ({
     autoStructureSuggested,
     autoStructureSuggestionLevel,
     onApplyAutoStructureSuggestion,
-    onDismissAutoStructureSuggestion
+    onDismissAutoStructureSuggestion,
+    onDuplicatePage,
+    onDeletePage,
+    onMovePage,
+    onInsertBlankPage,
+    hasPdfTextData,
+    onDetectPdfHeadings,
+    onAddManualPdfHeading,
+    onGeneratePdfTOC
 }) => {
     const [activeTab, setActiveTab] = useState<'pages' | 'structure'>('pages');
+    const [pageMenuIndex, setPageMenuIndex] = useState<number | null>(null);
 
     const categories = [
         { id: 'h1', label: 'Heading 1' },
@@ -91,22 +110,95 @@ const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex-1 overflow-y-auto p-2">
 
                 {activeTab === 'pages' && (
-                    <div className="space-y-1">
+                <div className="space-y-1">
                         {Array.from({ length: pageCount }).map((_, idx) => (
-                            <button
-                                key={idx}
-                                onClick={() => onPageSelect(idx)}
-                                className={`w-full text-left px-3 py-3 rounded-md text-sm flex items-center gap-3 transition-colors ${currentPage === idx
-                                    ? 'bg-brand-50 text-brand-700 border-l-4 border-brand-600'
-                                    : 'text-gray-600 hover:bg-brand-50 hover:text-brand-600 border-l-4 border-transparent'
-                                    }`}
-                            >
-                                <span className="flex items-center justify-center w-6 h-6 bg-gray-100 rounded text-xs font-bold text-gray-500">
-                                    {idx + 1}
-                                </span>
-                                <span className="truncate flex-1">Page {idx + 1}</span>
-                                {currentPage === idx && <FileText size={14} />}
-                            </button>
+                            <div key={idx} className="group relative">
+                                <button
+                                    onClick={() => onPageSelect(idx)}
+                                    className={`w-full text-left px-3 py-3 rounded-md text-sm flex items-center gap-3 transition-colors ${currentPage === idx
+                                        ? 'bg-brand-50 text-brand-700 border-l-4 border-brand-600'
+                                        : 'text-gray-600 hover:bg-brand-50 hover:text-brand-600 border-l-4 border-transparent'
+                                        }`}
+                                >
+                                    <span className="flex items-center justify-center w-6 h-6 bg-gray-100 rounded text-xs font-bold text-gray-500">
+                                        {idx + 1}
+                                    </span>
+                                    <span className="truncate flex-1">Page {idx + 1}</span>
+                                    <span
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-200 cursor-pointer"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setPageMenuIndex(pageMenuIndex === idx ? null : idx);
+                                        }}
+                                        title="Page actions"
+                                    >
+                                        <MoreHorizontal size={14} />
+                                    </span>
+                                </button>
+                                {/* Page action menu */}
+                                {pageMenuIndex === idx && (
+                                    <div className="ml-10 mb-1 flex items-center gap-1 bg-white border border-gray-200 rounded-lg shadow-lg px-2 py-1.5 animate-in fade-in slide-in-from-top-1">
+                                        <button
+                                            onClick={() => { onMovePage?.(idx, idx - 1); setPageMenuIndex(null); }}
+                                            disabled={idx === 0}
+                                            className={`p-1.5 rounded transition-colors ${idx === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-brand-50 hover:text-brand-600'}`}
+                                            title="Move up"
+                                        >
+                                            <ChevronUp size={14} />
+                                        </button>
+                                        <button
+                                            onClick={() => { onMovePage?.(idx, idx + 1); setPageMenuIndex(null); }}
+                                            disabled={idx === pageCount - 1}
+                                            className={`p-1.5 rounded transition-colors ${idx === pageCount - 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-brand-50 hover:text-brand-600'}`}
+                                            title="Move down"
+                                        >
+                                            <ChevronDown size={14} />
+                                        </button>
+                                        <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
+                                        <button
+                                            onClick={() => { onDuplicatePage?.(idx); setPageMenuIndex(null); }}
+                                            className="p-1.5 rounded text-gray-600 hover:bg-brand-50 hover:text-brand-600 transition-colors"
+                                            title="Duplicate page"
+                                        >
+                                            <Copy size={14} />
+                                        </button>
+                                        <button
+                                            onClick={() => { onInsertBlankPage?.(idx); setPageMenuIndex(null); }}
+                                            className="p-1.5 rounded text-gray-600 hover:bg-brand-50 hover:text-brand-600 transition-colors"
+                                            title="Insert blank page after"
+                                        >
+                                            <FilePlus size={14} />
+                                        </button>
+                                        {hasPdfTextData && (
+                                            <button
+                                                onClick={() => {
+                                                    if (confirm(`Transform page ${idx + 1} into a dynamic TOC?`)) {
+                                                        onGeneratePdfTOC?.(idx);
+                                                    }
+                                                    setPageMenuIndex(null);
+                                                }}
+                                                className="p-1.5 rounded text-gray-600 hover:bg-purple-50 hover:text-purple-600 transition-colors"
+                                                title="Transform this page into a dynamic TOC"
+                                            >
+                                                <ListTree size={14} />
+                                            </button>
+                                        )}
+                                        <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
+                                        <button
+                                            onClick={() => {
+                                                if (confirm(`Delete page ${idx + 1}?`)) {
+                                                    onDeletePage?.(idx);
+                                                }
+                                                setPageMenuIndex(null);
+                                            }}
+                                            className="p-1.5 rounded text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+                                            title="Delete page"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         ))}
                         {pageCount === 0 && (
                             <div className="text-center text-gray-400 py-8 text-sm">
@@ -118,6 +210,33 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                 {activeTab === 'structure' && (
                     <div className="flex flex-col h-full">
+
+                        {/* PDF Heading Detection */}
+                        {hasPdfTextData && (
+                            <div className="p-2 border-b border-brand-200 bg-gradient-to-r from-brand-50 to-purple-50">
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={onDetectPdfHeadings}
+                                        type="button"
+                                        className="flex-1 py-1.5 px-2 rounded bg-gradient-to-r from-emerald-500 via-teal-500 to-brand-600 text-white text-xs font-bold hover:from-emerald-600 hover:via-teal-600 hover:to-brand-700 transition-all flex items-center justify-center gap-1.5 shadow-md ring-1 ring-emerald-300/70"
+                                        title="Auto-detect headings from PDF"
+                                    >
+                                        <Search size={12} /> Auto-Detect Headings
+                                    </button>
+                                    <button
+                                        onClick={onAddManualPdfHeading}
+                                        type="button"
+                                        className="py-1.5 px-2 rounded bg-white border border-brand-300 text-brand-700 text-xs font-bold hover:bg-brand-50 transition-colors flex items-center justify-center shadow-sm"
+                                        title="Manually add a PDF heading that was missed"
+                                    >
+                                        <Plus size={12} /> Add
+                                    </button>
+                                </div>
+                                <p className="text-[9px] text-brand-500 mt-1.5 text-center leading-tight">
+                                    Analyzes text or add titles manually for your TOC
+                                </p>
+                            </div>
+                        )}
 
                         {/* 1. Tools Section (Add Buttons) */}
                         <div className="p-2 border-b border-gray-100 bg-gray-50">

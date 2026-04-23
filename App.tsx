@@ -7,9 +7,9 @@ const PageNumberModal = lazy(() => import('./components/PageNumberModal'));
 const TOCMappingModal = lazy(() => import('./components/TOCMappingModal'));
 import ZoomControls from './components/ZoomControls';
 import { DocumentState, SelectionState, ImageProperties, TOCEntry, TOCSettings, HRProperties, PageAnchor, StructureEntry, TOCMappingRow, DocumentHeading, TOCStyleOptions } from './types';
-import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS } from './constants';
+import { DEFAULT_CSS, DEFAULT_HTML, PAGE_FORMATS, FONTS, PRESERVE_LAYOUT_CSS } from './constants';
 import { FontDefinition } from './utils/fontUtils';
-import { useFontManager } from './hooks/useFontManager';
+import { useFontManager, loadFontsFromDb, loadFontsFromStorage } from './hooks/useFontManager';
 import { usePageLayout } from './hooks/usePageLayout';
 import { scanStructure } from './utils/structureScanner';
 import { exportDOCX } from './utils/docxExport';
@@ -22,6 +22,7 @@ const SettingsModal = lazy(() => import('./components/SettingsModal'));
 const AutoLogModal = lazy(() => import('./components/AutoLogModal'));
 import { ensureContentIsPaginated, reflowPages, reflowPagesUntilStable } from './utils/pagination';
 import { exportPdf } from './utils/pdfExport';
+import { importPdf, detectPdfHeadings, PdfPageText } from './utils/pdfImport';
 import { initAutoLog, downloadAutoLog, clearAutoLog } from './utils/autoLog';
 import { sanitizeDocument, detectOrphanPageNumbers, SanitizeIssue } from './utils/documentSanitizer';
 import SanitizeReviewPanel from './components/SanitizeReviewPanel';
@@ -103,15 +104,82 @@ type StyleClipboard =
         image: Record<string, string>;
     };
 
+type DocumentRenderMode = 'native' | 'preserve-layout';
+
+interface PdfTocDraftLine {
+    pageListIndex: number;
+    lineIndex: number;
+    label: string;
+    isTitle: boolean;
+    topPct: number;
+    numberLeftPct: number;
+    numberWidthPct: number;
+    heightPct: number;
+    fontSizePx: number;
+    fontFamily: string;
+    existingTargetId?: string;
+}
+
+interface PdfTocDraft {
+    pages: HTMLElement[];
+    lines: PdfTocDraftLine[];
+}
+
 const LAYOUT_MARKER_START = '/* SPYWRITER_LAYOUT_OVERRIDE_START */';
 const LAYOUT_MARKER_END = '/* SPYWRITER_LAYOUT_OVERRIDE_END */';
+const PDF_TEXT_STORAGE_KEY = 'instant-writer-pro:pdf-text-data';
+const RENDER_MODE_ATTR = 'data-spywriter-render-mode';
+const PAGE_FORMAT_ATTR = 'data-page-format';
+const PAGE_MARGINS_ATTR = 'data-page-margins';
+const CUSTOM_PAGE_SIZE_ATTR = 'data-custom-page-size';
+const LAYOUT_META_NAMES = {
+    format: 'spywriter:page-format',
+    margins: 'spywriter:page-margins',
+    customSize: 'spywriter:custom-page-size',
+    renderMode: 'spywriter:render-mode'
+} as const;
+
+const encodeLayoutMetadata = (value: unknown) => encodeURIComponent(JSON.stringify(value));
+
+const decodeLayoutMetadata = <T,>(raw: string | null): T | null => {
+    if (!raw) return null;
+    try {
+        return JSON.parse(decodeURIComponent(raw)) as T;
+    } catch {
+        try {
+            return JSON.parse(raw) as T;
+        } catch {
+            return null;
+        }
+    }
+};
+
+const readLayoutMetadataString = (doc: globalThis.Document, bodyFallback: ParentNode, attrName: string, metaName: string) => {
+    const bodyAttr = doc.body?.getAttribute(attrName);
+    if (bodyAttr) return bodyAttr;
+
+    const metaContent = doc.querySelector(`meta[name="${metaName}"]`)?.getAttribute('content');
+    if (metaContent) return metaContent;
+
+    if ('querySelector' in bodyFallback) {
+        const root = bodyFallback as ParentNode;
+        const wrappedRoot = root.querySelector(`[${attrName}]`) as HTMLElement | null;
+        if (wrappedRoot) return wrappedRoot.getAttribute(attrName);
+    }
+
+    return null;
+};
 
 const applyLayoutOverride = (
     cssContent: string,
     width: string,
     height: string,
-    margins: { top: number; bottom: number; left: number; right: number }
+    margins: { top: number; bottom: number; left: number; right: number },
+    options?: { preservePagePadding?: boolean }
 ) => {
+    const paddingRule = options?.preservePagePadding
+        ? ''
+        : `padding: calc(${margins.top}in + var(--header-reserve, 0in)) ${margins.right}in calc(${margins.bottom}in + var(--footer-reserve, 0in)) ${margins.left}in !important;`;
     const newCssBlock = `
 ${LAYOUT_MARKER_START}
 @page {
@@ -123,7 +191,7 @@ ${LAYOUT_MARKER_START}
     height: ${height} !important;
     min-height: ${height} !important;
     max-height: ${height} !important;
-    padding: calc(${margins.top}in + var(--header-reserve, 0in)) ${margins.right}in calc(${margins.bottom}in + var(--footer-reserve, 0in)) ${margins.left}in !important;
+    ${paddingRule}
     overflow: hidden !important;
 }
 ${LAYOUT_MARKER_END}
@@ -141,6 +209,25 @@ const normalizeSizeValue = (value: string) => {
     if (!trimmed) return '';
     if (/^\d+(\.\d+)?$/.test(trimmed)) return `${trimmed}px`;
     return trimmed;
+};
+
+const toInches = (val: string): number => {
+    const num = parseFloat(val);
+    if (isNaN(num)) return 0;
+    if (val.includes('mm')) return num / 25.4;
+    if (val.includes('cm')) return num / 2.54;
+    if (val.includes('pt')) return num / 72;
+    if (val.includes('px')) return num / 96;
+    return num;
+};
+
+const expandBoxValues = (raw: string): [string, string, string, string] | null => {
+    const tokens = raw.trim().split(/\s+/).filter(Boolean).map(normalizeSizeValue);
+    if (tokens.length === 0) return null;
+    if (tokens.length === 1) return [tokens[0], tokens[0], tokens[0], tokens[0]];
+    if (tokens.length === 2) return [tokens[0], tokens[1], tokens[0], tokens[1]];
+    if (tokens.length === 3) return [tokens[0], tokens[1], tokens[2], tokens[1]];
+    return [tokens[0], tokens[1], tokens[2], tokens[3]];
 };
 
 const PAGE_SIZE_KEYWORDS: Record<string, { width: string; height: string }> = {
@@ -209,6 +296,111 @@ const detectPageSizeFromElement = (pageEl: HTMLElement | null) => {
     return null;
 };
 
+const detectPageMarginsFromCss = (css: string) => {
+    const pageMatches = [...css.matchAll(/@page\s*{([^}]*)}/gi)];
+    if (pageMatches.length === 0) return null;
+
+    const lastBlock = pageMatches[pageMatches.length - 1][1];
+    const explicitTop = lastBlock.match(/margin-top\s*:\s*([^;]+);?/i)?.[1];
+    const explicitRight = lastBlock.match(/margin-right\s*:\s*([^;]+);?/i)?.[1];
+    const explicitBottom = lastBlock.match(/margin-bottom\s*:\s*([^;]+);?/i)?.[1];
+    const explicitLeft = lastBlock.match(/margin-left\s*:\s*([^;]+);?/i)?.[1];
+
+    if (explicitTop || explicitRight || explicitBottom || explicitLeft) {
+        const top = toInches(normalizeSizeValue(explicitTop || '0'));
+        const right = toInches(normalizeSizeValue(explicitRight || explicitLeft || explicitTop || '0'));
+        const bottom = toInches(normalizeSizeValue(explicitBottom || explicitTop || '0'));
+        const left = toInches(normalizeSizeValue(explicitLeft || explicitRight || explicitTop || '0'));
+        return { top, right, bottom, left };
+    }
+
+    const shorthand = lastBlock.match(/margin\s*:\s*([^;]+);?/i)?.[1];
+    const expanded = shorthand ? expandBoxValues(shorthand) : null;
+    if (!expanded) return null;
+    return {
+        top: toInches(expanded[0]),
+        right: toInches(expanded[1]),
+        bottom: toInches(expanded[2]),
+        left: toInches(expanded[3])
+    };
+};
+
+const hasExplicitPagePadding = (pageEl: HTMLElement | null, scopedCss: string) => {
+    if (pageEl) {
+        if (
+            pageEl.style.padding ||
+            pageEl.style.paddingTop ||
+            pageEl.style.paddingRight ||
+            pageEl.style.paddingBottom ||
+            pageEl.style.paddingLeft
+        ) {
+            return true;
+        }
+    }
+
+    const blocks = scopedCss.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+{[^{}]*}/g) || [];
+    return blocks.some(block => {
+        const open = block.indexOf('{');
+        if (open === -1) return false;
+        const selectors = block.slice(0, open).split(',').map(selector => selector.trim());
+        if (!selectors.includes('.editor-workspace .page')) return false;
+        const body = block.slice(open + 1, -1);
+        return /(^|[;\s{])padding(?:-(top|right|bottom|left))?\s*:/i.test(body);
+    });
+};
+
+const stampRenderModeOnPages = (root: ParentNode, mode: DocumentRenderMode) => {
+    const pages = Array.from(root.querySelectorAll('.page')) as HTMLElement[];
+    pages.forEach(page => {
+        if (mode === 'preserve-layout') {
+            page.setAttribute(RENDER_MODE_ATTR, mode);
+        } else {
+            page.removeAttribute(RENDER_MODE_ATTR);
+        }
+    });
+};
+
+const readStoredRenderMode = (root: ParentNode): DocumentRenderMode | null => {
+    const page = root.querySelector(`.page[${RENDER_MODE_ATTR}]`) as HTMLElement | null;
+    if (!page) return null;
+    return page.getAttribute(RENDER_MODE_ATTR) === 'preserve-layout' ? 'preserve-layout' : 'native';
+};
+
+const savePdfTextData = (textData: PdfPageText[]) => {
+    try {
+        const serialized = JSON.stringify(textData);
+        sessionStorage.setItem(PDF_TEXT_STORAGE_KEY, serialized);
+        try {
+            localStorage.setItem(PDF_TEXT_STORAGE_KEY, serialized);
+        } catch {
+            // Large PDFs can exceed localStorage; sessionStorage is enough for the current session.
+        }
+    } catch {
+        // Storage is a convenience cache. The import still works without it.
+    }
+};
+
+const loadStoredPdfTextData = (): PdfPageText[] | null => {
+    try {
+        const raw = sessionStorage.getItem(PDF_TEXT_STORAGE_KEY) || localStorage.getItem(PDF_TEXT_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as PdfPageText[];
+        if (!Array.isArray(parsed)) return null;
+        return parsed;
+    } catch {
+        return null;
+    }
+};
+
+const selectorTargetsPageContainer = (selector: string, scopeSelector: string) => {
+    const normalized = selector.replace(/\s+/g, ' ').trim();
+    const escapedScope = scopeSelector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pagePattern = new RegExp(
+        `^${escapedScope}\\s+\\.page(?:(?:[#.][\\w-]+)|(?:\\[[^\\]]+\\])|(?::[\\w-]+(?:\\([^)]*\\))?))*$`
+    );
+    return pagePattern.test(normalized);
+};
+
 const scopeImportedCss = (css: string, scopeSelector = '.editor-workspace') => {
     if (!css.trim()) return '';
     const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -259,16 +451,16 @@ const scopeImportedCss = (css: string, scopeSelector = '.editor-workspace') => {
         if (open === -1) return block;
         const selectors = block.slice(0, open).trim();
         let body = block.slice(open + 1, -1).trim();
-        const scopedSelectors = selectors
+        const scopedSelectorList = selectors
             .split(',')
             .map(prefixSelector)
-            .filter(Boolean)
-            .join(', ');
+            .filter(Boolean);
+        const scopedSelectors = scopedSelectorList.join(', ');
         if (!scopedSelectors) return '';
 
         // If the imported CSS targets the page container, strip out fixed dimensions
         // because we want our `applyLayoutOverride` to control the physical page size.
-        if (scopedSelectors.includes('.page')) {
+        if (scopedSelectorList.some(selector => selectorTargetsPageContainer(selector, scopeSelector))) {
             // Strip standalone width/height properties but NOT compound ones
             // (line-height, max-width, border-width, etc.)
             // Uses (^|[;\s{]) to match only when preceded by start/semicolon/whitespace/brace
@@ -301,8 +493,22 @@ const unwrapSingleContainer = (page: HTMLElement) => {
         || parseFloat(cs.paddingLeft) > 4 || parseFloat(cs.paddingRight) > 4;
     const hasFont = child.style.fontFamily && child.style.fontFamily.trim() !== '';
     const hasClass = child.className && child.className.trim() !== '';
+    const isPreserveLayoutPage = page.getAttribute(RENDER_MODE_ATTR) === 'preserve-layout';
+    const hasLayoutStyles = child.style.display !== ''
+        || child.style.justifyContent !== ''
+        || child.style.alignItems !== ''
+        || child.style.flexDirection !== ''
+        || child.style.gap !== ''
+        || child.style.height !== ''
+        || child.style.minHeight !== ''
+        || child.style.maxHeight !== ''
+        || child.style.overflow !== ''
+        || cs.display.includes('flex')
+        || cs.display.includes('grid')
+        || parseFloat(cs.rowGap || '0') > 0
+        || parseFloat(cs.columnGap || '0') > 0;
 
-    if (hasBg || hasBorder || hasPadding || hasFont || hasClass) {
+    if (hasBg || hasBorder || hasPadding || hasFont || hasClass || (isPreserveLayoutPage && hasLayoutStyles)) {
         return; // Preserve styled wrapper
     }
 
@@ -328,6 +534,20 @@ const fixClippedContainers = (page: HTMLElement) => {
         if (hasBg || hasBorder) return;
         if (el.classList.contains('mission-box') || el.classList.contains('shape-rectangle')
             || el.classList.contains('toc-container')) return;
+        const isPreserveLayoutPage = page.getAttribute(RENDER_MODE_ATTR) === 'preserve-layout';
+        const hasIntentionalLayoutSizing = el.style.height !== ''
+            || el.style.minHeight !== ''
+            || el.style.maxHeight !== ''
+            || el.style.display !== ''
+            || el.style.justifyContent !== ''
+            || el.style.alignItems !== ''
+            || el.style.flexDirection !== ''
+            || el.style.gap !== ''
+            || computed.display.includes('flex')
+            || computed.display.includes('grid')
+            || parseFloat(computed.rowGap || '0') > 0
+            || parseFloat(computed.columnGap || '0') > 0;
+        if (isPreserveLayoutPage && hasIntentionalLayoutSizing) return;
 
         const overflowY = computed.overflowY || computed.overflow;
         const overflowX = computed.overflowX || computed.overflow;
@@ -471,10 +691,14 @@ const App: React.FC = () => {
         cssContent: DEFAULT_CSS,
         fileName: 'untitled_mission.html'
     });
+    const [documentRenderMode, setDocumentRenderMode] = useState<DocumentRenderMode>('native');
 
     const { availableFonts, fontUploadMessage, handleReloadFonts, handleAddFont } = useFontManager();
 
     const [structureEntries, setStructureEntries] = useState<StructureEntry[]>([]);
+    const structureEntriesRef = useRef<StructureEntry[]>([]);
+    useEffect(() => { structureEntriesRef.current = structureEntries; }, [structureEntries]);
+    const [pdfTextData, setPdfTextData] = useState<PdfPageText[] | null>(null);
 
     // Manual Structure Selection State
     const [selectionMode, setSelectionMode] = useState<{ active: boolean; level: string | null; selectedIds: string[] }>({
@@ -589,12 +813,14 @@ const App: React.FC = () => {
     const [tocMappingRows, setTocMappingRows] = useState<TOCMappingRow[]>([]);
     const [tocMappingHeadings, setTocMappingHeadings] = useState<DocumentHeading[]>([]);
     const tocSelectedPagesRef = useRef<HTMLElement[]>([]);
+    const pendingPdfTocDraftRef = useRef<PdfTocDraft | null>(null);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isAutoLogModalOpen, setIsAutoLogModalOpen] = useState(false);
     const [isPageNumberModalOpen, setIsPageNumberModalOpen] = useState(false);
     const [pageAnchors, setPageAnchors] = useState<PageAnchor[]>([]);
 
     const [showFrameTools, setShowFrameTools] = useState(false);
+    const [pdfTocControlsVersion, setPdfTocControlsVersion] = useState(0);
     const [showOverlays, setShowOverlays] = useState(true);
     const [bwMode, setBwMode] = useState(false);
     const [bwBrightness, setBwBrightness] = useState(100);
@@ -677,6 +903,15 @@ const App: React.FC = () => {
     }, [docState]);
 
     useEffect(() => {
+        if (pdfTextData && pdfTextData.length > 0) return;
+        if (!docState.htmlContent.includes('data-pdf-page="true"')) return;
+        const stored = loadStoredPdfTextData();
+        if (stored && stored.length > 0) {
+            setPdfTextData(stored);
+        }
+    }, [docState.htmlContent, pdfTextData]);
+
+    useEffect(() => {
         historyRef.current = history;
     }, [history]);
 
@@ -742,6 +977,7 @@ const App: React.FC = () => {
         showMarginGuides, setShowMarginGuides,
         showSmartGuides, setShowSmartGuides,
         handlePageSizeChange, updateGutterForPageCount, handleCustomPageSizeChange, handleMarginChange,
+        syncLayoutState,
         updatePageCSS
     } = usePageLayout({
         applyLayoutOverride,
@@ -865,6 +1101,258 @@ const App: React.FC = () => {
         }
     };
 
+    const getSelectedPdfTocOverlays = (): HTMLElement[] => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        const targets = new Set<HTMLElement>();
+
+        const addTarget = (candidate: Node | Element | null | undefined) => {
+            if (!candidate) return;
+            const element = candidate instanceof Element
+                ? candidate
+                : candidate.nodeType === Node.TEXT_NODE
+                    ? candidate.parentElement
+                    : null;
+            const overlay = element?.closest('[data-pdf-toc-overlay="true"]') as HTMLElement | null;
+            if (overlay && (!workspace || workspace.contains(overlay))) {
+                targets.add(overlay);
+            }
+        };
+
+        addTarget(activeBlockRef.current);
+        addTarget(activeBlock);
+
+        workspace
+            ?.querySelectorAll('[data-pdf-toc-overlay="true"][data-selected="true"]')
+            .forEach(node => addTarget(node));
+
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+            addTarget(selection.getRangeAt(0).commonAncestorContainer);
+        }
+
+        return Array.from(targets);
+    };
+
+    const getPdfTocOverlayGroupTargets = (): HTMLElement[] => {
+        const selectedOverlays = getSelectedPdfTocOverlays();
+        const pages = new Set<HTMLElement>();
+
+        selectedOverlays.forEach(overlay => {
+            const page = overlay.closest('.page') as HTMLElement | null;
+            if (page) pages.add(page);
+        });
+
+        if (pages.size === 0) {
+            const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+            workspace
+                ?.querySelectorAll('[data-pdf-toc-overlay="true"][data-selected="true"]')
+                .forEach(node => {
+                    const page = (node as HTMLElement).closest('.page') as HTMLElement | null;
+                    if (page) pages.add(page);
+                });
+        }
+
+        const targets: HTMLElement[] = [];
+        pages.forEach(page => {
+            targets.push(...Array.from(page.querySelectorAll('[data-pdf-toc-overlay="true"]')) as HTMLElement[]);
+        });
+
+        return targets.length > 0 ? targets : selectedOverlays;
+    };
+
+    const readPdfTocOverlayGroupMetrics = () => {
+        // Accessing this state here intentionally re-renders the panel after DOM-only slider updates.
+        void pdfTocControlsVersion;
+
+        const targets = getPdfTocOverlayGroupTargets();
+        if (targets.length === 0) return null;
+
+        const first = targets[0];
+        const computed = window.getComputedStyle(first);
+        const left = parseFloat(first.style.left || computed.left || '0');
+        const width = parseFloat(first.style.width || computed.width || '5');
+        const fontSize = parseFloat(first.style.fontSize || computed.fontSize || '12');
+        const align = first.getAttribute('data-pdf-toc-align') || 'right';
+
+        return {
+            count: targets.length,
+            left: Number.isFinite(left) ? left : 0,
+            width: Number.isFinite(width) ? width : 5,
+            fontSize: Number.isFinite(fontSize) ? fontSize : 12,
+            align: align === 'left' || align === 'center' ? align : 'right'
+        };
+    };
+
+    const updatePdfTocOverlayGroup = (updates: {
+        leftPct?: number;
+        leftDeltaPct?: number;
+        topDeltaPct?: number;
+        widthPct?: number;
+        fontSizePx?: number;
+        align?: 'left' | 'center' | 'right';
+    }) => {
+        const targets = getPdfTocOverlayGroupTargets();
+        if (targets.length === 0) return;
+
+        const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+        targets.forEach(overlay => {
+            if (updates.leftPct !== undefined || updates.leftDeltaPct !== undefined) {
+                const currentLeft = parseFloat(overlay.style.left || '0');
+                const nextLeft = updates.leftPct !== undefined
+                    ? updates.leftPct
+                    : (Number.isFinite(currentLeft) ? currentLeft : 0) + (updates.leftDeltaPct || 0);
+                overlay.style.left = `${clamp(nextLeft, 0, 98)}%`;
+            }
+
+            if (updates.topDeltaPct !== undefined) {
+                const currentTop = parseFloat(overlay.style.top || '0');
+                overlay.style.top = `${clamp((Number.isFinite(currentTop) ? currentTop : 0) + updates.topDeltaPct, 0, 98)}%`;
+            }
+
+            if (updates.widthPct !== undefined) {
+                overlay.style.width = `${clamp(updates.widthPct, 1.5, 24)}%`;
+            }
+
+            if (updates.fontSizePx !== undefined) {
+                const fontSize = clamp(updates.fontSizePx, 5, 48);
+                const pageSpan = overlay.querySelector('.toc-dyn-page') as HTMLElement | null;
+                overlay.style.setProperty('font-size', `${fontSize}px`, 'important');
+                pageSpan?.style.setProperty('font-size', `${fontSize}px`, 'important');
+            }
+
+            if (updates.align) {
+                overlay.style.justifyContent = updates.align === 'left'
+                    ? 'flex-start'
+                    : updates.align === 'center'
+                        ? 'center'
+                        : 'flex-end';
+                overlay.style.textAlign = updates.align;
+                overlay.setAttribute('data-pdf-toc-align', updates.align);
+            }
+        });
+
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (workspace) {
+            updateDocStatePreserveScroll(workspace.innerHTML);
+        }
+        setPdfTocControlsVersion(version => version + 1);
+    };
+
+    const applyPdfTocOverlayFormat = (command: string, value?: string): boolean => {
+        const overlays = getSelectedPdfTocOverlays();
+        if (overlays.length === 0) return false;
+
+        const supportedCommands = new Set([
+            'fontName',
+            'fontSize',
+            'foreColor',
+            'bold',
+            'italic',
+            'underline',
+            'lineHeight',
+            'letterSpacing',
+            'textTransform',
+            'justifyLeft',
+            'justifyCenter',
+            'justifyRight',
+            'justifyFull'
+        ]);
+        if (!supportedCommands.has(command)) return false;
+
+        const sizeValue = value || selectionState.fontSize || '16pt';
+        const normalizedSize = (!sizeValue.includes('pt') && !sizeValue.includes('px') && !sizeValue.includes('em'))
+            ? `${sizeValue}pt`
+            : sizeValue;
+
+        let nextTextAlign: 'left' | 'center' | 'right' | 'justify' | null = null;
+
+        overlays.forEach(overlay => {
+            const numberSpan = overlay.querySelector('.toc-dyn-page') as HTMLElement | null;
+            const textTarget = numberSpan || overlay;
+
+            if (command === 'fontSize') {
+                overlay.style.setProperty('font-size', normalizedSize, 'important');
+                textTarget.style.setProperty('font-size', normalizedSize, 'important');
+            } else if (command === 'fontName' && value) {
+                overlay.style.fontFamily = value;
+                textTarget.style.fontFamily = value;
+            } else if (command === 'foreColor' && value) {
+                overlay.style.color = value;
+                textTarget.style.color = value;
+            } else if (command === 'bold') {
+                const currentWeight = window.getComputedStyle(textTarget).fontWeight;
+                const isBold = currentWeight === 'bold' || parseInt(currentWeight, 10) >= 600;
+                const nextWeight = isBold ? '400' : '700';
+                overlay.style.fontWeight = nextWeight;
+                textTarget.style.fontWeight = nextWeight;
+            } else if (command === 'italic') {
+                const isItalic = window.getComputedStyle(textTarget).fontStyle.includes('italic');
+                overlay.style.fontStyle = isItalic ? 'normal' : 'italic';
+                textTarget.style.fontStyle = isItalic ? 'normal' : 'italic';
+            } else if (command === 'underline') {
+                const hasUnderline = window.getComputedStyle(textTarget).textDecorationLine.includes('underline');
+                overlay.style.textDecoration = hasUnderline ? 'none' : 'underline';
+                textTarget.style.textDecoration = hasUnderline ? 'none' : 'underline';
+            } else if (command === 'lineHeight') {
+                overlay.style.lineHeight = value || '1';
+                textTarget.style.lineHeight = value || '1';
+            } else if (command === 'letterSpacing') {
+                overlay.style.letterSpacing = value || 'normal';
+                textTarget.style.letterSpacing = value || 'normal';
+            } else if (command === 'textTransform') {
+                overlay.style.textTransform = value || 'none';
+                textTarget.style.textTransform = value || 'none';
+            } else if (command === 'justifyLeft' || command === 'justifyCenter' || command === 'justifyRight' || command === 'justifyFull') {
+                const align = command === 'justifyLeft'
+                    ? 'left'
+                    : command === 'justifyCenter'
+                        ? 'center'
+                        : command === 'justifyRight'
+                            ? 'right'
+                            : 'justify';
+                const justifyContent = align === 'left'
+                    ? 'flex-start'
+                    : align === 'center'
+                        ? 'center'
+                        : 'flex-end';
+
+                overlay.style.justifyContent = justifyContent;
+                overlay.style.textAlign = align === 'justify' ? 'right' : align;
+                overlay.setAttribute('data-pdf-toc-align', align === 'justify' ? 'right' : align);
+                nextTextAlign = align;
+            }
+        });
+
+        if (command === 'fontSize') {
+            setSelectionState(prev => ({ ...prev, fontSize: sizeValue.replace('pt', '').replace('px', '') }));
+        } else if (command === 'fontName' && value) {
+            setSelectionState(prev => ({ ...prev, fontName: value }));
+        } else if (command === 'foreColor' && value) {
+            setSelectionState(prev => ({ ...prev, foreColor: value }));
+        } else if (command === 'lineHeight') {
+            setSelectionState(prev => ({ ...prev, lineHeight: value || '1' }));
+        } else if (command === 'letterSpacing') {
+            setSelectionState(prev => ({ ...prev, letterSpacing: value || 'normal' }));
+        } else if (nextTextAlign) {
+            setSelectionState(prev => ({
+                ...prev,
+                textAlign: nextTextAlign === 'justify' ? 'right' : nextTextAlign,
+                alignLeft: nextTextAlign === 'left',
+                alignCenter: nextTextAlign === 'center',
+                alignRight: nextTextAlign === 'right' || nextTextAlign === 'justify',
+                alignJustify: false
+            }));
+        }
+
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (workspace) {
+            updateDocStatePreserveScroll(workspace.innerHTML);
+        }
+
+        return true;
+    };
+
 
     // Parse HTML to count pages when content changes (for initial load / state-driven updates)
     useEffect(() => {
@@ -937,14 +1425,52 @@ const App: React.FC = () => {
         if (files.length === 0) return;
 
         // 1. Find the main document file
-        const docFile = files.find(f => f.name.endsWith('.html') || f.name.endsWith('.htm') || f.name.endsWith('.docx'));
+        const docFile = files.find(f => f.name.endsWith('.html') || f.name.endsWith('.htm') || f.name.endsWith('.docx') || f.name.endsWith('.pdf'));
         if (!docFile) {
-            alert("Please select an HTML or DOCX file.");
+            alert("Please select an HTML, DOCX, or PDF file.");
             return;
         }
 
         // 2. Process based on type
-        if (docFile.name.endsWith('.docx')) {
+        if (docFile.name.endsWith('.pdf')) {
+            // PDF Import: render each page as a high-res image
+            try {
+                const result = await importPdf(docFile, (pct) => {
+                    console.log(`[PDF Import] ${pct}%`);
+                });
+
+                // Build CSS that removes padding on PDF pages for full-bleed images
+                let pdfCss = `${DEFAULT_CSS}\n/* PDF imported pages */\n.page[data-pdf-page="true"] { padding: 0 !important; overflow: hidden; }`;
+
+                // Sync editor page format to match the PDF's actual page dimensions
+                if (result.detectedSize) {
+                    const zeroMargins = { top: 0, bottom: 0, left: 0, right: 0 };
+                    syncLayoutState('custom', result.detectedSize, zeroMargins, { autoGutterEnabled: false });
+                    pdfCss = applyLayoutOverride(pdfCss, result.detectedSize.width, result.detectedSize.height, zeroMargins);
+                }
+
+                const newState = {
+                    htmlContent: result.htmlContent,
+                    cssContent: pdfCss,
+                    fileName: docFile.name
+                };
+                setDocumentRenderMode('preserve-layout');
+                updateDocState(newState, true);
+                resetHistory(newState);
+                console.log(`[PDF Import] Done — ${result.pageCount} pages imported (${result.detectedSize?.width} × ${result.detectedSize?.height})`);
+
+                // Store extracted text for heading detection
+                if (result.textByPage && result.textByPage.length > 0) {
+                    setPdfTextData(result.textByPage);
+                    savePdfTextData(result.textByPage);
+                    console.log(`[PDF Import] Text extracted from ${result.textByPage.filter(p => p.items.length > 0).length} pages`);
+                }
+            } catch (err) {
+                console.error('[PDF Import] Error:', err);
+                alert('Error importing PDF. Please try again.');
+            }
+        }
+        else if (docFile.name.endsWith('.docx')) {
             // ... (Existing Mammoth Logic)
             const reader = new FileReader();
             reader.onload = (event) => {
@@ -960,6 +1486,7 @@ const App: React.FC = () => {
                                     cssContent: DEFAULT_CSS,
                                     fileName: docFile.name
                                 };
+                                setDocumentRenderMode('native');
                                 updateDocState(newState, true);
                             })
                             .catch((err: unknown) => { console.error(err); alert("Error converting Word document."); });
@@ -1001,6 +1528,40 @@ const App: React.FC = () => {
                 reader.readAsText(file);
             })));
 
+            // B2. Load companion font files: filename -> DataURL
+            const fontMap = new Map<string, string>();
+            const fontFiles = files.filter(f => /\.(ttf|otf|woff2?)$/i.test(f.name));
+
+            await Promise.all(fontFiles.map(file => new Promise<void>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    if (evt.target?.result) {
+                        fontMap.set(file.name, evt.target.result as string);
+                        // Also store decoded name for case-insensitive matching
+                        fontMap.set(decodeURIComponent(file.name), evt.target.result as string);
+                    }
+                    resolve();
+                };
+                reader.readAsDataURL(file);
+            })));
+
+            // B2.5. Also populate fontMap with already installed fonts from DB/Storage
+            try {
+                const dbFonts = await loadFontsFromDb();
+                const storageFonts = loadFontsFromStorage();
+                const allCustomFonts = [...dbFonts, ...storageFonts];
+                allCustomFonts.forEach(font => {
+                    const extVariations = ['.ttf', '.otf', '.woff', '.woff2'];
+                    extVariations.forEach(ext => {
+                        const nameWithExt = `${font.name}${ext}`;
+                        fontMap.set(nameWithExt, font.dataUrl);
+                        fontMap.set(nameWithExt.toLowerCase(), font.dataUrl);
+                    });
+                });
+            } catch {
+                // Ignore storage fetch errors
+            }
+
             // C. Read and parse HTML
             const reader = new FileReader();
             reader.onload = (event) => {
@@ -1021,8 +1582,12 @@ const App: React.FC = () => {
                     // Extract linked CSS <link rel="stylesheet">
                     const linkTags = Array.from(doc.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
                     let linkedCss = '';
+                    const googleFontHrefs: string[] = [];
                     linkTags.forEach(link => {
                         const href = link.getAttribute('href') || '';
+                        if (href.includes('fonts.googleapis.com')) {
+                            googleFontHrefs.push(href.startsWith('//') ? 'https:' + href : href);
+                        }
                         const rawFilename = href.split(/[\\/]/).pop();
                         const decodedFilename = rawFilename ? decodeURIComponent(rawFilename) : '';
 
@@ -1033,7 +1598,15 @@ const App: React.FC = () => {
                         }
 
                         if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('//')) {
-                            linkedCss += `@import url("${href}");\n`;
+                            if (href.includes('fonts.googleapis.com')) {
+                                const liveLink = document.createElement('link');
+                                liveLink.rel = 'stylesheet';
+                                liveLink.href = href.startsWith('//') ? 'https:' + href : href;
+                                liveLink.setAttribute('data-imported-font', 'true');
+                                document.head.appendChild(liveLink);
+                            } else {
+                                linkedCss += `@import url("${href}");\n`;
+                            }
                             link.remove();
                         }
                     });
@@ -1130,29 +1703,40 @@ const App: React.FC = () => {
                     bodyContent = tempDiv.innerHTML;
 
                     // Restore layout metadata from a previous export (round-trip fidelity)
-                    const savedFormat = tempDiv.getAttribute('data-page-format');
-                    const savedMargins = tempDiv.getAttribute('data-page-margins');
-                    const savedCustomSize = tempDiv.getAttribute('data-custom-page-size');
-                    if (savedFormat) {
-                        handlePageSizeChange(savedFormat);
-                        tempDiv.removeAttribute('data-page-format');
-                    }
+                    const savedFormat = readLayoutMetadataString(doc, tempDiv, PAGE_FORMAT_ATTR, LAYOUT_META_NAMES.format);
+                    const savedMargins = readLayoutMetadataString(doc, tempDiv, PAGE_MARGINS_ATTR, LAYOUT_META_NAMES.margins);
+                    const savedCustomSize = readLayoutMetadataString(doc, tempDiv, CUSTOM_PAGE_SIZE_ATTR, LAYOUT_META_NAMES.customSize);
+                    const savedRenderModeFromDoc = readLayoutMetadataString(doc, tempDiv, RENDER_MODE_ATTR, LAYOUT_META_NAMES.renderMode);
+                    const savedRenderMode = savedRenderModeFromDoc === 'native' || savedRenderModeFromDoc === 'preserve-layout'
+                        ? savedRenderModeFromDoc
+                        : readStoredRenderMode(tempDiv);
+                    let importedMarginsFromMetadata: { top: number; bottom: number; left: number; right: number } | null = null;
+                    let importedCustomSizeFromMetadata: { width: string; height: string } | null = null;
+
                     if (savedMargins) {
-                        try {
-                            const m = JSON.parse(savedMargins);
-                            if (m.top !== undefined) handleMarginChange('top', m.top);
-                            if (m.bottom !== undefined) handleMarginChange('bottom', m.bottom);
-                            if (m.left !== undefined) handleMarginChange('left', m.left);
-                            if (m.right !== undefined) handleMarginChange('right', m.right);
-                        } catch { /* ignore */ }
-                        tempDiv.removeAttribute('data-page-margins');
+                        const parsed = decodeLayoutMetadata<{ top: number; bottom: number; left: number; right: number }>(savedMargins);
+                        if (
+                            parsed &&
+                            typeof parsed.top === 'number' &&
+                            typeof parsed.bottom === 'number' &&
+                            typeof parsed.left === 'number' &&
+                            typeof parsed.right === 'number'
+                        ) {
+                            importedMarginsFromMetadata = parsed;
+                        }
+                        tempDiv.removeAttribute(PAGE_MARGINS_ATTR);
                     }
+
                     if (savedCustomSize) {
-                        try {
-                            const cs = JSON.parse(savedCustomSize);
-                            if (cs.width && cs.height) handleCustomPageSizeChange(cs.width, cs.height);
-                        } catch { /* ignore */ }
-                        tempDiv.removeAttribute('data-custom-page-size');
+                        const parsed = decodeLayoutMetadata<{ width: string; height: string }>(savedCustomSize);
+                        if (parsed?.width && parsed?.height) {
+                            importedCustomSizeFromMetadata = parsed;
+                        }
+                        tempDiv.removeAttribute(CUSTOM_PAGE_SIZE_ATTR);
+                    }
+
+                    if (savedFormat) {
+                        tempDiv.removeAttribute(PAGE_FORMAT_ATTR);
                     }
 
                     if (!tempDiv.querySelector('.page')) {
@@ -1162,53 +1746,156 @@ const App: React.FC = () => {
                         bodyContent = tempDiv.innerHTML;
                     }
 
-                    const rawImportedCss = `${linkedCss}\n${inlineCss}`.trim();
-                    const detectedSize = detectPageSizeFromElement(tempDiv.querySelector('.page'))
-                        || detectPageSizeFromCss(rawImportedCss);
-                    const activeFormat = Object.values(PAGE_FORMATS).find(f => f.id === pageFormatId);
-                    const fallbackSize = pageFormatId === 'custom'
-                        ? customPageSize
-                        : { width: activeFormat?.width || '8.5in', height: activeFormat?.height || '11in' };
-                    const targetSize = detectedSize || fallbackSize;
+                    let rawImportedCss = `${linkedCss}\n${inlineCss}`.trim();
 
-                    const scopedImportedCss = scopeImportedCss(rawImportedCss, '.editor-workspace');
-                    let finalCss = `${DEFAULT_CSS}\n${scopedImportedCss}`.trim();
+                    // B3. Rewrite @font-face url() references to use companion font data URIs
+                    if (fontMap.size > 0) {
+                        rawImportedCss = rawImportedCss.replace(
+                            /url\(['"]?([^)'"]+(\.(ttf|otf|woff2?)))['"]?\)/gi,
+                            (match, fullPath) => {
+                                const filename = fullPath.split(/[\\/]/).pop() || '';
+                                const decoded = decodeURIComponent(filename);
+                                const dataUrl = fontMap.get(filename) || fontMap.get(decoded);
+                                if (dataUrl) {
+                                    return `url(${dataUrl})`;
+                                }
+                                return match; // keep original if no companion file found
+                            }
+                        );
+                    }
 
-                    // Determine the correct format and margins to use for the layout
-                    let importMargins = pageMargins;
-                    if (detectedSize) {
-                        // Match detected size against known formats before falling back to 'custom'
-                        const sizeToInches = (val: string): number => {
-                            const num = parseFloat(val);
-                            if (isNaN(num)) return 0;
-                            if (val.includes('mm')) return num / 25.4;
-                            if (val.includes('cm')) return num / 2.54;
-                            if (val.includes('pt')) return num / 72;
-                            if (val.includes('px')) return num / 96;
-                            return num; // assumes 'in' or unitless
-                        };
-                        const detectedW = sizeToInches(targetSize.width);
-                        const detectedH = sizeToInches(targetSize.height);
-                        const tolerance = 0.1; // Allow small rounding differences
+                    // B4. Extract font families from @font-face, @import, and <link> Google Fonts
+                    const extractedFontFamilies = new Set<string>();
 
-                        // Find the first matching known format (skip 'custom')
-                        const matchedFormat = Object.values(PAGE_FORMATS).find(f => {
-                            if (f.id === 'custom') return false;
-                            const fw = sizeToInches(f.width);
-                            const fh = sizeToInches(f.height);
-                            return Math.abs(fw - detectedW) < tolerance && Math.abs(fh - detectedH) < tolerance;
+                    // Parse @font-face { font-family: 'Name' }
+                    const fontFaceBlocks = rawImportedCss.match(/@font-face\s*\{[^}]*\}/gi) || [];
+                    fontFaceBlocks.forEach(block => {
+                        const familyMatch = block.match(/font-family\s*:\s*['"]?([^;'"]+)['"]?\s*[;\}]/i);
+                        if (familyMatch) {
+                            extractedFontFamilies.add(familyMatch[1].trim());
+                        }
+                    });
+
+                    // Parse Google Fonts URLs from @import and <link> for family names
+                    const googleFontUrls = rawImportedCss.match(/url\(['"]?(https:\/\/fonts\.googleapis\.com\/css2?[^)'"]*)['")?]/gi) || [];
+                    googleFontUrls.forEach(urlMatch => {
+                        const urlInner = urlMatch.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
+                        try {
+                            const url = new URL(urlInner);
+                            const familyParam = url.searchParams.get('family') || '';
+                            // Google Fonts URL: family=Playfair+Display:wght@400;700&family=Inter:wght@300
+                            familyParam.split('&family=').forEach(part => {
+                                const familyName = part.split(':')[0].replace(/\+/g, ' ').trim();
+                                if (familyName) extractedFontFamilies.add(familyName);
+                            });
+                        } catch { /* ignore invalid URLs */ }
+                    });
+
+                    // Also register fonts from any Google Fonts <link> tags we captured earlier
+                    googleFontHrefs.forEach(href => {
+                        try {
+                            const url = new URL(href);
+                            const familyParam = url.searchParams.get('family') || '';
+                            familyParam.split('&family=').forEach(part => {
+                                const familyName = part.split(':')[0].replace(/\+/g, ' ').trim();
+                                if (familyName) extractedFontFamilies.add(familyName);
+                            });
+                        } catch { /* ignore */ }
+                    });
+
+                    // Register all extracted font families in the font picker
+                    if (extractedFontFamilies.size > 0) {
+                        // For @font-face fonts with embedded/companion data, load via FontFace API
+                        fontFaceBlocks.forEach(block => {
+                            const familyMatch = block.match(/font-family\s*:\s*['"]?([^;'"]+)['"]?\s*[;\}]/i);
+                            const srcMatch = block.match(/src\s*:\s*([^;]+);/i);
+                            if (familyMatch && srcMatch) {
+                                const name = familyMatch[1].trim();
+                                const srcValue = srcMatch[1].trim();
+                                try {
+                                    const fontFace = new FontFace(name, srcValue);
+                                    fontFace.load().then(() => {
+                                        document.fonts.add(fontFace);
+                                    }).catch(() => { /* font may load via CSS instead */ });
+                                } catch { /* ignore parse errors */ }
+                            }
                         });
 
-                        if (matchedFormat) {
-                            handlePageSizeChange(matchedFormat.id);
-                            importMargins = matchedFormat.margins;
-                        } else {
-                            handleCustomPageSizeChange(targetSize.width, targetSize.height);
+                        // Update the font picker list (immediately + after all fonts loaded)
+                        requestAnimationFrame(() => {
+                            handleReloadFonts();
+                        });
+                        // Google Fonts loaded via @import may take time to download
+                        document.fonts.ready.then(() => {
+                            handleReloadFonts();
+                        });
+                    }
+
+                    const scopedImportedCss = scopeImportedCss(rawImportedCss, '.editor-workspace');
+                    const detectedSize = detectPageSizeFromElement(tempDiv.querySelector('.page'))
+                        || detectPageSizeFromCss(rawImportedCss);
+                    const detectedPageMargins = detectPageMarginsFromCss(rawImportedCss);
+                    const importedRenderMode: DocumentRenderMode = savedRenderMode
+                        || (savedFormat || importedMarginsFromMetadata || importedCustomSizeFromMetadata ? 'native' : 'preserve-layout');
+
+                    let importFormatId = savedFormat || pageFormatId;
+                    let importCustomSize = importedCustomSizeFromMetadata || customPageSize;
+                    let importMargins = importedMarginsFromMetadata
+                        || (importedRenderMode === 'preserve-layout' && detectedPageMargins ? detectedPageMargins : pageMargins);
+
+                    if (detectedSize) {
+                        const detectedW = toInches(detectedSize.width);
+                        const detectedH = toInches(detectedSize.height);
+                        const tolerance = 0.1;
+
+                        const matchedFormat = Object.values(PAGE_FORMATS).find(f => {
+                            if (f.id === 'custom') return false;
+                            return Math.abs(toInches(f.width) - detectedW) < tolerance
+                                && Math.abs(toInches(f.height) - detectedH) < tolerance;
+                        });
+
+                        if (!savedFormat) {
+                            if (matchedFormat) {
+                                importFormatId = matchedFormat.id;
+                                if (!importedMarginsFromMetadata && importedRenderMode !== 'preserve-layout') {
+                                    importMargins = matchedFormat.margins;
+                                }
+                            } else {
+                                importFormatId = 'custom';
+                                importCustomSize = detectedSize;
+                            }
+                        } else if (importFormatId === 'custom') {
+                            importCustomSize = detectedSize;
                         }
                     }
 
-                    // Apply layout override with the correct dimensions and margins
-                    finalCss = applyLayoutOverride(finalCss, targetSize.width, targetSize.height, importMargins);
+                    const activeFormat = Object.values(PAGE_FORMATS).find(f => f.id === importFormatId);
+                    const targetSize = detectedSize || (
+                        importFormatId === 'custom'
+                            ? importCustomSize
+                            : { width: activeFormat?.width || '8.5in', height: activeFormat?.height || '11in' }
+                    );
+                    const shouldPreserveImportedMargins = !!importedMarginsFromMetadata
+                        || (importedRenderMode === 'preserve-layout' && !!detectedPageMargins);
+
+                    syncLayoutState(importFormatId, importCustomSize, importMargins, {
+                        autoGutterEnabled: !shouldPreserveImportedMargins
+                    });
+                    setDocumentRenderMode(importedRenderMode);
+
+                    const baseCss = importedRenderMode === 'preserve-layout'
+                        ? PRESERVE_LAYOUT_CSS
+                        : DEFAULT_CSS;
+                    let finalCss = `${baseCss}\n${scopedImportedCss}`.trim();
+                    finalCss = applyLayoutOverride(finalCss, targetSize.width, targetSize.height, importMargins, {
+                        preservePagePadding: importedRenderMode === 'preserve-layout'
+                            && hasExplicitPagePadding(tempDiv.querySelector('.page'), scopedImportedCss)
+                    });
+
+                    const importRoot = document.createElement('div');
+                    importRoot.innerHTML = bodyContent;
+                    stampRenderModeOnPages(importRoot, importedRenderMode);
+                    bodyContent = importRoot.innerHTML;
 
                     const newState = {
                         htmlContent: bodyContent,
@@ -1327,6 +2014,73 @@ const App: React.FC = () => {
         // Reset input
         e.target.value = '';
     };
+
+    // ─── Page Management Functions ─────────────────────────────────────────────
+
+    const handleDuplicatePage = (pageIndex: number) => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return;
+        const pages = Array.from(workspace.querySelectorAll(':scope > .page')) as HTMLElement[];
+        if (!pages[pageIndex]) return;
+        const clone = pages[pageIndex].cloneNode(true) as HTMLElement;
+        // Insert after the original
+        if (pages[pageIndex].nextSibling) {
+            workspace.insertBefore(clone, pages[pageIndex].nextSibling);
+        } else {
+            workspace.appendChild(clone);
+        }
+        updateDocState({ ...latestDocStateRef.current, htmlContent: workspace.innerHTML }, true);
+    };
+
+    const handleDeletePage = (pageIndex: number) => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return;
+        const pages = Array.from(workspace.querySelectorAll(':scope > .page')) as HTMLElement[];
+        if (pages.length <= 1) {
+            alert('Cannot delete the last remaining page.');
+            return;
+        }
+        if (!pages[pageIndex]) return;
+        pages[pageIndex].remove();
+        updateDocState({ ...latestDocStateRef.current, htmlContent: workspace.innerHTML }, true);
+    };
+
+    const handleMovePage = (fromIndex: number, toIndex: number) => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return;
+        const pages = Array.from(workspace.querySelectorAll(':scope > .page')) as HTMLElement[];
+        if (toIndex < 0 || toIndex >= pages.length || !pages[fromIndex]) return;
+        const movingPage = pages[fromIndex];
+        if (toIndex < fromIndex) {
+            workspace.insertBefore(movingPage, pages[toIndex]);
+        } else {
+            // Insert after toIndex
+            const afterEl = pages[toIndex];
+            if (afterEl.nextSibling) {
+                workspace.insertBefore(movingPage, afterEl.nextSibling);
+            } else {
+                workspace.appendChild(movingPage);
+            }
+        }
+        updateDocState({ ...latestDocStateRef.current, htmlContent: workspace.innerHTML }, true);
+    };
+
+    const handleInsertBlankPage = (afterIndex: number) => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return;
+        const pages = Array.from(workspace.querySelectorAll(':scope > .page')) as HTMLElement[];
+        const blankPage = document.createElement('div');
+        blankPage.className = 'page';
+        blankPage.innerHTML = '<p><br></p>';
+        if (pages[afterIndex] && pages[afterIndex].nextSibling) {
+            workspace.insertBefore(blankPage, pages[afterIndex].nextSibling);
+        } else {
+            workspace.appendChild(blankPage);
+        }
+        updateDocState({ ...latestDocStateRef.current, htmlContent: workspace.innerHTML }, true);
+    };
+
+    // ─── End Page Management ──────────────────────────────────────────────────
 
     const handleCaptureSelection = () => {
         const selection = window.getSelection();
@@ -2329,7 +3083,25 @@ const App: React.FC = () => {
         multiSelectedElements.forEach(id => {
             const el = document.getElementById(id);
             if (!el) return;
+            const pdfTocOverlay = el.closest('[data-pdf-toc-overlay="true"]') as HTMLElement | null;
             Object.entries(styles).forEach(([key, val]) => {
+                if (pdfTocOverlay) {
+                    const numberSpan = pdfTocOverlay.querySelector('.toc-dyn-page') as HTMLElement | null;
+                    if (key === 'text-align') {
+                        const align = val === 'center' ? 'center' : val === 'left' ? 'left' : 'right';
+                        pdfTocOverlay.style.justifyContent = align === 'left'
+                            ? 'flex-start'
+                            : align === 'center'
+                                ? 'center'
+                                : 'flex-end';
+                        pdfTocOverlay.style.textAlign = align;
+                        pdfTocOverlay.setAttribute('data-pdf-toc-align', align);
+                    }
+                    pdfTocOverlay.style.setProperty(key, val, 'important');
+                    numberSpan?.style.setProperty(key, val, 'important');
+                    return;
+                }
+
                 el.style.setProperty(key, val, 'important');
             });
         });
@@ -2391,6 +3163,10 @@ const App: React.FC = () => {
 
         if (command === 'deleteFooter') {
             handleRemoveFooter();
+            return;
+        }
+
+        if (applyPdfTocOverlayFormat(command, value)) {
             return;
         }
 
@@ -2473,7 +3249,7 @@ const App: React.FC = () => {
 
         if (command === 'lineHeight') {
             if (applyStyleToSelectionRange({ 'line-height': value || 'normal' })) {
-
+                setSelectionState(prev => ({ ...prev, lineHeight: value || 'normal' }));
                 return;
             }
         }
@@ -2724,34 +3500,45 @@ const App: React.FC = () => {
         }
 
         if (command === 'lineHeight') {
+            restoreSelection();
+            const workspace = document.querySelector('.editor-workspace');
+            const selection = window.getSelection();
+            let range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+            if ((!range || range.collapsed) && selectionState.range) {
+                range = selectionState.range;
+            }
+            if (range && workspace && !workspace.contains(range.commonAncestorContainer)) {
+                range = null;
+            }
+
             // 1. Recover activeBlock if detached (use ref for fresh value)
             let targetBlock = activeBlockRef.current;
             if (targetBlock && !targetBlock.isConnected) {
-                const selection = window.getSelection();
-                if (selection && selection.rangeCount > 0) {
-                    const node = selection.getRangeAt(0).commonAncestorContainer;
+                if (range) {
+                    const node = range.commonAncestorContainer;
                     const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
-                    targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
+                    targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, .writing-lines, textarea.writing-lines, div:not(.page):not(.editor-workspace)') as HTMLElement | null;
                 }
             }
 
             // 2. Fallback to current selection if no activeBlock
             if (!targetBlock) {
-                const selection = window.getSelection();
-                if (selection && selection.rangeCount > 0) {
-                    const node = selection.getRangeAt(0).commonAncestorContainer;
+                if (range) {
+                    const node = range.commonAncestorContainer;
                     const el = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
-                    targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page):not(.editor-workspace), li, blockquote') as HTMLElement | null;
+                    targetBlock = el?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, .writing-lines, textarea.writing-lines, div:not(.page):not(.editor-workspace)') as HTMLElement | null;
                 }
+            }
+
+            if (!targetBlock) {
+                targetBlock = selectedTextLayer || (activeBlock && activeBlock.tagName !== 'IMG' ? activeBlock : null);
             }
 
             if (targetBlock) {
                 targetBlock.style.lineHeight = value || 'normal';
 
                 // Check if selection spans multiple blocks and apply to all
-                const selection = window.getSelection();
-                if (selection && !selection.isCollapsed) {
-                    const range = selection.getRangeAt(0);
+                if (selection && !selection.isCollapsed && range) {
                     const wrapper = document.createElement('div');
                     wrapper.appendChild(range.cloneContents());
                     const blocks = wrapper.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div, li, blockquote');
@@ -2762,7 +3549,7 @@ const App: React.FC = () => {
                         // We will iterate next siblings from start node until end node.
 
                         let current = targetBlock;
-                        const endNode = selection.focusNode?.parentElement?.closest('p, h1, h2, h3, h4, h5, h6, div:not(.page), li, blockquote');
+                        const endNode = selection.focusNode?.parentElement?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, .floating-text, .writing-lines, textarea.writing-lines, div:not(.page)');
 
                         // Safety limit to prevent infinite loops
                         let loops = 0;
@@ -2775,10 +3562,11 @@ const App: React.FC = () => {
                     }
                 }
 
+                setSelectionState(prev => ({ ...prev, lineHeight: value || 'normal' }));
+
                 // Force history update
-                const workspace = document.querySelector('.editor-workspace');
                 if (workspace) {
-                    updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+                    updateDocStatePreserveScroll(workspace.innerHTML);
                 }
             }
 
@@ -3617,6 +4405,42 @@ const App: React.FC = () => {
 
         if (!currentBlock) return;
 
+        const pdfTocOverlay = currentBlock.closest('[data-pdf-toc-overlay="true"]') as HTMLElement | null;
+        if (pdfTocOverlay && (styles.textAlign || styles.width)) {
+            if (styles.width) {
+                pdfTocOverlay.style.width = styles.width;
+            }
+
+            if (styles.textAlign) {
+                const align = styles.textAlign === 'center'
+                    ? 'center'
+                    : styles.textAlign === 'left'
+                        ? 'left'
+                        : 'right';
+                pdfTocOverlay.style.justifyContent = align === 'left'
+                    ? 'flex-start'
+                    : align === 'center'
+                        ? 'center'
+                        : 'flex-end';
+                pdfTocOverlay.style.textAlign = align;
+                pdfTocOverlay.setAttribute('data-pdf-toc-align', align);
+                setSelectionState(prev => ({
+                    ...prev,
+                    textAlign: align,
+                    alignLeft: align === 'left',
+                    alignCenter: align === 'center',
+                    alignRight: align === 'right',
+                    alignJustify: false
+                }));
+            }
+
+            const workspace = document.querySelector('.editor-workspace');
+            if (workspace) {
+                updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            }
+            return;
+        }
+
         const shapeSelectors = '.mission-box, .shape-circle, .shape-pill, .shape-speech, .shape-cloud, .shape-rectangle';
         const pendingStyles = { ...styles };
 
@@ -3844,19 +4668,277 @@ const App: React.FC = () => {
         if (!workspace) return [];
         const pages = workspace.querySelectorAll('.page');
         const headings: DocumentHeading[] = [];
-        pages.forEach((page, pageIdx) => {
+        const getVisiblePageNumberForIndex = (pageIndex: number) => {
+            const page = pages[pageIndex] as HTMLElement | undefined;
+            const footer = page?.querySelector('.page-footer') as HTMLElement | null;
+            const footerNum = parseInt(footer?.textContent?.trim() || '', 10);
+            return !isNaN(footerNum) && footerNum > 0 ? footerNum : pageIndex + 1;
+        };
+
+        pages.forEach((page) => {
             page.querySelectorAll('h1, h2, h3, h4, h5').forEach(el => {
                 const htmlEl = el as HTMLElement;
                 if (!htmlEl.id) htmlEl.id = `heading-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                const editorPageIndex = Array.from(pages).indexOf(page);
                 headings.push({
                     id: htmlEl.id,
                     text: htmlEl.textContent?.trim() || '',
                     level: htmlEl.tagName.toLowerCase(),
-                    page: pageIdx + 1
+                    page: getPageNumber(htmlEl, pages),
+                    editorPage: editorPageIndex >= 0 ? editorPageIndex + 1 : undefined
                 });
             });
         });
+
+        // Add PDF headings from structure entries (they don't exist as DOM elements)
+        structureEntriesRef.current.forEach(entry => {
+            if (entry.status !== 'rejected') {
+                headings.push({
+                    id: entry.id, // e.g. pdf-heading-idx-time
+                    text: entry.text,
+                    level: entry.type,
+                    page: getVisiblePageNumberForIndex(Math.max(0, entry.page - 1)),
+                    editorPage: Math.max(1, entry.page || 1)
+                });
+            }
+        });
+
         return headings;
+    };
+
+    const createTocMappingRowFromText = (
+        text: string,
+        idx: number,
+        headings: DocumentHeading[],
+        options?: { existingTargetId?: string; forceTitle?: boolean }
+    ): TOCMappingRow => {
+        const cleanText = text.replace(/^\d+\.?\d*\s+/, '').trim();
+        const existingTarget = options?.existingTargetId || '';
+
+        if (existingTarget) {
+            const existingHeading = headings.find(h => h.id === existingTarget);
+            return {
+                lineIndex: idx,
+                lineText: text,
+                matchedHeadingId: existingTarget,
+                matchedHeadingText: existingHeading?.text || null,
+                isTitle: false,
+                confidence: 1
+            };
+        }
+
+        const isTOCTitle = options?.forceTitle
+            || /^(table\s+of\s+contents?|contents?|toc|indice|sommario)$/i.test(cleanText);
+        if (isTOCTitle) {
+            return {
+                lineIndex: idx,
+                lineText: text,
+                matchedHeadingId: null,
+                matchedHeadingText: null,
+                isTitle: true,
+                confidence: 1
+            };
+        }
+
+        const scored = headings.map(h => ({
+            heading: h,
+            score: Math.max(fuzzyMatch(cleanText, h.text), fuzzyMatch(text, h.text))
+        }));
+        scored.sort((a, b) => b.score - a.score);
+
+        const bestMatch = scored[0]?.heading || null;
+        const bestScore = scored[0]?.score || 0;
+        const looksLikeTitle = /^(part|chapter|introduction|conclusion|appendix|section)/i.test(cleanText);
+
+        if (bestScore >= 0.4 && bestMatch) {
+            return {
+                lineIndex: idx,
+                lineText: text,
+                matchedHeadingId: bestMatch.id,
+                matchedHeadingText: bestMatch.text,
+                isTitle: false,
+                confidence: bestScore
+            };
+        }
+
+        if (looksLikeTitle) {
+            return {
+                lineIndex: idx,
+                lineText: text,
+                matchedHeadingId: bestMatch && bestScore >= 0.25 ? bestMatch.id : null,
+                matchedHeadingText: bestMatch && bestScore >= 0.25 ? bestMatch.text : null,
+                isTitle: bestScore < 0.25,
+                confidence: bestScore
+            };
+        }
+
+        return {
+            lineIndex: idx,
+            lineText: text,
+            matchedHeadingId: bestMatch && bestScore >= 0.3 ? bestMatch.id : null,
+            matchedHeadingText: bestMatch && bestScore >= 0.3 ? bestMatch.text : null,
+            isTitle: false,
+            confidence: bestScore
+        };
+    };
+
+    const parseCssLengthToPt = (value: string, fallbackPx: number): number => {
+        const raw = value.trim();
+        const num = parseFloat(raw);
+        if (!Number.isFinite(num)) return (fallbackPx / 96) * 72;
+        if (raw.endsWith('in')) return num * 72;
+        if (raw.endsWith('pt')) return num;
+        if (raw.endsWith('mm')) return (num / 25.4) * 72;
+        if (raw.endsWith('cm')) return (num / 2.54) * 72;
+        return (num / 96) * 72;
+    };
+
+    const getPagePointSize = (page: HTMLElement) => {
+        const rect = page.getBoundingClientRect();
+        const computed = window.getComputedStyle(page);
+        const widthPt = parseCssLengthToPt(page.style.width || computed.width, rect.width);
+        const heightPt = parseCssLengthToPt(page.style.height || computed.height, rect.height);
+        return { widthPt, heightPt };
+    };
+
+    const getPdfPageNumberForElement = (page: HTMLElement, allWorkspacePages: HTMLElement[]) => {
+        const dataPageIndex = Number(page.getAttribute('data-page-index'));
+        if (Number.isFinite(dataPageIndex) && dataPageIndex > 0) return dataPageIndex;
+        const fallbackIndex = allWorkspacePages.indexOf(page);
+        return fallbackIndex >= 0 ? fallbackIndex + 1 : 1;
+    };
+
+    const buildPdfTocDraft = (pages: HTMLElement[], headings: DocumentHeading[]): { draft: PdfTocDraft; rows: TOCMappingRow[] } | null => {
+        if (!pdfTextData || pdfTextData.length === 0) return null;
+
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        const allWorkspacePages = workspace ? Array.from(workspace.querySelectorAll('.page')) as HTMLElement[] : pages;
+        const lines: PdfTocDraftLine[] = [];
+        const rows: TOCMappingRow[] = [];
+
+        pages.forEach((page, pageListIndex) => {
+            const pdfPageNum = getPdfPageNumberForElement(page, allWorkspacePages);
+            const pageText = pdfTextData.find(p => p.pageNum === pdfPageNum);
+            if (!pageText || pageText.items.length === 0) return;
+
+            const { widthPt, heightPt } = getPagePointSize(page);
+            const groups: Array<{ y: number; items: typeof pageText.items }> = [];
+            [...pageText.items]
+                .sort((a, b) => Math.abs(b.y - a.y) > 2 ? b.y - a.y : a.x - b.x)
+                .forEach(item => {
+                    const last = groups[groups.length - 1];
+                    if (last && Math.abs(last.y - item.y) <= 2.5) {
+                        last.items.push(item);
+                        last.y = (last.y + item.y) / 2;
+                    } else {
+                        groups.push({ y: item.y, items: [item] });
+                    }
+                });
+
+            const titleY = groups
+                .filter(group => /^(table\s+of\s+contents?|contents?|toc|indice|sommario)$/i.test(
+                    group.items.map(item => item.text).join(' ').replace(/\s+/g, ' ').trim()
+                ))
+                .reduce((maxY, group) => Math.max(maxY, group.y), -Infinity);
+            const hasTocTitleOnPage = Number.isFinite(titleY);
+            const existingOverlays = Array.from(page.querySelectorAll('[data-pdf-toc-overlay="true"][data-pdf-toc-line-index]')) as HTMLElement[];
+
+            groups.forEach(group => {
+                const items = [...group.items].sort((a, b) => a.x - b.x);
+                const rawText = items.map(item => item.text).join(' ').replace(/\s+/g, ' ').trim();
+                if (!rawText) return;
+
+                const titleLike = /^(table\s+of\s+contents?|contents?|toc|indice|sommario)$/i.test(rawText);
+                const trailingNumberMatch = rawText.match(/^(.*?)\s*(?:[.\u2022·•]{2,}|\s{2,}|\s+)(\d{1,4})\s*$/);
+                const rawWithoutLeaders = rawText
+                    .replace(/[.\u2022·•\s]{3,}/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                const numberIndex = (() => {
+                    for (let i = items.length - 1; i >= 0; i -= 1) {
+                        if (/^\d{1,4}$/.test(items[i].text.trim())) return i;
+                    }
+                    return -1;
+                })();
+                const fontSizePt = Math.max(...items.map(item => item.fontSize || 0), 10);
+                const canTreatAsNumberlessTocRow = hasTocTitleOnPage
+                    && group.y < titleY - fontSizePt * 1.2
+                    && rawWithoutLeaders.length >= 2
+                    && rawWithoutLeaders.length <= 80
+                    && !/^\d{1,4}$/.test(rawWithoutLeaders)
+                    && !titleLike;
+
+                if (!titleLike && numberIndex <= 0 && !trailingNumberMatch && !canTreatAsNumberlessTocRow) return;
+
+                const labelItems = titleLike
+                    ? items
+                    : items.slice(0, numberIndex).filter(item => !/^[.\u2022·•\s]+$/.test(item.text));
+                const label = canTreatAsNumberlessTocRow
+                    ? rawWithoutLeaders
+                    : trailingNumberMatch && !titleLike
+                    ? trailingNumberMatch[1]
+                        .replace(/[.\u2022·•\s]{3,}/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                    : labelItems
+                        .map(item => item.text)
+                        .join(' ')
+                        .replace(/[.\u2022·•\s]{3,}/g, ' ')
+                        .replace(/\s+\d{1,4}\s*$/, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                if (!label || (!titleLike && label.length < 2)) return;
+
+                const numberItem = !titleLike && numberIndex >= 0 ? items[numberIndex] : items[items.length - 1];
+                const textItemsForRightEdge = !titleLike && numberIndex >= 0 ? items.slice(0, numberIndex) : items;
+                const contentRight = Math.max(...textItemsForRightEdge.map(item => item.x + (item.width || fontSizePt)));
+                const estimatedNumberWidth = Math.max(fontSizePt * 1.25, (trailingNumberMatch?.[2]?.length || 1) * fontSizePt * 0.65);
+                const numberX = canTreatAsNumberlessTocRow
+                    ? Math.max(contentRight + fontSizePt * 0.6, widthPt * 0.78)
+                    : !titleLike && numberIndex >= 0
+                    ? numberItem.x
+                    : Math.max(numberItem.x, numberItem.x + (numberItem.width || fontSizePt * 12) - estimatedNumberWidth);
+                const numberWidth = !titleLike && numberIndex >= 0
+                    ? (numberItem.width || fontSizePt * 2)
+                    : canTreatAsNumberlessTocRow
+                        ? fontSizePt * 3
+                        : estimatedNumberWidth;
+                const numberRight = Math.min(widthPt * 0.96, numberX + numberWidth);
+                const overlayWidth = Math.max(fontSizePt * 2.4, numberWidth + fontSizePt * 0.25);
+                const overlayLeft = Math.max(0, numberRight - overlayWidth);
+                const topPct = Math.max(0, Math.min(100, ((heightPt - group.y - fontSizePt * 0.95) / heightPt) * 100));
+                const heightPct = Math.max(1.4, Math.min(5, ((fontSizePt * 1.55) / heightPt) * 100));
+                const numberLeftPct = Math.max(0, Math.min(96, (overlayLeft / widthPt) * 100));
+                const numberWidthPct = Math.max(3.2, Math.min(12, ((numberRight - overlayLeft) / widthPt) * 100));
+                const fontSizePx = Math.round(fontSizePt * (96 / 72) * 100) / 100;
+                const lineIndex = lines.length;
+                const existingTargetId = existingOverlays.find(overlay =>
+                    Number(overlay.getAttribute('data-pdf-toc-line-index')) === lineIndex
+                )?.getAttribute('data-toc-target') || undefined;
+
+                lines.push({
+                    pageListIndex,
+                    lineIndex,
+                    label,
+                    isTitle: titleLike,
+                    topPct,
+                    numberLeftPct,
+                    numberWidthPct,
+                    heightPct,
+                    fontSizePx,
+                    fontFamily: items[0]?.fontName ? `'${items[0].fontName}', sans-serif` : 'inherit',
+                    existingTargetId
+                });
+
+                rows.push(createTocMappingRowFromText(label, lineIndex, headings, {
+                    existingTargetId,
+                    forceTitle: titleLike
+                }));
+            });
+        });
+
+        if (lines.length === 0 || rows.length === 0) return null;
+        return { draft: { pages, lines }, rows };
     };
 
     /** Toggle TOC selection mode — user clicks on a block to select it */
@@ -3866,6 +4948,7 @@ const App: React.FC = () => {
 
     /** Process a clicked block as the TOC container — fuzzy-match lines to headings */
     const processSelectedTOCPages = (pages: HTMLElement[]) => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         // Extract every visible "line" of text from ALL selected pages.
         // Strategy: walk every element inside the page, keep only "leaf" text
         // nodes — elements whose own *direct* textContent is substantive AND
@@ -3883,6 +4966,7 @@ const App: React.FC = () => {
             allEls.forEach(el => {
                 if (SKIP_TAGS.has(el.tagName)) return;
                 if (Array.from(el.classList).some(c => SKIP_CLASSES.has(c))) return;
+                if (el.getAttribute('data-pdf-toc-overlay') === 'true') return;
                 // Skip the page element itself
                 if (el.classList.contains('page')) return;
 
@@ -3896,6 +4980,7 @@ const App: React.FC = () => {
                     const ch = child as HTMLElement;
                     if (SKIP_TAGS.has(ch.tagName)) return false;
                     if (Array.from(ch.classList).some(c => SKIP_CLASSES.has(c))) return false;
+                    if (ch.getAttribute('data-pdf-toc-overlay') === 'true') return false;
                     const ct = ch.textContent?.trim() || '';
                     return ct.length > 1;
                 });
@@ -3936,13 +5021,39 @@ const App: React.FC = () => {
             });
         });
 
+        // Scan all headings in the document, but never let TOC rows map to
+        // headings detected on the TOC page itself.
+        const workspacePages = workspace
+            ? Array.from(workspace.querySelectorAll('.page')) as HTMLElement[]
+            : pages;
+        const selectedEditorPages = new Set(
+            pages
+                .map(page => workspacePages.indexOf(page))
+                .filter(index => index >= 0)
+                .map(index => index + 1)
+        );
+        const allHeadings = scanDocumentHeadings();
+        const nonTocPageHeadings = allHeadings.filter(heading =>
+            !heading.editorPage || !selectedEditorPages.has(heading.editorPage)
+        );
+        const headings = nonTocPageHeadings.length > 0 ? nonTocPageHeadings : allHeadings;
+
         if (lineElements.length === 0) {
+            const pdfDraft = buildPdfTocDraft(pages, headings);
+            if (pdfDraft) {
+                pendingPdfTocDraftRef.current = pdfDraft.draft;
+                tocSelectedPagesRef.current = pages;
+                setTocMappingRows(pdfDraft.rows);
+                setTocMappingHeadings(headings);
+                setIsTOCMappingModalOpen(true);
+                return;
+            }
+
             alert('Could not find any TOC lines in the selected pages.');
             return;
         }
 
-        // Scan all headings in the document
-        const headings = scanDocumentHeadings();
+        pendingPdfTocDraftRef.current = null;
 
         // Auto-match each line to the best heading
         const rows: TOCMappingRow[] = lineElements.map((el, idx) => {
@@ -4102,6 +5213,93 @@ const App: React.FC = () => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (!workspace) return;
 
+        const allPages = workspace.querySelectorAll('.page');
+        const resolveVisiblePageNum = (headingId: string): number => {
+            const targetEl = document.getElementById(headingId);
+            const targetIsOnSelectedTocPage = targetEl
+                ? selectedPages.some(page => page.contains(targetEl))
+                : false;
+            if (targetEl && !targetIsOnSelectedTocPage && !targetEl.closest('.toc-container, [data-dynamic-toc="true"]')) {
+                const targetPage = targetEl.closest('.page') as HTMLElement | null;
+                if (targetPage) return getPageNumber(targetEl, allPages);
+            }
+
+            const entry = structureEntriesRef.current.find(e => e.id === headingId || e.elementId === headingId);
+            if (entry) {
+                const targetPage = allPages[entry.page - 1] as HTMLElement | undefined;
+                const footer = targetPage?.querySelector('.page-footer') as HTMLElement | null;
+                const footerNum = parseInt(footer?.textContent?.trim() || '', 10);
+                return !isNaN(footerNum) && footerNum > 0 ? footerNum : Math.max(1, entry.page || 1);
+            }
+
+            return 0;
+        };
+
+        const pdfDraft = pendingPdfTocDraftRef.current;
+        if (pdfDraft) {
+            pdfDraft.pages.forEach(page => {
+                page.setAttribute('data-dynamic-toc', 'true');
+                page.setAttribute('data-pdf-toc-template', 'true');
+                page.setAttribute('data-toc-leader-style', 'pdf-template');
+                page.style.position = 'relative';
+                page.style.overflow = 'hidden';
+                page.querySelectorAll('[data-pdf-toc-overlay="true"]').forEach(node => node.remove());
+            });
+
+            mappings.forEach(mapping => {
+                if (!mapping.matchedHeadingId || mapping.isTitle) return;
+                const line = pdfDraft.lines.find(item => item.lineIndex === mapping.lineIndex);
+                if (!line || line.isTitle) return;
+
+                const page = pdfDraft.pages[line.pageListIndex];
+                if (!page) return;
+
+                const pageNum = resolveVisiblePageNum(mapping.matchedHeadingId);
+                const overlay = document.createElement('div');
+                overlay.setAttribute('data-pdf-toc-overlay', 'true');
+                overlay.setAttribute('data-pdf-toc-line-index', String(line.lineIndex));
+                overlay.setAttribute('data-toc-target', mapping.matchedHeadingId);
+                overlay.setAttribute('data-toc-source-label', line.label);
+                overlay.setAttribute('data-pdf-toc-align', 'right');
+                overlay.className = 'pdf-toc-number-overlay';
+                overlay.style.cssText = [
+                    'position:absolute',
+                    `left:${line.numberLeftPct}%`,
+                    `top:${line.topPct}%`,
+                    `width:${line.numberWidthPct}%`,
+                    `height:${line.heightPct}%`,
+                    'display:flex',
+                    'align-items:center',
+                    'justify-content:flex-end',
+                    'background:transparent',
+                    'color:#111',
+                    `font-size:${line.fontSizePx}px`,
+                    `font-family:${line.fontFamily}`,
+                    'font-weight:700',
+                    'line-height:1',
+                    'letter-spacing:0',
+                    'z-index:20',
+                    'pointer-events:auto',
+                    'cursor:pointer',
+                    'padding:0',
+                    'box-sizing:border-box'
+                ].join(';');
+
+                const pageSpan = document.createElement('span');
+                pageSpan.className = 'toc-dyn-page';
+                pageSpan.textContent = pageNum > 0 ? String(pageNum) : '?';
+                overlay.appendChild(pageSpan);
+                page.appendChild(overlay);
+            });
+
+            refreshDynamicTOC();
+            updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
+            pendingPdfTocDraftRef.current = null;
+            tocSelectedPagesRef.current = [];
+            setIsTOCMappingModalOpen(false);
+            return;
+        }
+
         // Mark each selected page as containing a dynamic TOC
         selectedPages.forEach(page => {
             page.setAttribute('data-dynamic-toc', 'true');
@@ -4140,6 +5338,7 @@ const App: React.FC = () => {
             allEls.forEach(el => {
                 if (SKIP_TAGS2.has(el.tagName)) return;
                 if (Array.from(el.classList).some(c => SKIP_CLASSES2.has(c))) return;
+                if (el.getAttribute('data-pdf-toc-overlay') === 'true') return;
                 if (el.classList.contains('page')) return;
 
                 const text = el.textContent?.trim() || '';
@@ -4149,6 +5348,7 @@ const App: React.FC = () => {
                     const ch = child as HTMLElement;
                     if (SKIP_TAGS2.has(ch.tagName)) return false;
                     if (Array.from(ch.classList).some(c => SKIP_CLASSES2.has(c))) return false;
+                    if (ch.getAttribute('data-pdf-toc-overlay') === 'true') return false;
                     const ct = ch.textContent?.trim() || '';
                     return ct.length > 1;
                 });
@@ -4198,6 +5398,26 @@ const App: React.FC = () => {
                         pageNum = footerNum;
                     } else {
                         pages.forEach((p, pIdx) => { if (p === targetPage) pageNum = pIdx + 1; });
+                    }
+                }
+            } else {
+                // If it's not a DOM element, it might be a virtual PDF heading in structureEntries
+                const entry = structureEntries.find(e => e.id === headingId);
+                if (entry) {
+                    // entry.page is 1-based absolute page index in the document
+                    // We need to read the FOOTER number of that page (the visible page number)
+                    const targetPage = pages[entry.page - 1] as HTMLElement | undefined;
+                    if (targetPage) {
+                        const footer = targetPage.querySelector('.page-footer') as HTMLElement | null;
+                        const footerText = footer?.textContent?.trim() || '';
+                        const footerNum = parseInt(footerText, 10);
+                        if (!isNaN(footerNum) && footerNum > 0) {
+                            pageNum = footerNum;
+                        } else {
+                            pageNum = entry.page; // fallback to absolute index
+                        }
+                    } else {
+                        pageNum = entry.page;
                     }
                 }
             }
@@ -4301,38 +5521,98 @@ const App: React.FC = () => {
         if (tocContainers.length === 0) return;
 
         const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
+        const dynamicTocEditorPages = new Set(
+            Array.from(tocContainers)
+                .map(container => {
+                    const element = container as HTMLElement;
+                    return element.classList.contains('page')
+                        ? element
+                        : element.closest('.page') as HTMLElement | null;
+                })
+                .map(page => page ? pages.indexOf(page) : -1)
+                .filter(index => index >= 0)
+                .map(index => index + 1)
+        );
+
+        // Helper: resolve footer page number for an absolute page index (1-based)
+        const getFooterPageNum = (absPageIndex: number): number => {
+            const page = pages[absPageIndex - 1];
+            if (!page) return absPageIndex;
+            const footer = page.querySelector('.page-footer') as HTMLElement | null;
+            const footerText = footer?.textContent?.trim() || '';
+            const footerNum = parseInt(footerText, 10);
+            return (!isNaN(footerNum) && footerNum > 0) ? footerNum : absPageIndex;
+        };
+
+        const cleanTocLabel = (row: Element) => {
+            const sourceLabel = row.getAttribute('data-toc-source-label');
+            const dynText = row.querySelector('.toc-dyn-text')?.textContent;
+            const raw = sourceLabel || dynText || row.textContent || '';
+            return raw
+                .replace(/[.\u2022·•]{2,}/g, ' ')
+                .replace(/\s+\d{1,4}\s*$/, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        };
+
+        const findReplacementHeading = (row: Element): DocumentHeading | null => {
+            const label = cleanTocLabel(row);
+            if (!label) return null;
+            const candidates = scanDocumentHeadings().filter(heading =>
+                !heading.editorPage || !dynamicTocEditorPages.has(heading.editorPage)
+            );
+            const scored = candidates.map(heading => ({
+                heading,
+                score: Math.max(fuzzyMatch(label, heading.text), fuzzyMatch(label.replace(/^\d+\.?\d*\s+/, ''), heading.text))
+            }));
+            scored.sort((a, b) => b.score - a.score);
+            return scored[0] && scored[0].score >= 0.4 ? scored[0].heading : null;
+        };
 
         tocContainers.forEach(container => {
             const rows = Array.from(container.querySelectorAll('[data-toc-target]'));
-            let lastPageNum = 0; // For monotonic enforcement
 
             rows.forEach(row => {
                 const targetId = row.getAttribute('data-toc-target');
                 if (!targetId) return;
-                const targetEl = document.getElementById(targetId);
-                if (!targetEl) return;
 
-                const targetPage = targetEl.closest('.page') as HTMLElement | null;
                 let pageNum = 0;
-                if (targetPage) {
-                    // Use footer number (visible to user)
-                    const footer = targetPage.querySelector('.page-footer') as HTMLElement | null;
-                    const footerText = footer?.textContent?.trim() || '';
-                    const footerNum = parseInt(footerText, 10);
-                    if (!isNaN(footerNum) && footerNum > 0) {
-                        pageNum = footerNum;
-                    } else {
-                        // Fallback to DOM index
-                        const pIdx = pages.indexOf(targetPage);
-                        pageNum = pIdx >= 0 ? pIdx + 1 : 0;
+                const targetEl = document.getElementById(targetId);
+                const targetIsInsideToc = !!targetEl?.closest('.toc-container, [data-dynamic-toc="true"]');
+                if (targetEl && !targetEl.closest('.toc-container, [data-dynamic-toc="true"]')) {
+                    const targetPage = targetEl.closest('.page') as HTMLElement | null;
+                    if (targetPage) {
+                        // Use footer number (visible to user)
+                        const footer = targetPage.querySelector('.page-footer') as HTMLElement | null;
+                        const footerText = footer?.textContent?.trim() || '';
+                        const footerNum = parseInt(footerText, 10);
+                        if (!isNaN(footerNum) && footerNum > 0) {
+                            pageNum = footerNum;
+                        } else {
+                            // Fallback to DOM index
+                            const pIdx = pages.indexOf(targetPage);
+                            pageNum = pIdx >= 0 ? pIdx + 1 : 0;
+                        }
+                    }
+                } else {
+                    // Virtual heading from structureEntries — resolve footer of its page
+                    const entry = structureEntriesRef.current.find(e => e.id === targetId || e.elementId === targetId);
+                    if (entry && !dynamicTocEditorPages.has(Math.max(1, entry.page || 1))) {
+                        pageNum = getFooterPageNum(entry.page);
                     }
                 }
 
-                // Enforce monotonic non-decreasing: page number can never be less than previous
-                if (pageNum > 0 && pageNum < lastPageNum) {
-                    pageNum = lastPageNum;
+                if (pageNum === 0 || targetIsInsideToc) {
+                    const replacement = findReplacementHeading(row);
+                    if (replacement) {
+                        row.setAttribute('data-toc-target', replacement.id);
+                        if (replacement.editorPage) {
+                            pageNum = getFooterPageNum(replacement.editorPage);
+                        } else {
+                            pageNum = replacement.page;
+                        }
+                    }
                 }
-                if (pageNum > 0) lastPageNum = pageNum;
 
                 const pageSpan = row.querySelector('.toc-dyn-page') as HTMLElement | null;
                 if (pageSpan && pageNum > 0) {
@@ -4453,6 +5733,56 @@ const App: React.FC = () => {
         };
     }, [refreshDynamicTOC]);
 
+    type TocIncludeMap = Record<'h1' | 'h2' | 'h3', boolean>;
+
+    const resolveStructureLevel = (type: string): 'h1' | 'h2' | 'h3' | null => {
+        const normalized = type.toLowerCase();
+        if (normalized.includes('h1')) return 'h1';
+        if (normalized.includes('h2')) return 'h2';
+        if (normalized.includes('h3')) return 'h3';
+        return null;
+    };
+
+    const findStructureEntryElement = (workspace: HTMLElement, entry: StructureEntry): HTMLElement | null => {
+        const ids = [entry.elementId, entry.id].filter(Boolean);
+        for (const id of ids) {
+            const element = workspace.querySelector(`#${CSS.escape(id)}`) as HTMLElement | null;
+            if (element) return element;
+        }
+        return null;
+    };
+
+    const collectStructureTocEntries = (workspace: HTMLElement, include: TocIncludeMap): TOCEntry[] => {
+        const pages = workspace.querySelectorAll('.page');
+        const seen = new Set<string>();
+        const entries: TOCEntry[] = [];
+        const getVisiblePageNumberByEditorPage = (editorPage: number) => {
+            const pageEl = pages[Math.max(0, editorPage - 1)] as HTMLElement | undefined;
+            const footer = pageEl?.querySelector('.page-footer') as HTMLElement | null;
+            const footerNum = parseInt(footer?.textContent?.trim() || '', 10);
+            return !isNaN(footerNum) && footerNum > 0 ? footerNum : Math.max(1, editorPage || 1);
+        };
+
+        structureEntries
+            .filter(entry => entry.status !== 'rejected')
+            .forEach(entry => {
+                const level = resolveStructureLevel(entry.type);
+                if (!level || !include[level]) return;
+
+                const element = findStructureEntryElement(workspace, entry);
+                const targetId = element?.id || entry.elementId || entry.id;
+                if (!targetId || seen.has(targetId)) return;
+
+                const text = (entry.text || element?.textContent || '').trim() || 'Untitled Section';
+                const page = element ? getPageNumber(element, pages) : getVisiblePageNumberByEditorPage(entry.page);
+
+                entries.push({ id: targetId, text, page, level });
+                seen.add(targetId);
+            });
+
+        return entries;
+    };
+
     const handleInsertTOC = (settings: TOCSettings) => {
         const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (!workspace) return;
@@ -4471,36 +5801,8 @@ const App: React.FC = () => {
             return;
         }
 
-        const resolveLevel = (type: string) => {
-            if (type.includes('h1')) return 'h1';
-            if (type.includes('h2')) return 'h2';
-            if (type.includes('h3')) return 'h3';
-            return null;
-        };
-
         // --- Try from structureEntries first ---
-        const approvedEntries = structureEntries.filter(entry => entry.status !== 'rejected');
-        approvedEntries.forEach(entry => {
-            const level = resolveLevel(entry.type);
-            if (!level || !include[level]) return;
-
-            const element = workspace.querySelector(`#${CSS.escape(entry.elementId)}`) as HTMLElement | null;
-            if (!element) return;
-
-            if (!element.id) {
-                element.id = entry.elementId || `toc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            }
-
-            const pages = workspace.querySelectorAll('.page');
-            const pageNum = getPageNumber(element, pages);
-
-            tocEntries.push({
-                id: element.id,
-                text: entry.text || element.textContent || 'Untitled Section',
-                page: pageNum,
-                level
-            });
-        });
+        tocEntries.push(...collectStructureTocEntries(workspace, include));
 
         // --- Fallback: if no entries from structure, scan DOM headings directly ---
         if (tocEntries.length === 0) {
@@ -4511,7 +5813,7 @@ const App: React.FC = () => {
             }
 
             scannedEntries.filter(e => e.status !== 'rejected').forEach(entry => {
-                const level = resolveLevel(entry.type);
+                const level = resolveStructureLevel(entry.type);
                 if (!level || !include[level]) return;
 
                 const element = workspace.querySelector(`#${CSS.escape(entry.elementId)}`) as HTMLElement | null;
@@ -4755,6 +6057,12 @@ const App: React.FC = () => {
 
         // Post-reflow correction: reflow may have shifted headings to different pages
         const freshPages = workspace.querySelectorAll('.page');
+        const getVisiblePageNumberByEditorPage = (editorPage: number) => {
+            const page = freshPages[Math.max(0, editorPage - 1)] as HTMLElement | undefined;
+            const footer = page?.querySelector('.page-footer') as HTMLElement | null;
+            const footerNum = parseInt(footer?.textContent?.trim() || '', 10);
+            return !isNaN(footerNum) && footerNum > 0 ? footerNum : Math.max(1, editorPage || 1);
+        };
         workspace.querySelectorAll('.toc-container .toc-row').forEach(row => {
             const anchor = row.querySelector('.toc-title-cell a[href^="#"]') as HTMLAnchorElement | null;
             const pageCell = row.querySelector('.toc-page-cell') as HTMLElement | null;
@@ -4762,9 +6070,15 @@ const App: React.FC = () => {
             const targetId = anchor.getAttribute('href')?.slice(1);
             if (!targetId) return;
             const targetEl = document.getElementById(targetId);
-            if (!targetEl) return;
-            const newPage = getPageNumber(targetEl, freshPages);
-            pageCell.textContent = String(newPage);
+            if (targetEl && !targetEl.closest('.toc-container, [data-dynamic-toc="true"]')) {
+                const newPage = getPageNumber(targetEl, freshPages);
+                pageCell.textContent = String(newPage);
+                return;
+            }
+            const structureEntry = structureEntriesRef.current.find(entry => entry.id === targetId || entry.elementId === targetId);
+            if (structureEntry) {
+                pageCell.textContent = String(getVisiblePageNumberByEditorPage(structureEntry.page));
+            }
         });
 
         updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
@@ -4786,13 +6100,6 @@ const App: React.FC = () => {
             h2: container.getAttribute('data-toc-h2') !== '0',
             h3: container.getAttribute('data-toc-h3') !== '0'
         };
-        const resolveLevel = (type: string) => {
-            if (type.includes('h1')) return 'h1';
-            if (type.includes('h2')) return 'h2';
-            if (type.includes('h3')) return 'h3';
-            return null;
-        };
-
         // Read stored style settings from data attributes
         let settings: TOCSettings | null = null;
         try {
@@ -4818,22 +6125,7 @@ const App: React.FC = () => {
         const tocEntries: TOCEntry[] = [];
 
         // Try from structureEntries first
-        const approvedEntries = structureEntries.filter(entry => entry.status !== 'rejected');
-        approvedEntries.forEach(entry => {
-            const level = resolveLevel(entry.type);
-            if (!level || !include[level]) return;
-            const element = workspace.querySelector(`#${CSS.escape(entry.elementId)}`) as HTMLElement | null;
-            if (!element) return;
-            if (!element.id) element.id = entry.elementId || `toc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            const pages = workspace.querySelectorAll('.page');
-            const pageNum = getPageNumber(element, pages);
-            tocEntries.push({
-                id: element.id,
-                text: entry.text || element.textContent || 'Untitled Section',
-                page: pageNum,
-                level
-            });
-        });
+        tocEntries.push(...collectStructureTocEntries(workspace, include));
 
         // Fallback: direct DOM query if structureEntries produced nothing
         if (tocEntries.length === 0) {
@@ -5013,6 +6305,12 @@ const App: React.FC = () => {
 
         // Post-reflow correction: reflow may have shifted headings to different pages
         const freshPages = workspace.querySelectorAll('.page');
+        const getVisiblePageNumberByEditorPage = (editorPage: number) => {
+            const page = freshPages[Math.max(0, editorPage - 1)] as HTMLElement | undefined;
+            const footer = page?.querySelector('.page-footer') as HTMLElement | null;
+            const footerNum = parseInt(footer?.textContent?.trim() || '', 10);
+            return !isNaN(footerNum) && footerNum > 0 ? footerNum : Math.max(1, editorPage || 1);
+        };
         workspace.querySelectorAll('.toc-container .toc-row').forEach(row => {
             const anchor = row.querySelector('.toc-title-cell a[href^="#"]') as HTMLAnchorElement | null;
             const pageCell = row.querySelector('.toc-page-cell') as HTMLElement | null;
@@ -5020,9 +6318,15 @@ const App: React.FC = () => {
             const targetId = anchor.getAttribute('href')?.slice(1);
             if (!targetId) return;
             const targetEl = document.getElementById(targetId);
-            if (!targetEl) return;
-            const newPage = getPageNumber(targetEl, freshPages);
-            pageCell.textContent = String(newPage);
+            if (targetEl && !targetEl.closest('.toc-container, [data-dynamic-toc="true"]')) {
+                const newPage = getPageNumber(targetEl, freshPages);
+                pageCell.textContent = String(newPage);
+                return;
+            }
+            const structureEntry = structureEntriesRef.current.find(entry => entry.id === targetId || entry.elementId === targetId);
+            if (structureEntry) {
+                pageCell.textContent = String(getVisiblePageNumberByEditorPage(structureEntry.page));
+            }
         });
 
         updateDocState({ ...docState, htmlContent: workspace.innerHTML }, true);
@@ -5044,32 +6348,76 @@ const App: React.FC = () => {
     };
 
     const preparePageAnchors = () => {
-        const workspace = document.querySelector('.editor-workspace');
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
         if (!workspace) {
             setPageAnchors([]);
             return;
         }
 
+        const pages = Array.from(workspace.querySelectorAll('.page')) as HTMLElement[];
+        if (pages.length > 0) setPageCount(pages.length);
         const headings = workspace.querySelectorAll('h1, h2, h3, h4, h5, h6');
         const anchors: PageAnchor[] = [];
+        const seen = new Set<string>();
+
+        const getEditorPageNumber = (el: HTMLElement) => {
+            const page = el.closest('.page') as HTMLElement | null;
+            const index = page ? pages.indexOf(page) : -1;
+            return index >= 0 ? index + 1 : undefined;
+        };
+
+        const addAnchor = (anchor: PageAnchor) => {
+            const key = anchor.id || `${anchor.tagName}:${anchor.page || ''}:${anchor.text.trim().toLowerCase()}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            anchors.push(anchor);
+        };
 
         // Always add "Start of Document"
-        anchors.push({
+        addAnchor({
             id: 'DOC_START',
             text: 'Start of Document',
-            tagName: 'DOC_START'
+            tagName: 'DOC_START',
+            page: 1
         });
 
         headings.forEach((heading, index) => {
-            if (!heading.id) {
-                heading.id = `anchor-${index}-${Date.now()}`;
+            const htmlHeading = heading as HTMLElement;
+            if (!htmlHeading.id) {
+                htmlHeading.id = `anchor-${index}-${Date.now()}`;
             }
-            anchors.push({
-                id: heading.id,
-                text: heading.textContent || 'Untitled Section',
-                tagName: heading.tagName.toLowerCase()
+            addAnchor({
+                id: htmlHeading.id,
+                text: htmlHeading.textContent?.trim() || 'Untitled Section',
+                tagName: htmlHeading.tagName.toLowerCase(),
+                page: getEditorPageNumber(htmlHeading)
             });
         });
+
+        structureEntries
+            .filter(entry => entry.status !== 'rejected')
+            .sort((a, b) => (a.page || 0) - (b.page || 0))
+            .forEach(entry => {
+                const id = entry.elementId || entry.id;
+                if (!id) return;
+                addAnchor({
+                    id,
+                    text: entry.text?.trim() || 'Untitled Section',
+                    tagName: entry.type || 'section',
+                    page: Math.max(1, entry.page || 1)
+                });
+            });
+
+        if (anchors.length <= 1 && pdfTextData && pdfTextData.length > 0) {
+            detectPdfHeadings(pdfTextData).forEach((heading, index) => {
+                addAnchor({
+                    id: `PDF_DETECTED_PAGE:${heading.page}:${index}`,
+                    text: heading.text,
+                    tagName: heading.level,
+                    page: heading.page
+                });
+            });
+        }
 
         setPageAnchors(anchors);
         setIsPageNumberModalOpen(true);
@@ -5082,7 +6430,11 @@ const App: React.FC = () => {
         const pages = workspace.querySelectorAll('.page');
         let startPageIndex = 0;
 
-        if (startAnchorId !== 'DOC_START') {
+        const editorPageMatch = startAnchorId.match(/^EDITOR_PAGE:(\d+)$/);
+        if (editorPageMatch) {
+            const requestedPage = parseInt(editorPageMatch[1], 10);
+            startPageIndex = Number.isFinite(requestedPage) ? requestedPage - 1 : 0;
+        } else if (startAnchorId !== 'DOC_START') {
             const anchorEl = document.getElementById(startAnchorId);
             if (anchorEl) {
                 const pageEl = anchorEl.closest('.page');
@@ -5094,8 +6446,14 @@ const App: React.FC = () => {
                         }
                     }
                 }
+            } else {
+                const structureEntry = structureEntriesRef.current.find(entry => entry.id === startAnchorId || entry.elementId === startAnchorId);
+                const pageAnchor = pageAnchors.find(anchor => anchor.id === startAnchorId);
+                const editorPage = structureEntry?.page || pageAnchor?.page || 1;
+                startPageIndex = Math.max(0, editorPage - 1);
             }
         }
+        startPageIndex = Math.min(Math.max(0, startPageIndex), Math.max(0, pages.length - 1));
 
         const sizePt = Number.parseFloat(fontSize);
         const lineHeightPt = (Number.isFinite(sizePt) ? sizePt : 12) * 1.2;
@@ -5151,6 +6509,43 @@ const App: React.FC = () => {
                 footer.setAttribute('contenteditable', 'false');
                 page.appendChild(footer);
             }
+        });
+
+        const getVisiblePageNumberByEditorIndex = (pageIndex: number) => {
+            const page = pages[pageIndex] as HTMLElement | undefined;
+            if (!page) return pageIndex + 1;
+            const footer = page.querySelector('.page-footer') as HTMLElement | null;
+            const footerNum = parseInt(footer?.textContent?.trim() || '', 10);
+            return !isNaN(footerNum) && footerNum > 0 ? footerNum : pageIndex + 1;
+        };
+
+        const resolveTocTargetPage = (targetId: string) => {
+            const targetEl = document.getElementById(targetId);
+            if (targetEl && !targetEl.closest('.toc-container, [data-dynamic-toc="true"]')) {
+                return getPageNumber(targetEl, pages);
+            }
+
+            const structureEntry = structureEntriesRef.current.find(entry => entry.id === targetId || entry.elementId === targetId);
+            if (structureEntry) {
+                return getVisiblePageNumberByEditorIndex(Math.max(0, structureEntry.page - 1));
+            }
+
+            const anchor = pageAnchors.find(item => item.id === targetId);
+            if (anchor?.page) {
+                return getVisiblePageNumberByEditorIndex(Math.max(0, anchor.page - 1));
+            }
+
+            return 0;
+        };
+
+        refreshDynamicTOC();
+        workspace.querySelectorAll('.toc-container .toc-row').forEach(row => {
+            const anchor = row.querySelector('.toc-title-cell a[href^="#"]') as HTMLAnchorElement | null;
+            const pageCell = row.querySelector('.toc-page-cell') as HTMLElement | null;
+            const targetId = anchor?.getAttribute('href')?.slice(1);
+            if (!targetId || !pageCell) return;
+            const pageNum = resolveTocTargetPage(targetId);
+            if (pageNum > 0) pageCell.textContent = String(pageNum);
         });
 
         return workspace.innerHTML;
@@ -5790,11 +7185,12 @@ const App: React.FC = () => {
         // Keep data-page-break-before and data-user-page-break for page break round-trip
 
         // Embed layout metadata for round-trip fidelity
-        tempDiv.setAttribute('data-page-format', pageFormatId);
-        tempDiv.setAttribute('data-page-margins', JSON.stringify(pageMargins));
+        tempDiv.setAttribute(PAGE_FORMAT_ATTR, pageFormatId);
+        tempDiv.setAttribute(PAGE_MARGINS_ATTR, encodeLayoutMetadata(pageMargins));
         if (pageFormatId === 'custom') {
-            tempDiv.setAttribute('data-custom-page-size', JSON.stringify(customPageSize));
+            tempDiv.setAttribute(CUSTOM_PAGE_SIZE_ATTR, encodeLayoutMetadata(customPageSize));
         }
+        stampRenderModeOnPages(tempDiv, documentRenderMode);
 
         // CRITICAL: Convert blob: URLs back to base64 data URIs.
         // During import, base64 images are converted to blob: URLs for performance,
@@ -5820,17 +7216,36 @@ const App: React.FC = () => {
 
         const workspace = tempDiv;
 
+        const bodyAttributes = [
+            `${PAGE_FORMAT_ATTR}="${pageFormatId}"`,
+            `${PAGE_MARGINS_ATTR}="${encodeLayoutMetadata(pageMargins)}"`,
+            `${RENDER_MODE_ATTR}="${documentRenderMode}"`
+        ];
+        if (pageFormatId === 'custom') {
+            bodyAttributes.push(`${CUSTOM_PAGE_SIZE_ATTR}="${encodeLayoutMetadata(customPageSize)}"`);
+        }
+
+        const layoutMetaTags = [
+            `<meta name="${LAYOUT_META_NAMES.format}" content="${pageFormatId}">`,
+            `<meta name="${LAYOUT_META_NAMES.margins}" content="${encodeLayoutMetadata(pageMargins)}">`,
+            `<meta name="${LAYOUT_META_NAMES.renderMode}" content="${documentRenderMode}">`
+        ];
+        if (pageFormatId === 'custom') {
+            layoutMetaTags.push(`<meta name="${LAYOUT_META_NAMES.customSize}" content="${encodeLayoutMetadata(customPageSize)}">`);
+        }
+
         const fullHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    ${layoutMetaTags.join('\n    ')}
     <title>${fileName}</title>
     <style>
 ${docState.cssContent}
     </style>
 </head>
-<body>
+<body ${bodyAttributes.join(' ')}>
 ${workspace.innerHTML}
 </body>
 </html>`;
@@ -6183,7 +7598,87 @@ ${workspace.innerHTML}
         setAutoStructureSuggestion(null);
     };
     const handleAutoFillStructure = () => {
+        // If we have PDF text data, use heading detection instead of DOM scanning
+        if (pdfTextData && pdfTextData.length > 0) {
+            handleDetectPdfHeadings();
+            return;
+        }
         runStructureScan();
+    };
+
+    const handleDetectPdfHeadings = () => {
+        if (!pdfTextData || pdfTextData.length === 0) {
+            alert('No PDF text data available. Please import a PDF first.');
+            return;
+        }
+        const headings = detectPdfHeadings(pdfTextData);
+        if (headings.length === 0) {
+            alert('No headings detected in this PDF. The document may not have text-based content, or all text may be the same size.');
+            return;
+        }
+
+        // Convert detected headings to structure entries
+        const newEntries: StructureEntry[] = headings.map((h, idx) => ({
+            id: `pdf-heading-${idx}-${Date.now()}`,
+            elementId: `pdf-heading-${idx}`,
+            text: h.text.substring(0, 80),
+            page: h.page,
+            type: h.level,
+            status: 'approved' as const,
+            context: `Font size: ${h.fontSize}pt`,
+        }));
+
+        setStructureEntries(newEntries);
+
+        const h1Count = headings.filter(h => h.level === 'h1').length;
+        const h2Count = headings.filter(h => h.level === 'h2').length;
+        const h3Count = headings.filter(h => h.level === 'h3').length;
+        console.log(`[PDF Headings] Detected: ${h1Count} H1, ${h2Count} H2, ${h3Count} H3`);
+    };
+
+    const handleAddManualPdfHeading = () => {
+        const title = prompt('Enter the heading text:');
+        if (!title) return;
+        const levelStr = prompt('Heading level? Enter 1, 2, or 3 (default: 2):', '2');
+        const levelNum = parseInt(levelStr || '2', 10);
+        const level = levelNum === 1 ? 'h1' : levelNum === 3 ? 'h3' : 'h2';
+        const pageStr = prompt(`Page number for "${title}":`);
+        const page = parseInt(pageStr || '0', 10);
+        
+        const ts = Date.now();
+        const newEntry: StructureEntry = {
+            id: `pdf-heading-manual-${ts}`,
+            elementId: `pdf-heading-manual-${ts}`,
+            text: title,
+            page: page,
+            type: level,
+            status: 'approved',
+            context: 'Added manually'
+        };
+        
+        setStructureEntries(prev => [...prev, newEntry]);
+    };
+
+    /**
+     * Convert a selected page into a dynamic TOC through the mapping modal.
+     * For PDF-image pages we keep the image as the visual template and overlay
+     * dynamic page numbers, so the original font/dots/spacing remain intact.
+     */
+    const handleGeneratePdfTOC = (pageIndex: number) => {
+        const workspace = document.querySelector('.editor-workspace') as HTMLElement | null;
+        if (!workspace) return;
+
+        const headings = scanDocumentHeadings();
+        if (headings.length === 0) {
+            alert('No headings detected yet. Use "Detect PDF Headings" first.');
+            return;
+        }
+
+        const pages = Array.from(workspace.querySelectorAll(':scope > .page')) as HTMLElement[];
+        if (!pages[pageIndex]) return;
+
+        const targetPage = pages[pageIndex];
+        processSelectedTOCPages([targetPage]);
     };
 
     const handleToggleAutoStructure = () => {
@@ -6200,6 +7695,8 @@ ${workspace.innerHTML}
         setAutoStructureSuggested(false);
         setAutoStructureSuggestion(null);
     };
+
+    const pdfTocGroupMetrics = readPdfTocOverlayGroupMetrics();
 
     return (
         <div className="flex flex-col h-screen bg-white">
@@ -6318,6 +7815,14 @@ ${workspace.innerHTML}
                     autoStructureSuggestionLevel={autoStructureSuggestion?.level || null}
                     onApplyAutoStructureSuggestion={handleApplyAutoStructureSuggestion}
                     onDismissAutoStructureSuggestion={handleDismissAutoStructureSuggestion}
+                    onDuplicatePage={handleDuplicatePage}
+                    onDeletePage={handleDeletePage}
+                    onMovePage={handleMovePage}
+                    onInsertBlankPage={handleInsertBlankPage}
+                    hasPdfTextData={!!pdfTextData && pdfTextData.length > 0}
+                    onDetectPdfHeadings={handleDetectPdfHeadings}
+                    onAddManualPdfHeading={handleAddManualPdfHeading}
+                    onGeneratePdfTOC={handleGeneratePdfTOC}
                 />
 
                 <div className="flex-1 relative" onScroll={handleScroll}>
@@ -6337,6 +7842,124 @@ ${(bwBrightness !== 100 || bwContrast !== 100) ? `
   filter: brightness(${bwBrightness}%) contrast(${bwContrast}%);
 }` : ''}
                         `}</style>
+                    )}
+                    {pdfTocGroupMetrics && (
+                        <div
+                            className="absolute top-3 right-4 z-50 w-80 rounded-xl border border-purple-200 bg-white/95 p-3 shadow-xl backdrop-blur"
+                            style={{ fontFamily: 'system-ui, sans-serif' }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="mb-2 flex items-center justify-between">
+                                <div>
+                                    <div className="text-xs font-bold uppercase tracking-wide text-purple-700">TOC Numbers</div>
+                                    <div className="text-[11px] text-gray-500">{pdfTocGroupMetrics.count} numbers on this TOC page</div>
+                                </div>
+                                <div className="flex gap-1">
+                                    <button
+                                        type="button"
+                                        className="rounded border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50"
+                                        onClick={() => updatePdfTocOverlayGroup({ leftDeltaPct: -0.5 })}
+                                    >
+                                        Left
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="rounded border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50"
+                                        onClick={() => updatePdfTocOverlayGroup({ leftDeltaPct: 0.5 })}
+                                    >
+                                        Right
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="block">
+                                    <div className="mb-1 flex justify-between text-[11px] font-semibold text-gray-600">
+                                        <span>Column position</span>
+                                        <span>{pdfTocGroupMetrics.left.toFixed(1)}%</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="98"
+                                        step="0.1"
+                                        value={pdfTocGroupMetrics.left}
+                                        onChange={(e) => updatePdfTocOverlayGroup({ leftPct: parseFloat(e.target.value) })}
+                                        className="w-full accent-purple-600"
+                                    />
+                                </label>
+
+                                <label className="block">
+                                    <div className="mb-1 flex justify-between text-[11px] font-semibold text-gray-600">
+                                        <span>Column width</span>
+                                        <span>{pdfTocGroupMetrics.width.toFixed(1)}%</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="1.5"
+                                        max="24"
+                                        step="0.1"
+                                        value={pdfTocGroupMetrics.width}
+                                        onChange={(e) => updatePdfTocOverlayGroup({ widthPct: parseFloat(e.target.value) })}
+                                        className="w-full accent-purple-600"
+                                    />
+                                </label>
+
+                                <label className="block">
+                                    <div className="mb-1 flex justify-between text-[11px] font-semibold text-gray-600">
+                                        <span>Number size</span>
+                                        <span>{pdfTocGroupMetrics.fontSize.toFixed(1)}px</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="5"
+                                        max="48"
+                                        step="0.5"
+                                        value={pdfTocGroupMetrics.fontSize}
+                                        onChange={(e) => updatePdfTocOverlayGroup({ fontSizePx: parseFloat(e.target.value) })}
+                                        className="w-full accent-purple-600"
+                                    />
+                                </label>
+
+                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                    <div>
+                                        <div className="mb-1 text-[11px] font-semibold text-gray-600">Vertical nudge</div>
+                                        <div className="flex gap-1">
+                                            <button
+                                                type="button"
+                                                className="flex-1 rounded border border-gray-200 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50"
+                                                onClick={() => updatePdfTocOverlayGroup({ topDeltaPct: -0.15 })}
+                                            >
+                                                Up
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="flex-1 rounded border border-gray-200 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50"
+                                                onClick={() => updatePdfTocOverlayGroup({ topDeltaPct: 0.15 })}
+                                            >
+                                                Down
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="mb-1 text-[11px] font-semibold text-gray-600">Align in box</div>
+                                        <div className="flex gap-1">
+                                            {(['left', 'center', 'right'] as const).map(align => (
+                                                <button
+                                                    key={align}
+                                                    type="button"
+                                                    className={`flex-1 rounded border py-1 text-[11px] font-semibold ${pdfTocGroupMetrics.align === align ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                                                    onClick={() => updatePdfTocOverlayGroup({ align })}
+                                                >
+                                                    {align === 'left' ? 'L' : align === 'center' ? 'C' : 'R'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     )}
                     {/* TOC Selection Mode Banner */}
                     {isTOCSelectionMode && (
@@ -6367,6 +7990,7 @@ ${(bwBrightness !== 100 || bwContrast !== 100) ? `
                     <Editor
                         htmlContent={docState.htmlContent}
                         cssContent={docState.cssContent}
+                        renderMode={documentRenderMode}
                         onContentChange={handleContentChange}
                         onSelectionChange={onSelectionChange}
                         onBlockClick={(block) => {
@@ -6433,7 +8057,11 @@ ${(bwBrightness !== 100 || bwContrast !== 100) ? `
 
                 <TOCMappingModal
                     isOpen={isTOCMappingModalOpen}
-                    onClose={() => setIsTOCMappingModalOpen(false)}
+                    onClose={() => {
+                        pendingPdfTocDraftRef.current = null;
+                        tocSelectedPagesRef.current = [];
+                        setIsTOCMappingModalOpen(false);
+                    }}
                     onConfirm={handleConfirmTOCMapping}
                     rows={tocMappingRows}
                     headings={tocMappingHeadings}
@@ -6457,6 +8085,7 @@ ${(bwBrightness !== 100 || bwContrast !== 100) ? `
                     onApply={handleInsertPageNumbers}
                     onPreview={handlePageNumberPreview}
                     anchors={pageAnchors}
+                    pageCount={pageCount}
                 />
 
                 <PatternModal

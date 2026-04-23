@@ -20,6 +20,7 @@ export const usePageLayout = ({
     const [pageFormatId, setPageFormatId] = useState<string>('letter');
     const [customPageSize, setCustomPageSize] = useState<{ width: string; height: string }>({ width: '8.5in', height: '11in' });
     const [pageMargins, setPageMargins] = useState<{ top: number; bottom: number; left: number; right: number }>({ top: 0.5, bottom: 0.5, left: 0.375, right: 0.5 });
+    const [autoGutterEnabled, setAutoGutterEnabled] = useState(true);
     const [showMarginGuides, setShowMarginGuides] = useState(false);
     const [showSmartGuides, setShowSmartGuides] = useState(false);
 
@@ -49,6 +50,7 @@ export const usePageLayout = ({
 
     const handlePageSizeChange = (formatId: string) => {
         setPageFormatId(formatId);
+        setAutoGutterEnabled(true);
 
         const format = Object.values(PAGE_FORMATS).find(f => f.id === formatId);
         if (!format) return;
@@ -66,6 +68,7 @@ export const usePageLayout = ({
 
     /** Called by App.tsx when DOM pageCount changes — auto-recalculate gutter */
     const updateGutterForPageCount = (domPageCount: number) => {
+        if (!autoGutterEnabled) return;
         const gutter = getGutterByPageCount(domPageCount);
         if (Math.abs(gutter - pageMargins.left) < 0.001) return; // No change needed
 
@@ -88,6 +91,7 @@ export const usePageLayout = ({
     };
 
     const handleMarginChange = (key: 'top' | 'bottom' | 'left' | 'right', value: number) => {
+        setAutoGutterEnabled(false);
         setPageMargins(prev => {
             const newMargins = { ...prev, [key]: value };
 
@@ -99,6 +103,20 @@ export const usePageLayout = ({
 
             return newMargins;
         });
+    };
+
+    const syncLayoutState = (
+        formatId: string,
+        nextCustomSize: { width: string; height: string },
+        nextMargins: { top: number; bottom: number; left: number; right: number },
+        options?: { autoGutterEnabled?: boolean }
+    ) => {
+        setPageFormatId(formatId);
+        setCustomPageSize(nextCustomSize);
+        setPageMargins(nextMargins);
+        if (typeof options?.autoGutterEnabled === 'boolean') {
+            setAutoGutterEnabled(options.autoGutterEnabled);
+        }
     };
 
     return {
@@ -113,6 +131,7 @@ export const usePageLayout = ({
         updateGutterForPageCount,
         handleCustomPageSizeChange,
         handleMarginChange,
+        syncLayoutState,
         updatePageCSS
     };
 };

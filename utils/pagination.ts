@@ -496,7 +496,7 @@ const getFirstFlowChild = (page: HTMLElement): HTMLElement | null => {
     return null;
 };
 
-const getPageBreakMarker = (page: HTMLElement): HTMLElement | null => {
+export const getPageBreakMarker = (page: HTMLElement): HTMLElement | null => {
     // A user page break is detected in two ways:
     // 1. A hidden marker child: <div data-user-page-break="true"> (legacy)
     // 2. Any flow element carrying data-page-break-before="true" (new: follows the element)
@@ -513,6 +513,38 @@ const getPageBreakMarker = (page: HTMLElement): HTMLElement | null => {
         return firstFlow;
     }
     return null;
+};
+
+const getOrCreateOverflowTargetPage = (editor: HTMLElement, pages: HTMLElement[], currentIndex: number) => {
+    let nextPage = pages[currentIndex + 1];
+    if (!nextPage) {
+        nextPage = document.createElement('div');
+        nextPage.className = 'page';
+        editor.appendChild(nextPage);
+        pages.push(nextPage);
+        return nextPage;
+    }
+
+    if (getPageBreakMarker(nextPage)) {
+        const spillPage = document.createElement('div');
+        spillPage.className = 'page';
+        editor.insertBefore(spillPage, nextPage);
+        pages.splice(currentIndex + 1, 0, spillPage);
+        return spillPage;
+    }
+
+    return nextPage;
+};
+
+const prependFlowToPage = (page: HTMLElement, node: HTMLElement) => {
+    const breakMarker = page.querySelector(':scope > [data-user-page-break="true"]') as HTMLElement | null;
+    if (breakMarker && breakMarker.parentElement === page) {
+        page.insertBefore(node, breakMarker.nextSibling);
+    } else if (page.firstChild) {
+        page.insertBefore(node, page.firstChild);
+    } else {
+        page.appendChild(node);
+    }
 };
 
 const isTextSplitTarget = (el: HTMLElement) => {
@@ -1071,7 +1103,7 @@ const pullUpTextBlock = (
  * Never splits elements, never pulls content up, never removes pages.
  * This preserves the original document structure and spacing.
  */
-export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number; startPage?: number }): { changed: boolean; budgetExceeded: boolean; lastProcessedPage: number } => {
+export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; timeBudgetMs?: number; maxIterations?: number; startPage?: number; stopBeforePage?: HTMLElement | null }): { changed: boolean; budgetExceeded: boolean; lastProcessedPage: number } => {
     // 1. Sanitize first
     ensureContentIsPaginated(editor);
 
@@ -1096,9 +1128,13 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
     const pullUp = options?.pullUp ?? true;
     let budgetExceeded = false;
     const startPage = options?.startPage ?? 0;
+    const stopBeforePage = options?.stopBeforePage ?? null;
     let lastProcessedPage = startPage;
 
     for (let i = startPage; i < pages.length && iterations < maxIterations; i++) {
+        if (stopBeforePage && pages[i] === stopBeforePage) {
+            break;
+        }
         lastProcessedPage = i;
         // Time budget check on the outer loop to keep the UI responsive.
         // If we exceed the budget, stop and let reflowPagesUntilStable
@@ -1149,19 +1185,8 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             if (!avoidBreak && isSplitContainer(lastEl, availableHeight)) {
                 const split = splitContainerByChildren(lastEl, pageBottom) || splitContainerByRange(lastEl, pageBottom);
                 if (split) {
-                    let nextPage = pages[i + 1];
-                    if (!nextPage) {
-                        nextPage = document.createElement('div');
-                        nextPage.className = 'page';
-                        editor.appendChild(nextPage);
-                        pages.push(nextPage);
-                    }
-
-                    if (nextPage.firstChild) {
-                        nextPage.insertBefore(split, nextPage.firstChild);
-                    } else {
-                        nextPage.appendChild(split);
-                    }
+                    const nextPage = getOrCreateOverflowTargetPage(editor, pages, i);
+                    prependFlowToPage(nextPage, split);
                     changesMade = true;
                     continue;
                 }
@@ -1170,19 +1195,8 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             if (!avoidBreak && isTextSplitTarget(lastEl)) {
                 const split = splitTextBlockByRange(lastEl, pageBottom);
                 if (split) {
-                    let nextPage = pages[i + 1];
-                    if (!nextPage) {
-                        nextPage = document.createElement('div');
-                        nextPage.className = 'page';
-                        editor.appendChild(nextPage);
-                        pages.push(nextPage);
-                    }
-
-                    if (nextPage.firstChild) {
-                        nextPage.insertBefore(split, nextPage.firstChild);
-                    } else {
-                        nextPage.appendChild(split);
-                    }
+                    const nextPage = getOrCreateOverflowTargetPage(editor, pages, i);
+                    prependFlowToPage(nextPage, split);
                     changesMade = true;
                     continue;
                 }
@@ -1199,26 +1213,8 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                     && lastEl.children.length >= 2) {
                     const split = splitContainerByChildren(lastEl, pageBottom);
                     if (split) {
-                        let nextPage = pages[i + 1];
-                        if (!nextPage) {
-                            nextPage = document.createElement('div');
-                            nextPage.className = 'page';
-                            editor.appendChild(nextPage);
-                            pages.push(nextPage);
-                        }
-                        // Spillover: if next page starts with page-break-before, create a new page
-                        const splitNextFlow = getFirstFlowChild(nextPage);
-                        if (splitNextFlow && splitNextFlow.getAttribute('data-page-break-before') === 'true') {
-                            const spillPage = document.createElement('div');
-                            spillPage.className = 'page';
-                            editor.insertBefore(spillPage, nextPage);
-                            pages.splice(i + 1, 0, spillPage);
-                            spillPage.appendChild(split);
-                        } else if (nextPage.firstChild) {
-                            nextPage.insertBefore(split, nextPage.firstChild);
-                        } else {
-                            nextPage.appendChild(split);
-                        }
+                        const nextPage = getOrCreateOverflowTargetPage(editor, pages, i);
+                        prependFlowToPage(nextPage, split);
                         changesMade = true;
                         continue;
                     }
@@ -1233,34 +1229,8 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
             }
 
             // Get or create next page
-            let nextPage = pages[i + 1];
-            if (!nextPage) {
-                nextPage = document.createElement('div');
-                nextPage.className = 'page';
-                editor.appendChild(nextPage);
-                pages.push(nextPage);
-            }
-
-            // If the next page starts with a page-break-before element,
-            // do NOT push overflow there — create a spillover page in between.
-            const nextFirstFlow = getFirstFlowChild(nextPage);
-            if (nextFirstFlow && nextFirstFlow.getAttribute('data-page-break-before') === 'true') {
-                const spillPage = document.createElement('div');
-                spillPage.className = 'page';
-                editor.insertBefore(spillPage, nextPage);
-                pages.splice(i + 1, 0, spillPage);
-                spillPage.appendChild(lastEl);
-            } else {
-                // Normal push: move the element to the beginning of next page
-                const breakMarker = nextPage.querySelector(':scope > [data-user-page-break="true"]') as HTMLElement | null;
-                if (breakMarker && breakMarker.parentElement === nextPage) {
-                    nextPage.insertBefore(lastEl, breakMarker.nextSibling);
-                } else if (nextPage.firstChild) {
-                    nextPage.insertBefore(lastEl, nextPage.firstChild);
-                } else {
-                    nextPage.appendChild(lastEl);
-                }
-            }
+            const nextPage = getOrCreateOverflowTargetPage(editor, pages, i);
+            prependFlowToPage(nextPage, lastEl);
 
             changesMade = true;
         }
@@ -1381,6 +1351,49 @@ export const reflowPages = (editor: HTMLElement, options?: { pullUp?: boolean; t
                 // Element doesn't fit and can't be split: stop pulling into this page.
                 break;
             }
+        }
+
+        let rescuePasses = 0;
+        while (isPageOverflowing(page) && rescuePasses < 12) {
+            const overflowEl = getLastOverflowingFlowChild(page, pageBottom, scale);
+            if (!overflowEl) break;
+
+            const targetPage = getOrCreateOverflowTargetPage(editor, pages, i);
+            let rescued = false;
+
+            if (isTextSplitTarget(overflowEl)) {
+                const split = splitTextBlockByRange(overflowEl, pageBottom);
+                if (split) {
+                    prependFlowToPage(targetPage, split);
+                    rescued = true;
+                }
+            }
+
+            if (!rescued) {
+                const tag = overflowEl.tagName.toLowerCase();
+                if (isSplitContainer(overflowEl, availableHeight) || ['div', 'section', 'article', 'main', 'ul', 'ol'].includes(tag)) {
+                    const split = splitContainerByChildren(overflowEl, pageBottom) || splitContainerByRange(overflowEl, pageBottom);
+                    if (split) {
+                        prependFlowToPage(targetPage, split);
+                        rescued = true;
+                    }
+                }
+            }
+
+            if (!rescued) {
+                const firstFlow = getFirstFlowChild(page);
+                if (overflowEl !== firstFlow) {
+                    prependFlowToPage(targetPage, overflowEl);
+                    rescued = true;
+                }
+            }
+
+            if (!rescued) {
+                break;
+            }
+
+            changesMade = true;
+            rescuePasses++;
         }
 
         if (isPageOverflowing(page)) {
@@ -1657,13 +1670,21 @@ export const reflowPagesAggressive = (editor: HTMLElement, options?: { maxIterat
  */
 export const reflowPagesUntilStable = (
     editor: HTMLElement,
-    options?: { pullUp?: boolean; maxPasses?: number; onDone?: () => void }
+    options?: { pullUp?: boolean; maxPasses?: number; onDone?: () => void; startPage?: number; stopBeforePage?: HTMLElement | null }
 ) => {
     const maxPasses = options?.maxPasses ?? 10;
     const pullUp = options?.pullUp ?? true;
     const onDone = options?.onDone;
+    const baseStartPage = options?.startPage ?? 0;
+    const stopBeforePage = options?.stopBeforePage ?? null;
 
-    const result1 = reflowPages(editor, { pullUp, timeBudgetMs: 80, maxIterations: 3000 });
+    const result1 = reflowPages(editor, {
+        pullUp,
+        timeBudgetMs: 80,
+        maxIterations: 3000,
+        startPage: baseStartPage,
+        stopBeforePage
+    });
 
     if (!result1.changed && !result1.budgetExceeded) {
         onDone?.();
@@ -1672,7 +1693,7 @@ export const reflowPagesUntilStable = (
 
     // Track where the previous pass stopped so the next pass continues
     // from there instead of re-processing stable pages from page 0.
-    let nextStart = result1.budgetExceeded ? result1.lastProcessedPage : 0;
+    let nextStart = result1.budgetExceeded ? result1.lastProcessedPage : baseStartPage;
     let pass = 1;
 
     const scheduleNextPass = () => {
@@ -1686,14 +1707,15 @@ export const reflowPagesUntilStable = (
                 pullUp,
                 timeBudgetMs: 300,
                 maxIterations: 3000,
-                startPage: nextStart
+                startPage: nextStart,
+                stopBeforePage
             });
             pass++;
             if (result.changed || result.budgetExceeded) {
-                nextStart = result.budgetExceeded ? result.lastProcessedPage : 0;
+                nextStart = result.budgetExceeded ? result.lastProcessedPage : baseStartPage;
                 scheduleNextPass();
-            } else if (nextStart > 0) {
-                nextStart = 0;
+            } else if (nextStart > baseStartPage) {
+                nextStart = baseStartPage;
                 scheduleNextPass();
             } else {
                 onDone?.();
@@ -1703,5 +1725,3 @@ export const reflowPagesUntilStable = (
 
     scheduleNextPass();
 };
-
-

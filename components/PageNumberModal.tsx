@@ -8,30 +8,39 @@ interface PageNumberModalProps {
   onApply: (startAnchorId: string, font: string, fontSize: string, position: 'top' | 'bottom', align: 'left' | 'center' | 'right', margin: number) => void;
   onPreview: (startAnchorId: string, font: string, fontSize: string, position: 'top' | 'bottom', align: 'left' | 'center' | 'right', margin: number) => void;
   anchors: PageAnchor[];
+  pageCount: number;
 }
 
-const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onApply, onPreview, anchors }) => {
+const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onApply, onPreview, anchors, pageCount }) => {
   const [selectedAnchorId, setSelectedAnchorId] = useState<string>('');
+  const [startMode, setStartMode] = useState<'anchor' | 'editorPage'>('anchor');
+  const [manualEditorPage, setManualEditorPage] = useState(1);
   const [font, setFont] = useState('Arial, sans-serif');
   const [fontSize, setFontSize] = useState('12');
   const [position, setPosition] = useState<'top' | 'bottom'>('bottom');
   const [align, setAlign] = useState<'left' | 'center' | 'right'>('center');
   const [margin, setMargin] = useState(0.4);
+  const maxPage = Math.max(1, pageCount || 1);
+  const effectiveStartId = startMode === 'editorPage'
+    ? `EDITOR_PAGE:${Math.min(Math.max(manualEditorPage || 1, 1), maxPage)}`
+    : selectedAnchorId;
 
   useEffect(() => {
     if (isOpen) {
-        if (anchors.length > 0 && !selectedAnchorId) {
+        const selectedExists = anchors.some(anchor => anchor.id === selectedAnchorId);
+        if (anchors.length > 0 && (!selectedAnchorId || !selectedExists)) {
             setSelectedAnchorId(anchors[0].id);
         }
+        setManualEditorPage(prev => Math.min(Math.max(prev || 1, 1), maxPage));
     }
-  }, [isOpen, anchors]);
+  }, [isOpen, anchors, selectedAnchorId, maxPage]);
 
   // Real-time preview whenever any property changes
   useEffect(() => {
-      if (isOpen && selectedAnchorId) {
-          onPreview(selectedAnchorId, font, fontSize, position, align, margin);
+      if (isOpen && effectiveStartId) {
+          onPreview(effectiveStartId, font, fontSize, position, align, margin);
       }
-  }, [selectedAnchorId, font, fontSize, position, align, margin]);
+  }, [effectiveStartId, font, fontSize, position, align, margin, isOpen]);
 
   if (!isOpen) return null;
 
@@ -49,17 +58,62 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
           {/* Start Point Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Start numbering from:</label>
-            <select 
-              value={selectedAnchorId}
-              onChange={(e) => setSelectedAnchorId(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
-            >
-               {anchors.map(anchor => (
-                   <option key={anchor.id} value={anchor.id}>
-                       {anchor.tagName === 'DOC_START' ? 'Beginning of Document' : `${anchor.tagName.toUpperCase()} - ${anchor.text.substring(0, 30)}${anchor.text.length > 30 ? '...' : ''}`}
-                   </option>
-               ))}
-            </select>
+            <div className="flex border border-brand-200 rounded overflow-hidden mb-2">
+              <button
+                type="button"
+                onClick={() => setStartMode('anchor')}
+                className={`flex-1 py-1.5 text-xs font-semibold ${startMode === 'anchor' ? 'bg-brand-100 text-brand-700' : 'bg-white text-gray-600 hover:bg-brand-50'}`}
+              >
+                By section
+              </button>
+              <div className="w-px bg-brand-200"></div>
+              <button
+                type="button"
+                onClick={() => setStartMode('editorPage')}
+                className={`flex-1 py-1.5 text-xs font-semibold ${startMode === 'editorPage' ? 'bg-brand-100 text-brand-700' : 'bg-white text-gray-600 hover:bg-brand-50'}`}
+              >
+                By editor page
+              </button>
+            </div>
+
+            {startMode === 'anchor' ? (
+              <select
+                value={selectedAnchorId}
+                onChange={(e) => setSelectedAnchorId(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+              >
+                 {anchors.map(anchor => {
+                     const pageLabel = anchor.page ? ` (editor p. ${anchor.page})` : '';
+                     const title = anchor.tagName === 'DOC_START'
+                       ? 'Beginning of Document'
+                       : `${anchor.tagName.toUpperCase()} - ${anchor.text.substring(0, 30)}${anchor.text.length > 30 ? '...' : ''}${pageLabel}`;
+                     return (
+                       <option key={anchor.id} value={anchor.id}>
+                         {title}
+                       </option>
+                     );
+                 })}
+              </select>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Editor page</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={maxPage}
+                  value={manualEditorPage}
+                  onChange={(e) => {
+                    const next = Number.parseInt(e.target.value, 10);
+                    setManualEditorPage(Number.isFinite(next) ? Math.min(Math.max(next, 1), maxPage) : 1);
+                  }}
+                  className="w-20 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-brand-500"
+                />
+                <span className="text-sm text-gray-600">= page 1</span>
+              </div>
+            )}
+            <p className="mt-1 text-[11px] text-gray-500">
+              The TOC will use these inserted page numbers, not the editor's internal page count.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -174,7 +228,7 @@ const PageNumberModal: React.FC<PageNumberModalProps> = ({ isOpen, onClose, onAp
             Cancel
           </button>
           <button 
-            onClick={() => onApply(selectedAnchorId, font, fontSize, position, align, margin)}
+            onClick={() => onApply(effectiveStartId, font, fontSize, position, align, margin)}
             className="px-6 py-2 text-sm font-bold text-white bg-[#8d55f1] hover:bg-[#7539d3] rounded shadow-md transition-all active:scale-95"
           >
             Finish

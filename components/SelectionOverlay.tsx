@@ -17,10 +17,10 @@ interface SelectionOverlayProps {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const BOX_COLORS: Record<BoxLevel['kind'], string> = {
-  element:   '#ef4444',  // red — individual elements
-  column:    '#3b82f6',  // blue — column containers
+  element: '#ef4444',  // red — individual elements
+  column: '#3b82f6',  // blue — column containers
   container: '#3b82f6',  // blue — column-row wrappers
-  page:      '#22c55e',  // green — page border
+  page: '#22c55e',  // green — page border
 };
 
 const MIN_COLUMN_WIDTH = 60;
@@ -68,16 +68,16 @@ function getBoxChain(target: EventTarget | null, workspace: HTMLElement | null):
       !cls.contains('selection-overlay') && !cls.contains('page-footer') &&
       (
         ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'li',
-         'ul', 'ol', 'table', 'img', 'hr', 'textarea'].includes(tag) ||
+          'ul', 'ol', 'table', 'img', 'hr', 'textarea'].includes(tag) ||
         isInteractiveBlock(el) ||
         (tag === 'div' && !cls.contains('page') && !cls.contains('editor-workspace') &&
-         !cls.contains('column-row') && !cls.contains('image-row') && !cls.contains('column') &&
-         el.parentElement &&
-         (
-           insideColumn ||
-           !!el.closest('.page') ||
-           el.parentElement === workspace
-         ))
+          !cls.contains('column-row') && !cls.contains('image-row') && !cls.contains('column') &&
+          el.parentElement &&
+          (
+            insideColumn ||
+            !!el.closest('.page') ||
+            el.parentElement === workspace
+          ))
       )
     ) {
       chain.push({ el, rect: el.getBoundingClientRect(), kind: 'element' });
@@ -104,7 +104,7 @@ function getFriendlyLabel(el: HTMLElement): string {
   if (cls.contains('writing-lines')) return 'Righe';
   if (cls.contains('floating-text')) return 'Testo Libero';
   if (tag === 'img') return 'Immagine';
-  if (['h1','h2','h3','h4','h5','h6'].includes(tag)) return tag.toUpperCase();
+  if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) return tag.toUpperCase();
   if (tag === 'p') return 'Testo';
   if (tag === 'ul' || tag === 'ol') return 'Lista';
   if (tag === 'table') return 'Tabella';
@@ -135,7 +135,7 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
 
   const isDragging = useRef(false);
   const dragEl = useRef<HTMLElement | null>(null);
-  const dropTarget = useRef<{ el: HTMLElement; side: 'left'|'right'|'above'|'below'|'into' } | null>(null);
+  const dropTarget = useRef<{ el: HTMLElement; side: 'left' | 'right' | 'above' | 'below' | 'into' } | null>(null);
   const rafId = useRef<number>(0);
 
   const workspace = useCallback(() =>
@@ -211,7 +211,7 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
       }
 
       const chain = getBoxChain(e.target, ws);
-      
+
       // Alt+click → select the parent column or container (skip the inner element)
       if (e.altKey) {
         const colOrContainer = chain.find(b => b.kind === 'column') || chain.find(b => b.kind === 'container');
@@ -249,7 +249,7 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
   }, [workspace, containerRef]);
 
   // ── Resize: drag an edge of the selected element ─────────────────────────
-  const handleResizeEdge = (e: React.MouseEvent, dir: 'n'|'s'|'e'|'w') => {
+  const handleResizeEdge = (e: React.MouseEvent, dir: 'n' | 's' | 'e' | 'w') => {
     e.preventDefault();
     e.stopPropagation();
     if (!selectedEl) return;
@@ -320,7 +320,7 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
   };
 
   // ── Resize: scale entire element via corners ──────────────────────────
-  const handleResizeCorner = (e: React.MouseEvent, corner: 'nw'|'ne'|'sw'|'se') => {
+  const handleResizeCorner = (e: React.MouseEvent, corner: 'nw' | 'ne' | 'sw' | 'se') => {
     e.preventDefault();
     e.stopPropagation();
     if (!selectedEl) return;
@@ -332,14 +332,14 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
     const onMove = (mv: MouseEvent) => {
       const dx = mv.clientX - startX;
       const sign = (corner === 'ne' || corner === 'se') ? 1 : -1;
-      
+
       const visualStartW = startW * startZoom;
       const visualNewW = visualStartW + sign * dx;
       const ratio = visualNewW / Math.max(1, visualStartW);
-      
+
       const nextZoom = Math.max(0.1, startZoom * ratio);
       selectedEl.style.zoom = nextZoom.toFixed(2);
-      
+
       setSelectedRect(selectedEl.getBoundingClientRect());
     };
 
@@ -509,12 +509,12 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
       const oldRow = dragged.closest('.column-row, .image-row') as HTMLElement | null;
       const oldCol = dragged.closest('.column') as HTMLElement | null;
       dragged.remove();
-      
+
       // Clean up old column if it's now empty
       if (oldCol && oldCol.children.length === 0) {
         oldCol.remove();
       }
-      
+
       // Clean up old row
       if (oldRow) {
         const remainingCols = oldRow.querySelectorAll(':scope > .column');
@@ -544,7 +544,7 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
         target.parentNode?.insertBefore(dragged, target.nextSibling);
       } else {
         // Horizontal side-by-side (element-level)
-        handleHorizontalDrop(dragged, target, side as 'left'|'right');
+        handleHorizontalDrop(dragged, target, side as 'left' | 'right');
       }
 
       onContentChange(ws.innerHTML);
@@ -557,12 +557,12 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
   };
 
   /** Column-level drop: add the dragged element as a new column beside an existing column */
-  function handleColumnDrop(dragged: HTMLElement, target: HTMLElement, side: 'left'|'right') {
+  function handleColumnDrop(dragged: HTMLElement, target: HTMLElement, side: 'left' | 'right') {
     const existingRow = target.closest('.column-row') as HTMLElement | null;
     const newCol = document.createElement('div');
     newCol.className = 'column';
     newCol.contentEditable = 'true';
-    
+
     // Protect elements from breaking the column boundary
     dragged.style.maxWidth = '100%';
     dragged.style.boxSizing = 'border-box';
@@ -580,12 +580,12 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
       // Create a new column-row: wrap visible children of the page into a column on one side
       const row = document.createElement('div');
       row.className = 'column-row';
-      
+
       // Wrap the target in a column
       const existingCol = document.createElement('div');
       existingCol.className = 'column';
       existingCol.contentEditable = 'true';
-      
+
       // Protect target as well since it's becoming a column child
       target.style.maxWidth = '100%';
       target.style.boxSizing = 'border-box';
@@ -620,7 +620,7 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
     }
   }
 
-  function handleHorizontalDrop(dragged: HTMLElement, target: HTMLElement, side: 'left'|'right') {
+  function handleHorizontalDrop(dragged: HTMLElement, target: HTMLElement, side: 'left' | 'right') {
     const targetRow = target.closest('.column-row, .image-row') as HTMLElement | null;
 
     if (targetRow) {
@@ -819,8 +819,8 @@ const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ containerRef, onCon
         const pos = toRelative(selectedRect);
         const color = BOX_COLORS[
           selectedEl.classList.contains('page') ? 'page' :
-          selectedEl.classList.contains('column-row') || selectedEl.classList.contains('image-row') ? 'container' :
-          selectedEl.classList.contains('column') ? 'column' : 'element'
+            selectedEl.classList.contains('column-row') || selectedEl.classList.contains('image-row') ? 'container' :
+              selectedEl.classList.contains('column') ? 'column' : 'element'
         ];
 
         const handleStyle = (cursor: string, style: React.CSSProperties): React.CSSProperties => ({

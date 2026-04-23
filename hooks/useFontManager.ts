@@ -14,7 +14,7 @@ const openFontDb = () => new Promise<IDBDatabase>((resolve, reject) => {
     request.onerror = () => reject(request.error);
 });
 
-const loadFontsFromDb = async (): Promise<Array<{ name: string; dataUrl: string }>> => {
+export const loadFontsFromDb = async (): Promise<Array<{ name: string; dataUrl: string }>> => {
     try {
         const db = await openFontDb();
         const tx = db.transaction('fonts', 'readonly');
@@ -24,6 +24,15 @@ const loadFontsFromDb = async (): Promise<Array<{ name: string; dataUrl: string 
             getAll.onsuccess = () => resolve(getAll.result || []);
             getAll.onerror = () => resolve([]);
         });
+    } catch {
+        return [];
+    }
+};
+
+export const loadFontsFromStorage = (): Array<{ name: string; dataUrl: string }> => {
+    try {
+        const storedFonts = localStorage.getItem('custom_fonts');
+        return storedFonts ? JSON.parse(storedFonts) : [];
     } catch {
         return [];
     }

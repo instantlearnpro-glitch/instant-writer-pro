@@ -5,7 +5,7 @@ interface ExportModalProps {
   currentFileName: string;
   onClose: () => void;
   onExportPDF: (fileName: string, onProgress?: (percent: number) => void) => void;
-  onExportHTML: (fileName: string) => void;
+  onExportHTML: (fileName: string) => Promise<void> | void;
   onExportDOCX: (fileName: string, onProgress?: (percent: number) => void) => void;
 }
 
@@ -48,7 +48,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
     try {
       switch (format) {
         case 'html':
-          onExportHTML(finalName);
+          await onExportHTML(finalName);
           break;
         case 'docx':
           await onExportDOCX(finalName, (percent) => setExportProgress(percent));
